@@ -32,7 +32,7 @@ export function NetworkPanel({ series }: { series: NetSeries | null }) {
   return (
     <Card
       title="The wire itself"
-      subtitle="Time to complete the TCP handshake on port 443 — no TLS, no HTTP, no auth, no tokens. The reference host is what keeps a route problem, or an outage of our own, from being published as a MiMo outage."
+      subtitle="Time to complete the TCP handshake on port 443 — no TLS, no HTTP, no auth, no tokens. The reference host is what keeps a route problem, or an outage of our own, from being published as a MiMo outage. Lower is better."
     >
       {order.length > 0 ? (
         <EChart
