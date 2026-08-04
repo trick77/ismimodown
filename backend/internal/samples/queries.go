@@ -496,6 +496,39 @@ type Sample struct {
 	ErrorClass *string   `json:"error_class"`
 }
 
+// LastProbeAt returns when a probe kind last RAN for any model, and whether it
+// ever has.
+//
+// The scheduler asks this rather than counting cycles, because a counter only
+// knows about the process holding it: restart the daemon and a memory-resident
+// counter says "cycle zero" again, which re-fires the hourly probe on a daemon
+// that has been up for three minutes. The database remembers across restarts;
+// nothing else here does.
+//
+// Attempts, not successes: a failed wide probe still cost the endpoint the
+// request, and retrying it every five minutes until one succeeds is exactly the
+// behaviour this exists to prevent. `skipped_runs` carries overruns, which were
+// never sent, so they are correctly absent here.
+func (s *Store) LastProbeAt(ctx context.Context, probeKind string) (time.Time, bool, error) {
+	var at sql.NullString
+	err := s.db.QueryRowContext(ctx, `
+		SELECT MAX(c.started_at)
+		FROM infer_probes i
+		JOIN cycles c ON c.id = i.cycle_id
+		WHERE i.probe = ?`, probeKind).Scan(&at)
+	if err != nil {
+		return time.Time{}, false, err
+	}
+	if !at.Valid {
+		return time.Time{}, false, nil
+	}
+	t, err := time.Parse(time.RFC3339Nano, at.String)
+	if err != nil {
+		return time.Time{}, false, err
+	}
+	return t, true, nil
+}
+
 // MaxSampleLimit clamps the raw-sample endpoint server-side.
 const MaxSampleLimit = 500
 
