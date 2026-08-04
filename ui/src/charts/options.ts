@@ -36,8 +36,12 @@ export function colorForModel(modelID: string, models: string[]): string {
 const AXIS = "#6b6963";
 const GRID = "#2e2e2b";
 const INK = "#faf9f5";
-// --color-panel. Canvas cannot read a CSS variable, so the surface a chart sits
-// on has to be restated here whenever a mark needs to be cut out of it.
+// --color-panel, the top stop of .card's surface. Canvas cannot read a CSS
+// variable, so the surface a chart sits on has to be restated here whenever a
+// mark needs to be cut out of it. .card is a gradient (#1f1f1e → #1c1c1b), so
+// this is an approximation rather than an exact match — the two ends differ by
+// three units per channel, which is below the threshold at which a 1px seam is
+// visible.
 const PANEL = "#1f1f1e";
 
 // toPairs maps points to [timestampMs, value].
@@ -154,8 +158,8 @@ export function buildLineOption({
   };
 }
 
-// buildDecompositionOption is the headline chart: TTFT split into the measured
-// edge RTT and the residual.
+// buildDecompositionOption draws TTFT split into the measured edge RTT and the
+// residual.
 //
 // Stacked, because the whole claim is that the two sum to the observed TTFT.
 // The residual is labelled "server-side" and never "model" — the handshake

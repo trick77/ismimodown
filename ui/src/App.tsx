@@ -236,8 +236,10 @@ export default function App() {
               that measures it comes first. Above, both of these forward-
               referenced an edge RTT and a Singapore reference host the reader
               had not met yet — the decomposition subtracted a number the page
-              had not yet shown, and the attribution appealed to a host it had
-              not yet introduced. */}
+              had not yet shown, and the attribution appealed to a host no panel
+              had yet introduced. (The verdict banner can name that host: it is
+              a summary, and a summary is allowed to state a conclusion the
+              panels below then show the working for.) */}
           <NetworkPanel series={net} />
           <Decomposition summary={summary} edgeMs={mimoEdge} />
           <AvailabilityStrip summary={summary} />
