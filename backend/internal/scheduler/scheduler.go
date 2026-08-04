@@ -67,7 +67,6 @@ type Deps struct {
 
 	MimoHost   string
 	RefSGPHost string
-	RefEUHost  string
 
 	// OnCycle is called after each cycle is persisted, for the SSE fan-out in
 	// phase 4. Optional.
@@ -278,7 +277,6 @@ func (s *Scheduler) RunCycle(ctx context.Context) {
 	for _, t := range []struct{ target, host string }{
 		{probe.TargetMimoSGP, s.deps.MimoHost},
 		{probe.TargetRefSGP, s.deps.RefSGPHost},
-		{probe.TargetRefEU, s.deps.RefEUHost},
 	} {
 		cycle.Net = append(cycle.Net, s.deps.Pinger.Ping(ctx, t.target, t.host))
 	}

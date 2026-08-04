@@ -10,10 +10,14 @@ import (
 )
 
 // Ping targets. These names are the stored `target` enum in net_probes.
+//
+// `ref_eu` was a third target — a nearby European PoP — and is gone. It is
+// still accepted by the net_probes CHECK constraint because rows written before
+// its removal are still in the database and still readable; nothing writes it
+// any more.
 const (
 	TargetMimoSGP = "mimo_sgp"
 	TargetRefSGP  = "ref_sgp"
-	TargetRefEU   = "ref_eu"
 )
 
 // pingPort is fixed at 443 and deliberately not configurable: the point of the
@@ -183,34 +187,50 @@ func msSince(t time.Time) float64 {
 	return float64(time.Since(t).Nanoseconds()) / 1e6
 }
 
-// AttributeFault derives the cycle verdict from the three network readings.
+// AttributeFault derives the cycle verdict from the two network readings.
 //
 // This is the whole fault-attribution rule, in one place, with no heuristics —
 // the layers make it fall out. It is stored per cycle rather than recomputed
 // per query so the availability strip and the availability arithmetic can never
 // disagree.
 //
-//	mimo ok                          -> ok
-//	mimo fail, ref_sgp ok            -> edge    (MiMo's edge; the route is fine)
-//	mimo + ref_sgp fail, ref_eu ok   -> route   (Europe->Singapore degraded)
-//	all three fail                   -> uplink  (ours; window excluded)
+//	mimo ok                -> ok
+//	mimo fail, ref_sgp ok  -> edge    (MiMo's edge; the path is fine)
+//	both fail              -> uplink  (unattributable; window excluded)
 //
 // Precedence runs outward from us: each layer makes the ones beyond it
-// unreadable, so our own uplink is checked last but wins when it is down.
-func AttributeFault(mimoOK, refSGPOK, refEUOK bool) string {
+// unreadable, so the outermost failure wins.
+//
+// The last line is the one that changed when the European reference was
+// removed. Three probes could separate "our own connection is down" from
+// "the route to Singapore is degraded", because a working European PoP proved
+// we still had an uplink. Two cannot: if neither MiMo nor an unrelated
+// Singapore host answers, the cause may be our uplink, our ISP, or the route,
+// and nothing here can tell them apart.
+//
+// So it resolves to FaultUplink — not because the uplink is proven down, but
+// because that class is the one EXCLUDED from provider availability. When the
+// measurement cannot attribute a failure, the only honest thing it can do is
+// decline to attribute it, and the only unsafe direction is publishing our own
+// outage as MiMo's. FaultRoute is no longer emitted; it remains defined, and
+// accepted by the CHECK constraint, because cycles recorded under the old rule
+// still carry it.
+func AttributeFault(mimoOK, refSGPOK bool) string {
 	switch {
 	case mimoOK:
 		return FaultOK
 	case refSGPOK:
 		return FaultEdge
-	case refEUOK:
-		return FaultRoute
 	default:
 		return FaultUplink
 	}
 }
 
 // Cycle fault verdicts, matching the cycle_fault CHECK constraint.
+//
+// FaultRoute is historical: it needed a third probe to be distinguishable and
+// is no longer produced. It stays here, and in the CHECK, because stored cycles
+// carry it and the dashboard must keep rendering them.
 const (
 	FaultOK     = "ok"
 	FaultEdge   = "edge"

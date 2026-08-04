@@ -25,7 +25,6 @@ func newAPIServer(t *testing.T) (http.Handler, *samples.Store) {
 		Models:         []string{"mimo-v2.5", "mimo-v2.5-pro"},
 		BaseURL:        "https://token-plan-sgp.example/v1",
 		RefSGPHost:     "sgp1.example.com",
-		RefEUHost:      "eu.example.com",
 		ProbeUserAgent: testUserAgent,
 		Now:            func() time.Time { return testNow },
 	})
@@ -41,7 +40,6 @@ func seed(t *testing.T, store *samples.Store, n int, ttft float64) {
 			Net: []probe.NetResult{
 				{Target: probe.TargetMimoSGP, ConnectMs: 170, OK: true},
 				{Target: probe.TargetRefSGP, ConnectMs: 265, OK: true},
-				{Target: probe.TargetRefEU, ConnectMs: 16, OK: true},
 			},
 			Infer: []probe.InferResult{{
 				ModelID: "mimo-v2.5", Probe: probe.ProbeInfer,
@@ -85,8 +83,8 @@ func TestSummaryServesTheDashboardState(t *testing.T) {
 	}
 	// The network layer must be summarised alongside, or the subtraction the
 	// whole site exists for cannot be shown.
-	if len(sum.Net) != 3 {
-		t.Errorf("net summaries = %d, want 3", len(sum.Net))
+	if len(sum.Net) != 2 {
+		t.Errorf("net summaries = %d, want 2", len(sum.Net))
 	}
 	if ct := rec.Header().Get("Cache-Control"); !strings.Contains(ct, "max-age") {
 		t.Errorf("Cache-Control = %q, want a max-age", ct)
@@ -191,7 +189,7 @@ func TestNetworkSeriesIsSeparateFromModels(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	for _, target := range []string{probe.TargetMimoSGP, probe.TargetRefSGP, probe.TargetRefEU} {
+	for _, target := range []string{probe.TargetMimoSGP, probe.TargetRefSGP} {
 		if _, ok := out.Targets[target]; !ok {
 			t.Errorf("network series is missing %s", target)
 		}
@@ -210,7 +208,6 @@ func TestNoPublicEndpointEmitsErrorDetail(t *testing.T) {
 			{Target: probe.TargetMimoSGP, OK: false, ErrorClass: probe.ErrClassConnectTimeout,
 				ErrorDetail: secret},
 			{Target: probe.TargetRefSGP, OK: true, ConnectMs: 265},
-			{Target: probe.TargetRefEU, OK: true, ConnectMs: 16},
 		},
 		Infer: []probe.InferResult{{
 			ModelID: "mimo-v2.5", Probe: probe.ProbeInfer, TotalMs: 500,
@@ -283,7 +280,6 @@ func TestRequestShapeIsNotServed(t *testing.T) {
 		Net: []probe.NetResult{
 			{Target: probe.TargetMimoSGP, OK: true, ConnectMs: 170},
 			{Target: probe.TargetRefSGP, OK: true, ConnectMs: 265},
-			{Target: probe.TargetRefEU, OK: true, ConnectMs: 16},
 		},
 		Infer: []probe.InferResult{{
 			ModelID: "mimo-v2.5", Probe: probe.ProbeInfer, TTFTMs: 900,
@@ -326,7 +322,6 @@ func TestErrorClassIsServedEvenThoughDetailIsNot(t *testing.T) {
 		Net: []probe.NetResult{
 			{Target: probe.TargetMimoSGP, OK: true, ConnectMs: 170},
 			{Target: probe.TargetRefSGP, OK: true, ConnectMs: 265},
-			{Target: probe.TargetRefEU, OK: true, ConnectMs: 16},
 		},
 		Infer: []probe.InferResult{{
 			ModelID: "mimo-v2.5", Probe: probe.ProbeInfer, TotalMs: 240000,

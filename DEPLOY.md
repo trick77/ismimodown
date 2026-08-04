@@ -83,16 +83,16 @@ means `.env` was not filled in; compose fails before the container starts, by
 design, because a container running without a key would record an unbroken wall
 of auth failures that renders on the dashboard as a MiMo outage.
 
-## Confirming the reference hosts from this box
+## Confirming the reference host from this box
 
-The two reference ping targets are what stop a route problem, or an outage of
-our own, from being published as a MiMo outage — so they have to be reachable
-**from the probe host**, not from wherever they were last checked.
+The reference ping target is what stops a route problem, or an outage of our
+own, from being published as a MiMo outage — so it has to be reachable **from
+the probe host**, not from wherever it was last checked.
 
 ```sh
 python3 - <<'PY'
 import socket, statistics, time
-for h in ["token-plan-sgp.xiaomimimo.com", "sgp1.digitaloceanspaces.com", "cloudflare.com"]:
+for h in ["token-plan-sgp.xiaomimimo.com", "sgp1.digitaloceanspaces.com"]:
     try:
         ip = socket.getaddrinfo(h, 443, socket.AF_INET, socket.SOCK_STREAM)[0][4][0]
     except Exception as e:
@@ -110,17 +110,22 @@ for h in ["token-plan-sgp.xiaomimimo.com", "sgp1.digitaloceanspaces.com", "cloud
 PY
 ```
 
-All three must answer. If the Europe reference does not, override it — a dead
+Both must answer. If the Singapore reference does not, override it — a dead
 reference does not create a false outage (attribution only consults it once
-MiMo is already unreachable), but it destroys the route-vs-uplink distinction
-exactly when that distinction matters:
+MiMo is already unreachable), but it costs the edge-vs-everything-else
+distinction exactly when that distinction matters, and every unreachable cycle
+then lands in the excluded bucket instead of being attributed:
 
 ```sh
-echo 'BACKEND_PING_REF_EU_HOST=one.one.one.one' >> .env && docker compose up -d
+echo 'BACKEND_PING_REF_SGP_HOST=<a real Singapore host>' >> .env && docker compose up -d
 ```
 
-Bare resolver IPs are a poor choice here: `1.1.1.1`, `9.9.9.9` and `8.8.8.8`
-are provisioned for DNS and their port 443 is filtered on many networks.
+Pick a genuine Singapore endpoint, and verify it with the script above rather
+than by name: several plausible-looking hostnames answer from anycast PoPs in
+Europe, which would put a European host in the Singapore slot — the precise
+failure this reference exists to detect. Bare resolver IPs are a poor choice
+too: `1.1.1.1`, `9.9.9.9` and `8.8.8.8` are provisioned for DNS and their port
+443 is filtered on many networks.
 
 ## Upgrading
 

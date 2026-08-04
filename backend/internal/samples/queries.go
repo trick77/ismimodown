@@ -225,7 +225,7 @@ func (s *Store) Summarize(ctx context.Context, w Window, models []string, probeK
 		}
 		out.Models = append(out.Models, ms)
 	}
-	for _, target := range []string{"mimo_sgp", "ref_sgp", "ref_eu"} {
+	for _, target := range []string{"mimo_sgp", "ref_sgp"} {
 		ns, err := s.netSummary(ctx, target, since)
 		if err != nil {
 			return Summary{}, err

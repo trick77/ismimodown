@@ -71,9 +71,9 @@ export type Verdict = {
 // buildVerdict states the situation in plain English before any number appears.
 //
 // Precedence runs uplink -> route -> edge -> model, because each layer makes
-// the ones beyond it unreadable: if our own uplink was down we cannot say
+// the ones beyond it unreadable: if nothing in Singapore answered we cannot say
 // anything about MiMo, and saying it anyway is how a monitor publishes an
-// outage that never happened.
+// outage that never happened. (route is historical — see the branch below.)
 export function buildVerdict(
   summary: Summary | null,
   baseline: Summary | null,
@@ -91,12 +91,15 @@ export function buildVerdict(
     return {
       state: "degraded",
       headline:
-        "Our own uplink was down — these windows say nothing about MiMo",
+        "Nothing in Singapore was reachable — this says nothing about MiMo",
       detail: [
-        `${faults[FAULT_UPLINK]} of ${summary.cycles} cycles could not reach any reference host, so they are excluded from availability.`,
+        `${faults[FAULT_UPLINK]} of ${summary.cycles} cycles reached neither MiMo nor the reference host, so they are excluded from availability. From one vantage point our own connection and the route to Singapore look identical, and neither is MiMo's to answer for.`,
       ],
     };
   }
+  // Historical: cycles recorded while a second reference host still made the
+  // route-vs-uplink split possible. Nothing produces this any more, but stored
+  // cycles carry it and must still read correctly.
   if (faults[FAULT_ROUTE]) {
     return {
       state: "degraded",

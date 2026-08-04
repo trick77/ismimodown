@@ -55,11 +55,8 @@ func TestLoadPingTargetDefaults(t *testing.T) {
 	if cfg.RefSGPHost != DefaultRefSGPHost {
 		t.Errorf("RefSGPHost = %q, want %q", cfg.RefSGPHost, DefaultRefSGPHost)
 	}
-	if cfg.RefEUHost != DefaultRefEUHost {
-		t.Errorf("RefEUHost = %q, want %q", cfg.RefEUHost, DefaultRefEUHost)
-	}
-	if cfg.MimoHost == cfg.RefSGPHost || cfg.MimoHost == cfg.RefEUHost || cfg.RefSGPHost == cfg.RefEUHost {
-		t.Error("the three ping targets must be distinct; fault attribution is meaningless otherwise")
+	if cfg.MimoHost == cfg.RefSGPHost {
+		t.Error("the two ping targets must be distinct; fault attribution is meaningless otherwise")
 	}
 }
 
@@ -133,7 +130,7 @@ func TestLoadRejectsBadValues(t *testing.T) {
 		{"base url with bad scheme", "BACKEND_MIMO_BASE_URL", "ftp://example.com/v1", "BACKEND_MIMO_BASE_URL"},
 		{"empty system prompt", "BACKEND_PROBE_SYSTEM_PROMPT", " ", "BACKEND_PROBE_SYSTEM_PROMPT"},
 		{"ping host with port", "BACKEND_PING_MIMO_HOST", "example.com:443", "BACKEND_PING_MIMO_HOST"},
-		{"ping host with scheme", "BACKEND_PING_REF_EU_HOST", "https://example.com", "BACKEND_PING_REF_EU_HOST"},
+		{"ping host with scheme", "BACKEND_PING_REF_SGP_HOST", "https://example.com", "BACKEND_PING_REF_SGP_HOST"},
 	}
 
 	for _, tc := range cases {
@@ -207,20 +204,20 @@ func TestDefaultTimeoutLadderIsOrdered(t *testing.T) {
 func TestLoadAcceptsIPv6PingHostButStillRejectsHostPort(t *testing.T) {
 	t.Run("bare IPv6 literal is accepted", func(t *testing.T) {
 		t.Setenv("BACKEND_MIMO_API_KEY", "tp-test")
-		t.Setenv("BACKEND_PING_REF_EU_HOST", "2606:4700:4700::1111")
+		t.Setenv("BACKEND_PING_REF_SGP_HOST", "2606:4700:4700::1111")
 
 		cfg, err := Load()
 		if err != nil {
 			t.Fatalf("Load: %v", err)
 		}
-		if cfg.RefEUHost != "2606:4700:4700::1111" {
-			t.Errorf("RefEUHost = %q, want the IPv6 literal", cfg.RefEUHost)
+		if cfg.RefSGPHost != "2606:4700:4700::1111" {
+			t.Errorf("RefSGPHost = %q, want the IPv6 literal", cfg.RefSGPHost)
 		}
 	})
 
 	t.Run("host:port is still rejected", func(t *testing.T) {
 		t.Setenv("BACKEND_MIMO_API_KEY", "tp-test")
-		t.Setenv("BACKEND_PING_REF_EU_HOST", "cloudflare.com:443")
+		t.Setenv("BACKEND_PING_REF_SGP_HOST", "cloudflare.com:443")
 
 		if _, err := Load(); err == nil {
 			t.Fatal("Load accepted a host:port ping target")

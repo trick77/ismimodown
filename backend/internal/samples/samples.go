@@ -59,7 +59,7 @@ func (s *Store) Save(ctx context.Context, c Cycle) (int64, error) {
 		return 0, err
 	}
 
-	var mimoOK, refSGPOK, refEUOK bool
+	var mimoOK, refSGPOK bool
 	for _, n := range c.Net {
 		if _, err := tx.ExecContext(ctx,
 			`INSERT INTO net_probes (cycle_id, target, dns_ms, connect_ms, ok, error_class)
@@ -74,15 +74,13 @@ func (s *Store) Save(ctx context.Context, c Cycle) (int64, error) {
 			mimoOK = n.OK
 		case probe.TargetRefSGP:
 			refSGPOK = n.OK
-		case probe.TargetRefEU:
-			refEUOK = n.OK
 		}
 	}
 
 	// Stored rather than recomputed per query, so the availability strip and the
 	// availability arithmetic can never disagree and the rule is testable in
 	// exactly one place.
-	fault := probe.AttributeFault(mimoOK, refSGPOK, refEUOK)
+	fault := probe.AttributeFault(mimoOK, refSGPOK)
 	if _, err := tx.ExecContext(ctx,
 		`INSERT INTO cycle_fault (cycle_id, fault) VALUES (?, ?)`, cycleID, fault,
 	); err != nil {
