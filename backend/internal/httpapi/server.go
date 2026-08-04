@@ -135,6 +135,7 @@ func (s *server) routes() {
 	api.HandleFunc("GET /api/summary", s.handleSummary)
 	api.HandleFunc("GET /api/series", s.handleSeries)
 	api.HandleFunc("GET /api/samples", s.handleSamples)
+	api.HandleFunc("GET /api/pulse", s.handlePulse)
 	api.HandleFunc("GET /api/methodology", s.handleMethodology)
 
 	var apiHandler http.Handler = api

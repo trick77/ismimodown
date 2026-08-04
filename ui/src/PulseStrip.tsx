@@ -1,4 +1,4 @@
-import type { Sample } from "./api/types";
+import type { Cycle } from "./api/types";
 import { formatMs, formatTime } from "./format";
 
 // One bar per cycle: colour by health, height by latency.
@@ -6,13 +6,13 @@ import { formatMs, formatTime } from "./format";
 // The point is that a whole day is legible before scrolling — a shape, not a
 // number. It sits above the charts because a glance at it answers "was today
 // normal?" faster than any percentile can.
-export function PulseStrip({ samples }: { samples: Sample[] }) {
-  if (samples.length === 0) {
+export function PulseStrip({ cycles }: { cycles: Cycle[] }) {
+  if (cycles.length === 0) {
     return null;
   }
 
   // Oldest on the left, so time runs the same way as every chart below.
-  const ordered = [...samples].reverse();
+  const ordered = [...cycles].reverse();
   const successes = ordered
     .map((s) => s.ttft_ms)
     .filter((v): v is number => v !== null && Number.isFinite(v));

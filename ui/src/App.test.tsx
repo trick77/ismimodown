@@ -63,12 +63,14 @@ function mockFetch(overrides: Record<string, unknown> = {}) {
           ? emptySeries
           : url.includes("/api/samples")
             ? { model_id: "mimo-v2.5", probe: "infer", samples: [] }
-            : url.includes("/api/methodology")
-              ? {
-                  scope:
-                    "Latency of mimo-v2.5 and mimo-v2.5-pro, measured from one host.",
-                }
-              : {};
+            : url.includes("/api/pulse")
+              ? { model_id: "mimo-v2.5", probe: "infer", cycles: [] }
+              : url.includes("/api/methodology")
+                ? {
+                    scope:
+                      "Latency of mimo-v2.5 and mimo-v2.5-pro, measured from one host.",
+                  }
+                : {};
     if (url.includes("/api/events")) {
       // eventsStatus makes the stream FAIL instead, which is what the reconnect
       // tests need — streamSSE throws on a non-OK response.
