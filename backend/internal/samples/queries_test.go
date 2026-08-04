@@ -658,8 +658,11 @@ func TestRecentPulseMatchesRecentSamplesOrderAndClamp(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RecentPulse: %v", err)
 	}
-	if len(rows) > MaxSampleLimit {
-		t.Errorf("returned %d rows, above the %d clamp", len(rows), MaxSampleLimit)
+	// Exact, not `> MaxSampleLimit`: only 30 cycles exist, so that comparison
+	// can never fail and would pass a query returning nothing at all. What the
+	// absurd limit has to prove is that it neither errors nor over-returns.
+	if len(rows) != 30 {
+		t.Errorf("returned %d rows, want the 30 that exist (clamp is %d)", len(rows), MaxSampleLimit)
 	}
 	// Newest first, like RecentSamples: the strip reverses on the client, and
 	// the two endpoints disagreeing about direction would draw the day backwards.

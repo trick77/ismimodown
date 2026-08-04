@@ -13,16 +13,24 @@ import { formatMs, formatTime, formatTps } from "./format";
 // handed, this is what it draws.
 const ROWS = 10;
 
-// Raw cycles, nothing aggregated away. Also the accessible alternative to every
-// chart above: a screen reader gets the numbers, not a canvas.
+// Raw cycles, nothing aggregated away — the one place on the page a screen
+// reader gets numbers rather than a canvas with a summary label.
+//
+// It used to claim to be the accessible alternative to every chart above. It
+// never quite was: the charts run to 3 months across both models, and this has
+// only ever held the infer probe for one. Now that it stops at ten rows the
+// claim is plainly false, so it is not made. The charts' own aria-labels are
+// what carry them, and closing that gap properly means giving each chart its
+// own tabular alternative, not making this table longer than anyone reads.
 export function SamplesTable({ samples }: { samples: Sample[] }) {
   // Samples arrive newest-first from the API, so the head is the recent end.
   const rows = samples.slice(0, ROWS);
+  // "At most" rather than a flat count: a fresh database has two cycles, and a
+  // subtitle claiming ten while showing two is wrong in exactly the situation
+  // where the reader is least sure what they are looking at.
+  const subtitle = `The last ${ROWS} runs at most, unaggregated. Failed runs show their error class.`;
   return (
-    <Card
-      title="Raw cycles"
-      subtitle={`The last ${ROWS} runs, unaggregated. Failed runs show their error class.`}
-    >
+    <Card title="Raw cycles" subtitle={subtitle}>
       {rows.length > 0 ? (
         <div className="overflow-x-auto">
           <table className="w-full min-w-[560px] text-label">

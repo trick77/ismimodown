@@ -229,6 +229,7 @@ func TestNoPublicEndpointEmitsErrorDetail(t *testing.T) {
 		"/api/series?metric=ttft&window=24h",
 		"/api/series?metric=network&window=24h",
 		"/api/samples?model=mimo-v2.5&limit=100",
+		"/api/pulse?model=mimo-v2.5&limit=100",
 	}
 	for _, p := range dataPaths {
 		t.Run(p, func(t *testing.T) {
@@ -294,6 +295,7 @@ func TestRequestShapeIsNotServed(t *testing.T) {
 		"/api/methodology",
 		"/api/summary?window=24h",
 		"/api/samples?model=mimo-v2.5&limit=100",
+		"/api/pulse?model=mimo-v2.5&limit=100",
 	} {
 		t.Run(p, func(t *testing.T) {
 			body := get(t, h, p).Body.String()
@@ -600,8 +602,12 @@ func TestPulseEndpointClampsLimit(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if len(out.Cycles) > samples.MaxSampleLimit {
-		t.Errorf("returned %d cycles, above the clamp", len(out.Cycles))
+	// Exact, not `> MaxSampleLimit`: with 30 rows seeded that comparison can
+	// never fail, so it would pass a handler that returned nothing at all. The
+	// assertion that means something is "an absurd limit neither errors nor
+	// over-returns" — it serves what exists.
+	if len(out.Cycles) != 30 {
+		t.Errorf("returned %d cycles, want the 30 that exist", len(out.Cycles))
 	}
 }
 
