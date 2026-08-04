@@ -1,0 +1,26 @@
+bin/
+node_modules
+coverage/
+# tsc -b build-mode stamp file, written by the UI typecheck.
+ui/tsconfig.tsbuildinfo
+.env
+# Any .env variant — backups, per-host copies, editor swap files. A bare `.env`
+# rule leaves `.env.bak`/`.env.local` untracked-but-committable, which is how
+# real API keys get staged by an unlucky `git add -A`. `.env.example` is
+# re-included below because it carries no secrets. This repo is public and the
+# MiMo token-plan key (tp-…) is a live billable credential.
+.env.*
+!.env.example
+/data/
+backend/web/dist/*
+!backend/web/dist/index.html
+
+# Verification screenshots land at the repo root during UI work. They are
+# throwaway evidence, not artifacts, and the repo is public.
+/*.png
+/*.jpg
+/*.jpeg
+.playwright-mcp/
+
+# Local Claude Code settings
+.claude/
