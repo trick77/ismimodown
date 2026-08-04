@@ -3,8 +3,10 @@ package probe
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -604,5 +606,55 @@ func TestRunRejectsARequestWithNoOutputCap(t *testing.T) {
 	}
 	if called {
 		t.Error("an uncapped request must never reach the endpoint — it would be billed")
+	}
+}
+
+// A resolver that runs out of time reports dns_error, even though the error it
+// produces also satisfies errors.Is(err, context.DeadlineExceeded).
+//
+// The transport's DialTimeout is far below the run deadline, so in production
+// this is the way a DNS outage arrives: a *net.DNSError carrying the dial
+// context's deadline. Classifying it off the error alone publishes a resolver
+// failure of ours as `timeout` — a MiMo-side fault the endpoint never saw.
+func TestDNSTimeoutIsDNSErrorNotTimeout(t *testing.T) {
+	// A resolver whose transport never answers, killed by its own short
+	// deadline rather than by the run's.
+	resolver := &net.Resolver{
+		PreferGo: true,
+		Dial: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			<-ctx.Done()
+			return nil, ctx.Err()
+		},
+	}
+	dialCtx, cancelDial := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancelDial()
+	_, err := resolver.LookupHost(dialCtx, "probe-dns-timeout.invalid")
+	if err == nil {
+		t.Fatal("lookup unexpectedly succeeded")
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("precondition: %v does not wrap context.DeadlineExceeded", err)
+	}
+
+	// The run is still alive — only the lookup timed out.
+	outer := context.Background()
+	stream, cancelStream := context.WithCancelCause(context.Background())
+	defer cancelStream(nil)
+
+	if got := classifyRequestErr(outer, stream, err); got != ErrClassDNS {
+		t.Errorf("class = %q, want %q", got, ErrClassDNS)
+	}
+}
+
+// The run deadline expiring is still `timeout`, whatever the error looks like.
+func TestRunDeadlineIsTimeout(t *testing.T) {
+	stream, cancelStream := context.WithTimeout(context.Background(), time.Nanosecond)
+	defer cancelStream()
+	<-stream.Done()
+
+	got := classifyRequestErr(context.Background(), stream,
+		fmt.Errorf("Post \"https://x/chat/completions\": %w", context.DeadlineExceeded))
+	if got != ErrClassTimeout {
+		t.Errorf("class = %q, want %q", got, ErrClassTimeout)
 	}
 }
