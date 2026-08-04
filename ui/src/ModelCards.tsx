@@ -78,6 +78,23 @@ export function ModelCards({
               />
             </div>
 
+            {m.censored > 0 && (
+              // Not a StateChip, and deliberately not folded into the
+              // availability figure: these runs ARE counted there. This says
+              // something the numbers above structurally cannot — that the
+              // slowest runs in the window are missing from the percentiles
+              // beside it, and that the worse the endpoint gets the more
+              // flattering those percentiles become.
+              <p
+                className="mt-4 rounded-ui border border-fault-edge/40 bg-fault-edge/10 px-3 py-2 text-label text-fault-edge"
+                data-testid={`censored-${m.model_id}`}
+              >
+                {m.censored} of {m.attempts} runs were cut off by the timeout
+                limits. Only runs that finished reach the percentiles above, so
+                the slowest runs in this window are not in them.
+              </p>
+            )}
+
             {m.max_reasoning_tokens > 0 && (
               <p
                 className="mt-4 rounded-ui border border-danger/40 bg-danger/10 px-3 py-2 text-label text-danger"

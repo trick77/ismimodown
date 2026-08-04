@@ -41,6 +41,29 @@ const (
 	ErrClassCanceled = "canceled"
 )
 
+// CensoringErrorClasses are the failures produced by OUR OWN timeout ladder:
+// the run reached MiMo, MiMo was answering or about to, and the probe cut it
+// off before it finished.
+//
+// They are the reason a latency chart cannot be read as the whole distribution.
+// Failed runs are excluded from the percentiles — rightly, since a 240 000 ms
+// deadline in the P50 would read as catastrophic latency — but the runs
+// excluded by THESE classes are not random: they are the slowest ones, removed
+// from the top of the distribution. The published P95 is therefore a percentile
+// of the survivors, and it improves as the truncation worsens. Counting them is
+// what lets a reader see the cut rather than infer it. See ModelSummary.Censored
+// and Point.Censored.
+//
+// connect_timeout, dns_error and connection_refused are deliberately NOT here:
+// nothing was measured and there is no latency to have truncated. Those are
+// reachability, which the availability figures already carry.
+var CensoringErrorClasses = []string{
+	ErrClassHeaderTimeout,
+	ErrClassTTFTTimeout,
+	ErrClassStalled,
+	ErrClassTimeout,
+}
+
 // ErrStalled marks a stream aborted by the idle watchdog. Deliberately distinct
 // from context.Canceled so a stalled upstream is not misreported as a shutdown.
 var ErrStalled = errors.New("stream stalled: no chunk within the idle window")

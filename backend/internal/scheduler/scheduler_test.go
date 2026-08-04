@@ -517,7 +517,10 @@ func TestNextDelayIsAnchoredToTheWallClockNotToCycleDuration(t *testing.T) {
 	finishedAt := time.Date(2026, 8, 4, 6, 0, 22, 0, time.UTC)
 	s.deps.Now = func() time.Time { return finishedAt }
 
-	d := s.nextDelay()
+	d, missed := s.nextDelay()
+	if len(missed) != 0 {
+		t.Errorf("missed = %v, want none: this cycle did not overrun its slot", missed)
+	}
 
 	want := CycleInterval - 22*time.Second
 	if d != want {
@@ -534,14 +537,161 @@ func TestOverrunningCycleLandsOnTheNextSlotWithoutDrifting(t *testing.T) {
 	s, _ := newTestScheduler(t, &fakeProber{}, &fakePinger{})
 	s.deps.Rand = func() float64 { return 0.5 }
 
-	// Finished 6m30s after a tick — it ate a whole slot.
-	finishedAt := time.Date(2026, 8, 4, 6, 6, 30, 0, time.UTC)
-	s.deps.Now = func() time.Time { return finishedAt }
+	// One quick cycle first, to establish the anchor. Before that there is no
+	// previous slot to have overrun — the slots ahead of process start were not
+	// missed, they simply predate the daemon.
+	now := time.Date(2026, 8, 4, 6, 0, 0, 0, time.UTC)
+	s.deps.Now = func() time.Time { return now }
+	if _, missed := s.nextDelay(); len(missed) != 0 {
+		t.Fatalf("missed = %v on the very first delay, want none", missed)
+	}
 
-	fired := finishedAt.Add(s.nextDelay())
+	// The 06:05 cycle then runs 6m30s, straight through the 06:10 slot.
+	now = time.Date(2026, 8, 4, 6, 11, 30, 0, time.UTC)
+	d, missed := s.nextDelay()
+	fired := now.Add(d)
 
-	if want := time.Date(2026, 8, 4, 6, 10, 0, 0, time.UTC); !fired.Equal(want) {
+	// The eaten slot must be REPORTED, not merely absorbed. See
+	// recordMissedTicks: absorbing it silently is what made the overrun counter
+	// read zero while the series thinned out.
+	if len(missed) != 1 {
+		t.Fatalf("missed = %v, want exactly the 06:10 slot the cycle ran through", missed)
+	}
+	if want := time.Date(2026, 8, 4, 6, 10, 0, 0, time.UTC); !missed[0].Equal(want) {
+		t.Errorf("missed slot = %v, want %v", missed[0], want)
+	}
+
+	if want := time.Date(2026, 8, 4, 6, 15, 0, 0, time.UTC); !fired.Equal(want) {
 		t.Errorf("next cycle at %v, want %v — the schedule must not walk", fired, want)
+	}
+}
+
+// A cycle that ran through several slots must report every one of them, or the
+// count understates how much of the incident went unsampled.
+func TestNextDelayReportsEverySlotAnOverrunAteNotJustTheLastOne(t *testing.T) {
+	s, _ := newTestScheduler(t, &fakeProber{}, &fakePinger{})
+	s.deps.Rand = func() float64 { return 0.5 }
+
+	now := time.Date(2026, 8, 4, 6, 0, 0, 0, time.UTC)
+	s.deps.Now = func() time.Time { return now }
+	s.nextDelay() // anchor on 06:05
+
+	// The 06:05 cycle takes 16 minutes — two models at the 240 s ceiling plus a
+	// wide probe each. It runs through 06:10, 06:15 and 06:20.
+	now = time.Date(2026, 8, 4, 6, 21, 0, 0, time.UTC)
+	_, missed := s.nextDelay()
+
+	want := []time.Time{
+		time.Date(2026, 8, 4, 6, 10, 0, 0, time.UTC),
+		time.Date(2026, 8, 4, 6, 15, 0, 0, time.UTC),
+		time.Date(2026, 8, 4, 6, 20, 0, 0, time.UTC),
+	}
+	if len(missed) != len(want) {
+		t.Fatalf("missed = %v, want %v", missed, want)
+	}
+	for i := range want {
+		if !missed[i].Equal(want[i]) {
+			t.Errorf("missed[%d] = %v, want %v", i, missed[i], want[i])
+		}
+	}
+}
+
+// The overrun counter beside the availability strip used to be structurally
+// incapable of being non-zero: its only writer was the in-flight guard, which
+// cannot fire while cycles run one at a time. A dropped slot has to reach it.
+func TestMissedTicksAreRecordedPerModel(t *testing.T) {
+	s, db := newTestScheduler(t, &fakeProber{}, &fakePinger{})
+
+	ticks := []time.Time{
+		time.Date(2026, 8, 4, 6, 10, 0, 0, time.UTC),
+		time.Date(2026, 8, 4, 6, 15, 0, 0, time.UTC),
+	}
+	s.recordMissedTicks(context.Background(), ticks)
+
+	var n int
+	if err := db.QueryRow(`SELECT count(*) FROM skipped_runs`).Scan(&n); err != nil {
+		t.Fatalf("query: %v", err)
+	}
+	// Two slots, two models, one infer run each.
+	if want := len(ticks) * 2; n != want {
+		t.Errorf("skipped_runs = %d, want %d (one per model per dropped slot)", n, want)
+	}
+
+	// `wide` is conditional, so a dropped slot must not claim to have lost one.
+	var wide int
+	db.QueryRow(`SELECT count(*) FROM skipped_runs WHERE probe = ?`, probe.ProbeWide).Scan(&wide)
+	if wide != 0 {
+		t.Errorf("skipped_runs carrying wide = %d, want 0", wide)
+	}
+}
+
+// Sequentially, a cycle costs the SUM of the models' latencies, so one model
+// stalling spends the other's budget and the whole cadence breaks at roughly
+// CycleInterval/len(models) — about 145 s per model with two of them. That is
+// well inside what mimo-v2.5-pro does on a bad day.
+func TestASlowModelDoesNotHoldUpTheOtherModelsProbe(t *testing.T) {
+	prober := &fakeProber{block: make(chan struct{}), blockModel: "mimo-v2.5"}
+	s, db := newTestScheduler(t, prober, &fakePinger{})
+	seedWideProbe(t, db, time.Now().UTC()) // keep this cycle to one probe per model
+
+	done := make(chan struct{})
+	go func() { defer close(done); s.RunCycle(context.Background()) }()
+
+	// The unblocked model must get all the way through while the other is still
+	// stuck inside its probe.
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		got := 0
+		for _, r := range prober.requests() {
+			if r.ModelID == "mimo-v2.5-pro" {
+				got++
+			}
+		}
+		if got > 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the second model never ran while the first was blocked; the models are serialised")
+		}
+		time.Sleep(time.Millisecond)
+	}
+
+	close(prober.block)
+	<-done
+}
+
+// A three-hour gap is not a cycle that ran long — no cycle can, the probe
+// ladder bounds it at minutes. It is the wall clock moving: an NTP step, a
+// suspended host, a restored snapshot. Claiming every slot in it would put
+// dozens of "skipped" against a tooltip saying the previous cycle was still
+// running, which is the deploy-gap misread this counter exists to prevent.
+func TestAClockJumpIsNotClaimedAsAnOverrun(t *testing.T) {
+	s, db := newTestScheduler(t, &fakeProber{}, &fakePinger{})
+
+	var ticks []time.Time
+	base := time.Date(2026, 8, 4, 6, 10, 0, 0, time.UTC)
+	for i := 0; i < 36; i++ { // three hours of five-minute slots
+		ticks = append(ticks, base.Add(time.Duration(i)*CycleInterval))
+	}
+	s.recordMissedTicks(context.Background(), ticks)
+
+	var n int
+	if err := db.QueryRow(`SELECT count(*) FROM skipped_runs`).Scan(&n); err != nil {
+		t.Fatalf("query: %v", err)
+	}
+	if want := MaxRecordedMisses * 2; n != want {
+		t.Errorf("skipped_runs = %d, want %d — a clock jump must not be claimed slot by slot", n, want)
+	}
+
+	// The ones kept are the most recent: those are the slots adjacent to the
+	// cycle that actually ran, and the only ones a reader could act on.
+	var first string
+	if err := db.QueryRow(`SELECT min(occurred_at) FROM skipped_runs`).Scan(&first); err != nil {
+		t.Fatalf("query: %v", err)
+	}
+	want := ticks[len(ticks)-MaxRecordedMisses].Format(time.RFC3339Nano)
+	if first != want {
+		t.Errorf("earliest recorded tick = %s, want %s", first, want)
 	}
 }
 
@@ -553,7 +703,7 @@ func TestNextDelayNeverFiresImmediately(t *testing.T) {
 	s.deps.Rand = func() float64 { return 0 }
 	s.deps.Now = func() time.Time { return time.Date(2026, 8, 4, 6, 4, 59, 0, time.UTC) }
 
-	if d := s.nextDelay(); d < MinInterval {
+	if d, _ := s.nextDelay(); d < MinInterval {
 		t.Errorf("delay = %v, below the %v floor; this could become a tight loop", d, MinInterval)
 	}
 }
@@ -571,7 +721,8 @@ func TestCadenceDoesNotDriftOverManyCycles(t *testing.T) {
 	start := now
 	for i := 0; i < cycles; i++ {
 		now = now.Add(cycleDuration) // the cycle runs
-		now = now.Add(s.nextDelay()) // then we wait
+		d, _ := s.nextDelay()
+		now = now.Add(d) // then we wait
 	}
 
 	elapsed := now.Sub(start)

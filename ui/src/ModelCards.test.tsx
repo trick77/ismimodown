@@ -13,6 +13,7 @@ function model(over: Partial<ModelSummary> = {}): ModelSummary {
     attempts: 288,
     succeeded: 288,
     available_pct: 100,
+    censored: 0,
     answered: 288,
     correct: 288,
     correct_pct: 100,
@@ -76,6 +77,31 @@ describe("ModelCards", () => {
       />,
     );
     expect(screen.getByRole("alert")).toHaveTextContent(/not measuring what/i);
+  });
+
+  // The percentiles on this card are computed over runs that finished, so the
+  // runs the ladder cut off were removed from the TOP of the distribution — and
+  // the card gets more flattering as truncation gets worse. Nothing in the
+  // numbers themselves can say that.
+  it("says so when runs were cut off by the timeout limits", () => {
+    render(
+      <ModelCards
+        summary={summary([
+          model({ censored: 12, attempts: 288, succeeded: 276 }),
+        ])}
+        baseline={null}
+      />,
+    );
+    const note = screen.getByTestId("censored-mimo-v2.5");
+    expect(note).toHaveTextContent(/12 of 288/);
+    expect(note).toHaveTextContent(
+      /slowest runs in this window are not in them/i,
+    );
+  });
+
+  it("stays quiet when nothing was cut off", () => {
+    render(<ModelCards summary={summary([model()])} baseline={null} />);
+    expect(screen.queryByTestId("censored-mimo-v2.5")).toBeNull();
   });
 
   it("renders nothing but stays stable with no summary", () => {

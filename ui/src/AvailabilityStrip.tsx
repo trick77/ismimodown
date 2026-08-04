@@ -27,7 +27,12 @@ export function AvailabilityStrip({ summary }: { summary: Summary | null }) {
         summary && summary.skipped_runs > 0 ? (
           <span
             className="num rounded-full border border-fault-edge/40 bg-fault-edge/10 px-2 py-[2px] text-micro uppercase tracking-wider text-fault-edge"
-            title="Runs skipped because the previous one was still in flight"
+            // The old wording named the in-flight guard, which cannot fire while
+            // cycles run one at a time — so the number it described was always
+            // zero. What actually feeds this is a cycle overrunning its slot:
+            // the probe then samples less often, and it does so precisely when
+            // the endpoint is slow enough to cause the overrun.
+            title="Scheduled runs that did not happen because the previous cycle was still running"
           >
             {summary.skipped_runs} skipped
           </span>

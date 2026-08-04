@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/trick77/mimostats/internal/probe"
@@ -109,6 +110,23 @@ type ModelSummary struct {
 	Succeeded int     `json:"succeeded"`
 	Available float64 `json:"available_pct"`
 
+	// Censored is how many of those attempts were cut off by our own timeout
+	// ladder — see probe.CensoringErrorClasses.
+	//
+	// It is the caveat the percentiles above cannot carry themselves. Those are
+	// computed over successful runs only, so the runs this counts were removed
+	// from the TOP of the distribution: the worse the endpoint gets, the more of
+	// its slow tail is deleted, and the better P95 looks. A reader who cannot see
+	// this number cannot tell a genuinely fast window from one where everything
+	// slow was thrown away.
+	//
+	// Counted per RUN, not per column: one censored run takes that run's TTFT,
+	// ITL and throughput with it, so a separate figure per metric would be the
+	// same number three times. It shares the attempt denominator, and therefore
+	// the same unattributable-cycle exclusion — a run cut off during our own
+	// uplink outage is not MiMo's slow tail.
+	Censored int `json:"censored"`
+
 	// Correctness is the canary: a silent reroute to a smaller model shows up
 	// here before it shows up in any timing.
 	Answered   int      `json:"answered"`
@@ -141,6 +159,25 @@ type Summary struct {
 	Faults      map[string]int `json:"faults"`
 	Skipped     int            `json:"skipped_runs"`
 	GeneratedAt time.Time      `json:"generated_at"`
+}
+
+// censoredSQL builds the predicate for a run our own timeout ladder cut off,
+// and the arguments that go with it.
+//
+// Built rather than written out so the class list lives in exactly one place —
+// probe.CensoringErrorClasses. A literal list here would drift the moment a
+// class is added to the ladder, and it would drift SILENTLY: the count would
+// simply stop including the new class, which reads as "less truncation" rather
+// than as a bug. Placeholders, never interpolation, on a public endpoint's path.
+func censoredSQL(alias string) (string, []any) {
+	marks := make([]string, len(probe.CensoringErrorClasses))
+	args := make([]any, len(probe.CensoringErrorClasses))
+	for i, c := range probe.CensoringErrorClasses {
+		marks[i] = "?"
+		args[i] = c
+	}
+	return fmt.Sprintf("%[1]s.ok = 0 AND %[1]s.error_class IN (%s)",
+		alias, strings.Join(marks, ", ")), args
 }
 
 // percentileSQL builds the nearest-rank percentile expression for a column.
@@ -296,24 +333,29 @@ func (s *Store) modelSummary(ctx context.Context, modelID, probeKind string, sin
 	// which the clients already render as "no data" rather than as 0%.
 	var correct, answered sql.NullInt64
 	var maxReason, maxCached sql.NullInt64
-	err = s.db.QueryRowContext(ctx, `
+	var censored sql.NullInt64
+	censoredExpr, censoredArgs := censoredSQL("i")
+	args := []any{modelID, probeKind, rfc(since), probe.FaultUplink, probe.FaultRoute}
+	err = s.db.QueryRowContext(ctx, fmt.Sprintf(`
 		SELECT
 			count(*),
 			COALESCE(sum(i.ok), 0),
 			COALESCE(sum(CASE WHEN i.answer_ok IS NOT NULL THEN 1 ELSE 0 END), 0),
 			COALESCE(sum(CASE WHEN i.answer_ok = 1 THEN 1 ELSE 0 END), 0),
 			max(i.reasoning_tokens),
-			max(i.cached_tokens)
+			max(i.cached_tokens),
+			COALESCE(sum(CASE WHEN %s THEN 1 ELSE 0 END), 0)
 		FROM infer_probes i
 		JOIN cycles c ON c.id = i.cycle_id
 		LEFT JOIN cycle_fault f ON f.cycle_id = c.id
 		WHERE i.model_id = ? AND i.probe = ? AND c.started_at >= ?
-		  AND (i.ok = 1 OR COALESCE(f.fault, '') NOT IN (?, ?))`,
-		modelID, probeKind, rfc(since), probe.FaultUplink, probe.FaultRoute,
-	).Scan(&ms.Attempts, &ms.Succeeded, &answered, &correct, &maxReason, &maxCached)
+		  AND (i.ok = 1 OR COALESCE(f.fault, '') NOT IN (?, ?))`, censoredExpr),
+		append(censoredArgs, args...)...,
+	).Scan(&ms.Attempts, &ms.Succeeded, &answered, &correct, &maxReason, &maxCached, &censored)
 	if err != nil {
 		return ms, err
 	}
+	ms.Censored = int(censored.Int64)
 
 	ms.Answered = int(answered.Int64)
 	ms.Correct = int(correct.Int64)
@@ -406,14 +448,26 @@ func (s *Store) netSummary(ctx context.Context, target string, since time.Time) 
 type Point struct {
 	// T is the bucket's start, as Unix seconds.
 	T int64 `json:"t"`
-	N int   `json:"n"`
+	// N is the successful samples the percentiles were computed from.
+	N int `json:"n"`
+	// Censored is how many samples in this bucket our own timeout ladder cut
+	// off — see probe.CensoringErrorClasses.
+	//
+	// A bucket can be censored and still plot a value: the line is then drawn
+	// from the runs that FINISHED, with the slow ones missing, which is a chart
+	// that looks better the worse things got. A bucket can also be entirely
+	// censored, N = 0 with a nil P50 — indistinguishable, without this field,
+	// from a bucket where the probe simply was not running. Both are exactly the
+	// moment a reader most needs to know the top of the distribution was cut off,
+	// so the client marks these buckets rather than drawing them as ordinary.
+	Censored int `json:"censored"`
 	// Values are nil when the bucket produced no percentile at all. A null
 	// renders as a gap; a zero would render as a floor, which is a lie.
 	//
-	// Note that no minimum-sample threshold is applied per bucket: a bucket
-	// exists only because at least one successful sample landed in it, so N is
-	// always >= 1 here. Suppression is a headline-figure rule (see
-	// MinSamplesForPercentile), deliberately not a chart rule.
+	// Note that no minimum-sample threshold is applied per bucket: suppression is
+	// a headline-figure rule (see MinSamplesForPercentile), deliberately not a
+	// chart rule. N is 0 only on a bucket that exists solely because something
+	// was censored in it.
 	P50 *float64 `json:"p50"`
 	P95 *float64 `json:"p95"`
 }
@@ -431,7 +485,14 @@ func (s *Store) Series(ctx context.Context, column, modelID, probeKind string, w
 	}
 	since := now.Add(-w.Duration)
 	bucketSecs := int64(w.Bucket / time.Second)
+	censoredExpr, censoredArgs := censoredSQL("i")
 
+	// The bucket universe is the UNION of the two sides, not the successful side
+	// alone. A bucket in which every run was cut off has no successful sample to
+	// group, so on an inner reading it would not exist at all — and a
+	// non-existent bucket renders as a gap, identical to a stretch where the
+	// probe was not running. That is the worst possible collapse: total
+	// truncation is the one case where the reader most needs to be told.
 	q := fmt.Sprintf(`
 		WITH vals AS (
 			SELECT unixepoch(c.started_at) / %[1]d * %[1]d AS bucket, i.%[2]s AS v
@@ -445,13 +506,48 @@ func (s *Store) Series(ctx context.Context, column, modelID, probeKind string, w
 				ROW_NUMBER() OVER (PARTITION BY bucket ORDER BY v) AS rn,
 				COUNT(*) OVER (PARTITION BY bucket) AS n
 			FROM vals
+		),
+		agg AS (
+			SELECT bucket, MAX(n) AS n,
+				MAX(CASE WHEN rn = MAX(1, (n * 50 + 99) / 100) THEN v END) AS p50,
+				MAX(CASE WHEN rn = MAX(1, (n * 95 + 99) / 100) THEN v END) AS p95
+			FROM ranked GROUP BY bucket
+		),
+		cens AS (
+			SELECT unixepoch(c.started_at) / %[1]d * %[1]d AS bucket, count(*) AS c
+			FROM infer_probes i
+			JOIN cycles c ON c.id = i.cycle_id
+			LEFT JOIN cycle_fault f ON f.cycle_id = c.id
+			WHERE i.model_id = ? AND i.probe = ? AND %[3]s
+			  AND c.started_at >= ?
+			  -- The SAME unattributable-cycle exclusion the summary applies to
+			  -- its censored count. A band on the chart is a claim about MiMo's
+			  -- distribution, exactly as the count on the card is, and a run cut
+			  -- off during OUR uplink outage is neither. Without this the card
+			  -- refuses to count a run that the chart still bands, over a caption
+			  -- saying probes here were cut off — two published figures for one
+			  -- concept, disagreeing.
+			  --
+			  -- Reachable, not theoretical: the fault is attributed from TCP
+			  -- handshakes at the top of the cycle while the HTTP request can get
+			  -- further, so a timeout on an 'uplink' cycle is a real row.
+			  AND COALESCE(f.fault, '') NOT IN (?, ?)
+			GROUP BY bucket
+		),
+		buckets AS (
+			SELECT bucket FROM agg UNION SELECT bucket FROM cens
 		)
-		SELECT bucket, MAX(n),
-			MAX(CASE WHEN rn = MAX(1, (n * 50 + 99) / 100) THEN v END),
-			MAX(CASE WHEN rn = MAX(1, (n * 95 + 99) / 100) THEN v END)
-		FROM ranked GROUP BY bucket ORDER BY bucket`, bucketSecs, column)
+		SELECT b.bucket, COALESCE(a.n, 0), a.p50, a.p95, COALESCE(x.c, 0)
+		FROM buckets b
+		LEFT JOIN agg a ON a.bucket = b.bucket
+		LEFT JOIN cens x ON x.bucket = b.bucket
+		ORDER BY b.bucket`, bucketSecs, column, censoredExpr)
 
-	rows, err := s.db.QueryContext(ctx, q, modelID, probeKind, rfc(since))
+	args := []any{modelID, probeKind, rfc(since), modelID, probeKind}
+	args = append(args, censoredArgs...)
+	args = append(args, rfc(since), probe.FaultUplink, probe.FaultRoute)
+
+	rows, err := s.db.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -461,7 +557,7 @@ func (s *Store) Series(ctx context.Context, column, modelID, probeKind string, w
 	for rows.Next() {
 		var p Point
 		var p50, p95 sql.NullFloat64
-		if err := rows.Scan(&p.T, &p.N, &p50, &p95); err != nil {
+		if err := rows.Scan(&p.T, &p.N, &p50, &p95, &p.Censored); err != nil {
 			return nil, err
 		}
 		if p50.Valid {

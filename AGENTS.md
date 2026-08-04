@@ -34,6 +34,22 @@ TLS edge; Xiaomi runs no European GPUs, so edge-to-compute backhaul sits inside 
 **A timeout is a recorded sample, never a dropped one** — `ok=0`, an `error_class`, and
 however far it got.
 
+**That exclusion truncates the tail, so always publish the `censored` count beside the
+percentiles.** The excluded runs are the SLOWEST ones, so every percentile is over the
+survivors and improves as truncation worsens. Classes in `probe.CensoringErrorClasses`;
+add to that list, never to a literal in a query. Connection failures are not censoring —
+nothing was measured. Never fold censored runs back INTO the percentiles.
+
+**Cycles run models concurrently, probes within a model sequentially.** Sequential models
+make a cycle cost the sum, so the cadence breaks at ~`CycleInterval / len(Models)` and the
+series thins out during the incident it exists to record. Two probes at once against one
+model contend for the same upstream node. A wide cycle still costs infer+wide per model
+and can still overrun — that is recorded, not prevented.
+
+**A dropped tick is recorded, never just absorbed.** A cycle overrunning its slot is the
+only thing that writes `skipped_runs`; the `inFlight` guard cannot fire while cycles run
+one at a time.
+
 **`itl_p50_ms` is a chunk-level gap, not inter-token latency.** MiMo batches tokens into
 chunks and delivers them in bursts — a real run measured itl_p50=0.0075ms against 70 tok/s.
 Do not lead a chart with it; `output_tps` over the decode window is the robust one. Both are
