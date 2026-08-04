@@ -355,3 +355,82 @@ func TestRunStopsOnContextCancel(t *testing.T) {
 		t.Fatal("Run did not stop after its context was cancelled")
 	}
 }
+
+// The cadence must be anchored to the wall clock, not to when the last cycle
+// happened to finish. Sleeping a fixed interval AFTER each cycle adds that
+// cycle's duration to every gap — and the error compounds in the worst
+// direction, sampling LESS often exactly when the endpoint is slow.
+func TestNextDelayIsAnchoredToTheWallClockNotToCycleDuration(t *testing.T) {
+	s, _ := newTestScheduler(t, &fakeProber{}, &fakePinger{})
+	s.deps.Rand = func() float64 { return 0.5 } // zero jitter
+
+	// A cycle that finished 22 seconds past an aligned tick must wait for the
+	// NEXT tick, not a full interval from now.
+	finishedAt := time.Date(2026, 8, 4, 6, 0, 22, 0, time.UTC)
+	s.deps.Now = func() time.Time { return finishedAt }
+
+	d := s.nextDelay()
+
+	want := CycleInterval - 22*time.Second
+	if d != want {
+		t.Errorf("delay = %v, want %v (the next aligned tick, not a full interval)", d, want)
+	}
+	if fired := finishedAt.Add(d); fired.Second() != 0 || fired.Minute()%5 != 0 {
+		t.Errorf("cycle would fire at %v, which is not an aligned tick", fired)
+	}
+}
+
+// A cycle that overruns its slot lands on the following one; the cadence must
+// not walk forward by the overrun.
+func TestOverrunningCycleLandsOnTheNextSlotWithoutDrifting(t *testing.T) {
+	s, _ := newTestScheduler(t, &fakeProber{}, &fakePinger{})
+	s.deps.Rand = func() float64 { return 0.5 }
+
+	// Finished 6m30s after a tick — it ate a whole slot.
+	finishedAt := time.Date(2026, 8, 4, 6, 6, 30, 0, time.UTC)
+	s.deps.Now = func() time.Time { return finishedAt }
+
+	fired := finishedAt.Add(s.nextDelay())
+
+	if want := time.Date(2026, 8, 4, 6, 10, 0, 0, time.UTC); !fired.Equal(want) {
+		t.Errorf("next cycle at %v, want %v — the schedule must not walk", fired, want)
+	}
+}
+
+// Negative jitter must not fire the cycle in the past or immediately.
+func TestNextDelayNeverFiresImmediately(t *testing.T) {
+	s, _ := newTestScheduler(t, &fakeProber{}, &fakePinger{})
+
+	// Finish just before an aligned tick, with maximum negative jitter.
+	s.deps.Rand = func() float64 { return 0 }
+	s.deps.Now = func() time.Time { return time.Date(2026, 8, 4, 6, 4, 59, 0, time.UTC) }
+
+	if d := s.nextDelay(); d < MinInterval {
+		t.Errorf("delay = %v, below the %v floor; this could become a tight loop", d, MinInterval)
+	}
+}
+
+// Over many cycles the mean must sit on the interval, or the day's cycle count
+// and therefore the token bill are wrong.
+func TestCadenceDoesNotDriftOverManyCycles(t *testing.T) {
+	s, _ := newTestScheduler(t, &fakeProber{}, &fakePinger{})
+
+	now := time.Date(2026, 8, 4, 0, 0, 0, 0, time.UTC)
+	s.deps.Now = func() time.Time { return now }
+
+	const cycles = 200
+	const cycleDuration = 22 * time.Second // a realistic wide cycle
+	start := now
+	for i := 0; i < cycles; i++ {
+		now = now.Add(cycleDuration) // the cycle runs
+		now = now.Add(s.nextDelay()) // then we wait
+	}
+
+	elapsed := now.Sub(start)
+	mean := elapsed / cycles
+	drift := mean - CycleInterval
+	if drift < -2*time.Second || drift > 2*time.Second {
+		t.Errorf("mean interval %v drifts %v from %v over %d cycles; that is %.0f cycles/day instead of 288",
+			mean, drift, CycleInterval, cycles, 86400/mean.Seconds())
+	}
+}
