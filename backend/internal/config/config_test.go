@@ -207,3 +207,31 @@ func TestDefaultTimeoutLadderIsOrdered(t *testing.T) {
 		t.Errorf("idle=%v must be below overall=%v", cfg.IdleTimeout, cfg.ProbeTimeout)
 	}
 }
+
+// The ping-host guard exists to catch "example.com:443", which would be dialled
+// as "host:port:443". It must not also reject a bare IPv6 literal: the error
+// message and .env.example both advertise that an IP is acceptable, and
+// probe.Pinger dials through net.JoinHostPort, which brackets v6 correctly.
+func TestLoadAcceptsIPv6PingHostButStillRejectsHostPort(t *testing.T) {
+	t.Run("bare IPv6 literal is accepted", func(t *testing.T) {
+		t.Setenv("BACKEND_MIMO_API_KEY", "tp-test")
+		t.Setenv("BACKEND_PING_REF_EU_HOST", "2606:4700:4700::1111")
+
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		if cfg.RefEUHost != "2606:4700:4700::1111" {
+			t.Errorf("RefEUHost = %q, want the IPv6 literal", cfg.RefEUHost)
+		}
+	})
+
+	t.Run("host:port is still rejected", func(t *testing.T) {
+		t.Setenv("BACKEND_MIMO_API_KEY", "tp-test")
+		t.Setenv("BACKEND_PING_REF_EU_HOST", "cloudflare.com:443")
+
+		if _, err := Load(); err == nil {
+			t.Fatal("Load accepted a host:port ping target")
+		}
+	})
+}

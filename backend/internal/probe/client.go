@@ -424,9 +424,27 @@ func classifyRequestErr(outer, stream context.Context, err error) string {
 		strings.Contains(err.Error(), "awaiting headers") {
 		return ErrClassHeaderTimeout
 	}
-	if errors.Is(err, context.DeadlineExceeded) {
+	// The RUN deadline is read off the context, not sniffed out of the error:
+	// a lookup killed by the transport's own DialTimeout comes back as a
+	// *net.DNSError that ALSO satisfies errors.Is(err, context.DeadlineExceeded)
+	// (net wraps the context error verbatim), so testing the error alone
+	// swallows every DNS timeout into `timeout` and leaves the dns_error branch
+	// below unreachable for the case it exists to catch. stream descends from
+	// the run context, so its Err() is true only when the run itself expired —
+	// which is what `timeout` means. (A connect timeout from DialTimeout does
+	// NOT wrap the context error; it lands on the net.Error branch below as
+	// connect_timeout, as intended.)
+	if errors.Is(stream.Err(), context.DeadlineExceeded) {
 		// The outer deadline tripped before headers.
 		return ErrClassTimeout
+	}
+	// Checked BEFORE the net.Error timeout test: a resolver that times out on
+	// its own returns a *net.DNSError whose Timeout() is true, so testing
+	// net.Error first reports a DNS outage as a connect timeout — blaming the
+	// endpoint for a failure that never reached it.
+	var dnsErr *net.DNSError
+	if errors.As(err, &dnsErr) {
+		return ErrClassDNS
 	}
 	var netErr net.Error
 	if errors.As(err, &netErr) && netErr.Timeout() {
@@ -437,10 +455,6 @@ func classifyRequestErr(outer, stream context.Context, err error) string {
 	}
 	if strings.Contains(err.Error(), "connection refused") {
 		return ErrClassRefused
-	}
-	var dnsErr *net.DNSError
-	if errors.As(err, &dnsErr) {
-		return ErrClassDNS
 	}
 	return ErrClassConnectTimeout
 }
@@ -453,6 +467,13 @@ func classifyStreamErr(ctx context.Context, err error) string {
 	}
 	if errors.Is(err, context.DeadlineExceeded) {
 		return ErrClassTimeout
+	}
+	// An oversized SSE line is the response not being the stream we think it is,
+	// which is what maxSSELineBytes exists to detect. Without this it falls
+	// through to `stalled` and reads on the dashboard as a MiMo network stall
+	// rather than the protocol failure it is.
+	if errors.Is(err, bufio.ErrTooLong) {
+		return ErrClassProtocol
 	}
 	return ErrClassStalled
 }

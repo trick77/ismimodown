@@ -65,3 +65,27 @@ func TestHandlerServesAKnownPathWithoutFallback(t *testing.T) {
 		t.Errorf("Location = %q, want ./", got)
 	}
 }
+
+// A missing ASSET must 404, not receive the shell. Falling back
+// indiscriminately answers a stale hashed chunk request with index.html at
+// 200/text-html; a browser holding an old shell across a deploy then parses
+// HTML as JavaScript and white-screens on "Unexpected token '<'" instead of
+// recovering on reload.
+func TestHandlerDoesNotFallBackForAssets(t *testing.T) {
+	h, err := Handler()
+	if err != nil {
+		t.Fatalf("Handler: %v", err)
+	}
+
+	for _, path := range []string{"/assets/index-abc123.js", "/favicon.ico", "/app.css"} {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+
+		if rec.Code != http.StatusNotFound {
+			t.Errorf("%s: status = %d, want 404 (missing asset must not get the shell)", path, rec.Code)
+		}
+		if strings.Contains(rec.Body.String(), "mimostats") {
+			t.Errorf("%s: served the shell body for a missing asset", path)
+		}
+	}
+}

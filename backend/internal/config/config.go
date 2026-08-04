@@ -6,6 +6,7 @@ package config
 
 import (
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"strings"
@@ -226,7 +227,19 @@ func Load() (Config, error) {
 		}
 		// A host:port here would be dialled as "host:port:443". Catch it at boot
 		// rather than as a permanently-failing ping that reads as an outage.
-		if strings.Contains(host, "/") || strings.Contains(host, ":") {
+		//
+		// A bare IPv6 literal is exempted from the colon test, which would
+		// otherwise reject every one of them — the error says "hostname or IP"
+		// and .env.example documents IPs, so an operator pointing the europe
+		// reference at 2606:4700:4700::1111 would be refused at boot by a guard
+		// aimed at "example.com:443". net.ParseIP tells the two apart exactly:
+		// it accepts the literal and rejects host:port. Safe downstream because
+		// probe.Pinger resolves via net.Resolver.LookupHost and dials through
+		// net.JoinHostPort, both of which bracket a v6 address correctly.
+		if strings.Contains(host, "/") {
+			return Config{}, fmt.Errorf("%s must be a bare hostname or IP without scheme or port", name)
+		}
+		if strings.Contains(host, ":") && net.ParseIP(host) == nil {
 			return Config{}, fmt.Errorf("%s must be a bare hostname or IP without scheme or port", name)
 		}
 	}

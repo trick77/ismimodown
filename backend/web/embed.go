@@ -5,6 +5,7 @@ import (
 	"embed"
 	"io/fs"
 	"net/http"
+	"path"
 )
 
 // dist holds the Vite build output. The repo carries a placeholder index.html
@@ -38,8 +39,24 @@ func (h spaHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		name = "index.html"
 	}
 	if _, err := fs.Stat(h.fsys, name); err != nil {
-		// Unknown path: hand back the shell rather than a 404, so a deep link
-		// reloaded in the browser lands on the SPA instead of an error page.
+		// Unknown path. A deep link must land on the SPA instead of an error
+		// page, so it gets the shell — but a MISSING ASSET must not.
+		//
+		// Falling back indiscriminately answers /assets/index-OLD.js with
+		// index.html, 200, Content-Type text/html. A browser holding a stale
+		// shell across a deploy then parses HTML as JavaScript, dies on
+		// "Unexpected token '<'" and shows a white page, where a plain 404
+		// would have let it recover on reload. The same applies to
+		// /favicon.ico and every other extensioned request.
+		//
+		// A file extension is the discriminator rather than the Accept header:
+		// client-side routes are extensionless by construction, while every
+		// bundled asset is hashed and ends in one. Accept is not reliably sent
+		// on a hard navigation.
+		if path.Ext(name) != "" {
+			http.NotFound(w, r)
+			return
+		}
 		r = r.Clone(r.Context())
 		r.URL.Path = "/"
 	}

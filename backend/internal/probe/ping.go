@@ -140,21 +140,32 @@ func (p *Pinger) Ping(ctx context.Context, target, host string) NetResult {
 // fallback is what an otherwise-unrecognised failure is called at this layer,
 // so a DNS lookup failure does not get reported as a connect timeout.
 func classifyNetErr(ctx context.Context, err error, fallback string) string {
-	switch {
-	case errors.Is(err, context.Canceled) && ctx.Err() == context.Canceled:
+	if errors.Is(err, context.Canceled) && ctx.Err() == context.Canceled {
 		// Shutdown, not a fault. Never counted against availability.
 		return ErrClassCanceled
-	case errors.Is(err, context.DeadlineExceeded):
-		return ErrClassConnectTimeout
-	case errors.Is(err, syscall.ECONNREFUSED):
-		return ErrClassRefused
 	}
 
 	// A resolver failure is ours (or the resolver's), never the endpoint's —
 	// timeout or not, which is why both cases land on the same class.
+	//
+	// Checked BEFORE the deadline and net.Error tests, not after: a lookup that
+	// runs out of context comes back as a *net.DNSError that ALSO satisfies
+	// errors.Is(err, context.DeadlineExceeded) (net.newDNSError wraps the
+	// context error verbatim), and a resolver's own timeout satisfies
+	// netErr.Timeout(). Either ordering mistake reports a DNS outage as a
+	// connect timeout — blaming the endpoint for a failure that never reached it.
 	var dnsErr *net.DNSError
 	if errors.As(err, &dnsErr) {
 		return ErrClassDNS
+	}
+
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		// The layer that timed out, not a hardcoded class: at the resolve step
+		// this is dns_error, at the dial step connect_timeout.
+		return fallback
+	case errors.Is(err, syscall.ECONNREFUSED):
+		return ErrClassRefused
 	}
 
 	var netErr net.Error

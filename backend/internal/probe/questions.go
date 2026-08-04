@@ -47,8 +47,49 @@ func (q Question) Prompt() string { return q.Ask + questionSuffix }
 // model that has stopped knowing the answer, not for one that phrased it
 // differently. A stricter match would fire on prose changes and get ignored,
 // which is worse than no canary at all.
+//
+// Diacritics are folded on BOTH sides, which is not cosmetic. `capitals` spells
+// the answers in ASCII, but a model writes Brasília, Bogotá, Asunción, San
+// José, Reykjavík, Chișinău — so a plain substring match would score six
+// perfectly correct answers as wrong, forever. That is the cries-wolf failure
+// the bank is built to avoid, and the reason folding lives here rather than in
+// the data: the next accented capital added would otherwise reintroduce it.
 func (q Question) Assert(content string) bool {
-	return strings.Contains(strings.ToLower(content), strings.ToLower(q.Want))
+	return strings.Contains(fold(content), fold(q.Want))
+}
+
+// fold lowercases and strips diacritics from the Latin letters that appear in
+// place names, so "Brasília" and "Brasilia" compare equal.
+func fold(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range strings.ToLower(s) {
+		if repl, ok := diacriticFolds[r]; ok {
+			b.WriteString(repl)
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+
+var diacriticFolds = map[rune]string{
+	'à': "a", 'á': "a", 'â': "a", 'ã': "a", 'ä': "a", 'å': "a", 'ā': "a", 'ă': "a", 'ą': "a",
+	'ç': "c", 'ć': "c", 'č': "c",
+	'ď': "d", 'đ': "d",
+	'è': "e", 'é': "e", 'ê': "e", 'ë': "e", 'ē': "e", 'ė': "e", 'ę': "e", 'ě': "e",
+	'ğ': "g",
+	'ì': "i", 'í': "i", 'î': "i", 'ï': "i", 'ī': "i", 'į': "i", 'ı': "i",
+	'ł': "l", 'ĺ': "l", 'ľ': "l",
+	'ñ': "n", 'ń': "n", 'ň': "n",
+	'ò': "o", 'ó': "o", 'ô': "o", 'õ': "o", 'ö': "o", 'ø': "o", 'ō': "o", 'ő': "o",
+	'ř': "r", 'ŕ': "r",
+	'ś': "s", 'š': "s", 'ş': "s", 'ș': "s",
+	'ť': "t", 'ţ': "t", 'ț': "t",
+	'ù': "u", 'ú': "u", 'û': "u", 'ü': "u", 'ū': "u", 'ů': "u", 'ű': "u",
+	'ý': "y", 'ÿ': "y",
+	'ź': "z", 'ż': "z", 'ž': "z",
+	'ß': "ss", 'æ': "ae", 'œ': "oe",
 }
 
 // Bank is the rotating question set.
