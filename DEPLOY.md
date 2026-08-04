@@ -157,3 +157,10 @@ writable `TMPDIR`.
 The healthcheck is the binary probing itself (`-healthcheck`), because the
 runtime image is distroless and carries no shell or curl. Adding one so the
 healthcheck could run would undo the reason the image is distroless.
+
+If you edit that healthcheck, keep the **exec** form `["CMD", ...]`. The string
+form — and `docker run --health-cmd` — are `CMD-SHELL`, which Docker runs
+through `/bin/sh`; this image has no shell, so the check fails forever while the
+service answers every request normally. A container that is working but reported
+unhealthy is worse than one that is plainly down, because an orchestrator will
+restart it in a loop.
