@@ -3,6 +3,18 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 
+// A clean hour of cycles. The verdict banner reads this rather than the
+// window's fault counts, so every fixture needs one or the page has nothing to
+// say about right now.
+const cleanCycles = (n = 12) =>
+  Array.from({ length: n }, (_, i) => ({
+    at: new Date(
+      Date.parse("2026-08-04T12:00:00Z") - i * 5 * 60 * 1000,
+    ).toISOString(),
+    fault: "ok",
+    models: { "mimo-v2.5": { ok: true, answer_ok: true } },
+  }));
+
 const summary = (over: Record<string, unknown> = {}) => ({
   window: "24h",
   cycles: 288,
@@ -33,6 +45,7 @@ const summary = (over: Record<string, unknown> = {}) => ({
     },
   ],
   faults: { ok: 288 },
+  recent: cleanCycles(),
   skipped_runs: 0,
   generated_at: "2026-08-04T12:00:00Z",
   ...over,

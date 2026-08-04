@@ -626,3 +626,60 @@ func TestPulseEndpointRejectsTheSameBadInputAsSamples(t *testing.T) {
 		}
 	}
 }
+
+// The recent block rides inside a window-keyed response, so the one thing that
+// must never happen is someone "tidying" it by adding the window's `since`
+// clause to its query. This is the test that would fail the day they did: the
+// banner answers "how is it right now", and the answer cannot depend on which
+// chart range the reader happens to be looking at.
+func TestRecentBlockIsIdenticalOnEveryWindow(t *testing.T) {
+	h, store := newAPIServer(t)
+	seed(t, store, 30, 900)
+
+	recentFor := func(window string) string {
+		rec := get(t, h, "/api/summary?window="+window)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
+		}
+		var out struct {
+			Recent json.RawMessage `json:"recent"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		if len(out.Recent) == 0 || string(out.Recent) == "null" {
+			t.Fatalf("window %s served no recent block", window)
+		}
+		return string(out.Recent)
+	}
+
+	day, quarter := recentFor("24h"), recentFor("3mo")
+	if day != quarter {
+		t.Errorf("recent block differs by window:\n 24h: %s\n 3mo: %s", day, quarter)
+	}
+}
+
+// The block is what the verdict is built from, so it has to carry the fault and
+// the per-model outcome — the two things a "right now" reading needs and the
+// window's fault COUNTS cannot provide.
+func TestSummaryRecentBlockCarriesFaultAndRuns(t *testing.T) {
+	h, store := newAPIServer(t)
+	seed(t, store, 3, 900)
+
+	rec := get(t, h, "/api/summary?window=24h")
+	var out struct {
+		Recent []samples.RecentCycle `json:"recent"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(out.Recent) != 3 {
+		t.Fatalf("recent = %d, want 3", len(out.Recent))
+	}
+	if out.Recent[0].Fault != probe.FaultOK {
+		t.Errorf("fault = %q, want %q", out.Recent[0].Fault, probe.FaultOK)
+	}
+	if run, ok := out.Recent[0].Models["mimo-v2.5"]; !ok || !run.OK {
+		t.Errorf("models = %v, want a successful mimo-v2.5 run", out.Recent[0].Models)
+	}
+}

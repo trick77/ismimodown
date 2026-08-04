@@ -910,3 +910,162 @@ func TestPulseTypeCarriesOnlyWhatTheStripDraws(t *testing.T) {
 		}
 	}
 }
+
+// edgeNet is a cycle where MiMo's edge did not answer but an unrelated
+// Singapore host did — AttributeFault resolves that to 'edge'.
+func edgeNet() []probe.NetResult {
+	return []probe.NetResult{
+		{Target: probe.TargetMimoSGP, OK: false, ErrorClass: probe.ErrClassConnectTimeout},
+		{Target: probe.TargetRefSGP, DNSMs: 4, ConnectMs: 265, OK: true},
+	}
+}
+
+// Newest first and capped, like every other "recent" query on this store. The
+// verdict walks the head of this slice looking for a run of failures, so an
+// oldest-first slice would score the wrong end of the day.
+func TestRecentCyclesAreNewestFirstAndCapped(t *testing.T) {
+	s := New(openTestDB(t))
+	now := time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC)
+	seedCycles(t, s, "mimo-v2.5", now, RecentCycleCount+14, 900)
+
+	got, err := s.RecentCycles(context.Background(), probe.ProbeInfer)
+	if err != nil {
+		t.Fatalf("RecentCycles: %v", err)
+	}
+	if len(got) != RecentCycleCount {
+		t.Fatalf("cycles = %d, want %d", len(got), RecentCycleCount)
+	}
+	for i := 1; i < len(got); i++ {
+		if !got[i].At.Before(got[i-1].At) {
+			t.Fatalf("cycle %d at %s is not older than %s", i, got[i].At, got[i-1].At)
+		}
+	}
+}
+
+// The block carries the stored attribution, because edge-vs-uplink cannot be
+// reconstructed from an inference row: it is decided from the TCP handshakes.
+func TestRecentCyclesCarryTheStoredFault(t *testing.T) {
+	s := New(openTestDB(t))
+	now := time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC)
+	ctx := context.Background()
+
+	for i, net := range [][]probe.NetResult{okNet(), edgeNet(), deadNet()} {
+		if _, err := s.Save(ctx, Cycle{
+			StartedAt: now.Add(time.Duration(i) * time.Minute), Net: net,
+			Infer: []probe.InferResult{okInfer("mimo-v2.5", 900)},
+		}); err != nil {
+			t.Fatalf("Save: %v", err)
+		}
+	}
+
+	got, err := s.RecentCycles(ctx, probe.ProbeInfer)
+	if err != nil {
+		t.Fatalf("RecentCycles: %v", err)
+	}
+	want := []string{probe.FaultUplink, probe.FaultEdge, probe.FaultOK}
+	if len(got) != len(want) {
+		t.Fatalf("cycles = %d, want %d", len(got), len(want))
+	}
+	for i, w := range want {
+		if got[i].Fault != w {
+			t.Errorf("cycle %d fault = %q, want %q", i, got[i].Fault, w)
+		}
+	}
+}
+
+// The whole point of the block: it is not bounded by a window, so a banner
+// built on it cannot be pinned red by a fault that has aged into history but
+// not yet out of the selected range.
+func TestRecentCyclesIgnoreEveryWindow(t *testing.T) {
+	s := New(openTestDB(t))
+	now := time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC)
+	// Older than the longest window this dashboard offers.
+	seedCycles(t, s, "mimo-v2.5", now.Add(-100*24*time.Hour), 3, 900)
+
+	got, err := s.RecentCycles(context.Background(), probe.ProbeInfer)
+	if err != nil {
+		t.Fatalf("RecentCycles: %v", err)
+	}
+	if len(got) != 3 {
+		t.Fatalf("cycles = %d, want 3 — there is no `since` to pass, and that is the point", len(got))
+	}
+}
+
+// Per model, because a verdict about mimo-v2.5 must not be built from
+// mimo-v2.5-pro's failures.
+func TestRecentCyclesCarryEachModelsOutcome(t *testing.T) {
+	s := New(openTestDB(t))
+	now := time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC)
+	ctx := context.Background()
+
+	if _, err := s.Save(ctx, Cycle{
+		StartedAt: now, Net: okNet(),
+		Infer: []probe.InferResult{
+			okInfer("mimo-v2.5", 900),
+			failedInfer("mimo-v2.5-pro", probe.ErrClassTTFTTimeout, 30000),
+		},
+	}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	got, err := s.RecentCycles(ctx, probe.ProbeInfer)
+	if err != nil {
+		t.Fatalf("RecentCycles: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("cycles = %d, want 1", len(got))
+	}
+	if run, ok := got[0].Models["mimo-v2.5"]; !ok || !run.OK {
+		t.Errorf("mimo-v2.5 = %+v, want a successful run", run)
+	}
+	if run, ok := got[0].Models["mimo-v2.5-pro"]; !ok || run.OK {
+		t.Errorf("mimo-v2.5-pro = %+v, want a failed run", run)
+	}
+	if run := got[0].Models["mimo-v2.5-pro"]; run.AnswerOK != nil {
+		t.Errorf("answer_ok = %v, want nil — a run that failed answered nothing", *run.AnswerOK)
+	}
+}
+
+// A cycle whose inference runs were all skipped still happened, and the network
+// layer still attributed it. Dropping it would turn a gap into a clean stretch,
+// which is exactly the direction a monitor must never round.
+func TestRecentCyclesKeepACycleWithNoRuns(t *testing.T) {
+	s := New(openTestDB(t))
+	now := time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC)
+	ctx := context.Background()
+
+	if _, err := s.Save(ctx, Cycle{StartedAt: now, Net: edgeNet()}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	got, err := s.RecentCycles(ctx, probe.ProbeInfer)
+	if err != nil {
+		t.Fatalf("RecentCycles: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("cycles = %d, want 1 — the cycle ran, it just recorded no inference", len(got))
+	}
+	if got[0].Fault != probe.FaultEdge {
+		t.Errorf("fault = %q, want %q", got[0].Fault, probe.FaultEdge)
+	}
+	if len(got[0].Models) != 0 {
+		t.Errorf("models = %v, want empty", got[0].Models)
+	}
+}
+
+// Summarize carries the block, so the client gets it on requests it already
+// makes rather than on a seventh one.
+func TestSummarizeCarriesTheRecentBlock(t *testing.T) {
+	s := New(openTestDB(t))
+	now := time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC)
+	seedCycles(t, s, "mimo-v2.5", now, 4, 900)
+
+	w, _ := LookupWindow("24h")
+	sum, err := s.Summarize(context.Background(), w, []string{"mimo-v2.5"}, probe.ProbeInfer, now)
+	if err != nil {
+		t.Fatalf("Summarize: %v", err)
+	}
+	if len(sum.Recent) != 4 {
+		t.Fatalf("recent = %d, want 4", len(sum.Recent))
+	}
+}

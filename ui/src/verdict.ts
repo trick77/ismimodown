@@ -1,7 +1,7 @@
 // Scoring. "Is 996 ms good?" is unanswerable in the abstract, so no figure is
 // published without the context needed to read it.
-import type { ModelSummary, Summary } from "./api/types";
-import { FAULT_EDGE, FAULT_ROUTE, FAULT_UPLINK } from "./api/types";
+import type { ModelSummary, RecentCycle, Summary } from "./api/types";
+import { FAULT_EDGE, FAULT_OK, FAULT_ROUTE, FAULT_UPLINK } from "./api/types";
 
 export type State = "normal" | "elevated" | "degraded" | "unknown";
 
@@ -41,15 +41,25 @@ export const AVAILABILITY_DEGRADED = 98;
 export const CORRECTNESS_ELEVATED = 98;
 export const CORRECTNESS_DEGRADED = 95;
 
-export function scoreAvailability(pct: number | null): State {
+// The floor under every percentage on this page.
+//
+// A percentage over a small numerator is a rounding error with a decimal point.
+// At 288 cycles a day, ONE failed run is 99.65% — under the elevated band — so
+// the bands alone paint a chip on a single dropped connection, every day,
+// forever. The band says how bad; this says whether anything actually happened.
+export const MIN_FAILURES_FOR_STATE = 3;
+
+export function scoreAvailability(pct: number | null, failures: number): State {
   if (pct === null || !Number.isFinite(pct)) return "unknown";
+  if (failures < MIN_FAILURES_FOR_STATE) return "normal";
   if (pct < AVAILABILITY_DEGRADED) return "degraded";
   if (pct < AVAILABILITY_ELEVATED) return "elevated";
   return "normal";
 }
 
-export function scoreCorrectness(pct: number | null): State {
+export function scoreCorrectness(pct: number | null, wrong: number): State {
   if (pct === null || !Number.isFinite(pct)) return "unknown";
+  if (wrong < MIN_FAILURES_FOR_STATE) return "normal";
   if (pct < CORRECTNESS_DEGRADED) return "degraded";
   if (pct < CORRECTNESS_ELEVATED) return "elevated";
   return "normal";
@@ -62,6 +72,168 @@ export function worst(...states: State[]): State {
   return "unknown";
 }
 
+// ---------------------------------------------------------------------------
+// "Right now"
+//
+// Everything below scores summary.recent — the last cycles, in order, NOT
+// scoped to the selected window. The banner used to fire on fault COUNTS over
+// that window, which had two failure modes at once: one bad cycle out of sixty
+// published DEGRADED, and it kept publishing it until the cycle aged out of the
+// range. On the 3-month view that is three months of red for one dropped
+// connection.
+//
+// The horizon and the thresholds live here rather than on the daemon for the
+// same reason the baseline window does (see App.tsx): the client is the only
+// thing that acts on them, and the daemon has no opinion.
+// ---------------------------------------------------------------------------
+
+// How far back "right now" reaches. Twelve cycles is one hour at the 5-minute
+// cadence: long enough that a flapping endpoint cannot hide between two clean
+// checks, short enough that a fault which stopped an hour ago stops being news.
+// The banner is allowed to forget. The availability strip below it does not.
+export const RECENT_CYCLES = 12;
+
+// One red cycle is an anecdote; two in a row is a state. A single failed
+// handshake from one vantage point is indistinguishable from one retransmit
+// storm on one connection, and a dashboard that calls that DEGRADED gets
+// closed.
+export const DEGRADED_STREAK = 2;
+
+// ...or three inside the hour, consecutive or not. An endpoint that alternates
+// pass/fail never builds a streak and is exactly as broken as one that fails
+// twice in a row.
+export const DEGRADED_RECENT = 3;
+
+// One failure in the hour is worth saying out loud and nothing more.
+export const ELEVATED_RECENT = 1;
+
+// Wrong answers are noisier than failures — a model can miss a fact once — so
+// they need one more before they count.
+export const DEGRADED_WRONG_RECENT = 3;
+export const ELEVATED_WRONG_RECENT = 2;
+
+// Two missed cycles. Past this the newest measurement is not "now", and the
+// only honest banner is one that says so: a daemon that died mid-incident must
+// not pin its last red cycle on screen forever, which is the same bug the
+// window-scoped counts had, wearing a different hat. Well clear of the 30s
+// response cache, so a cached body can never trip it.
+export const STALE_AFTER_MS = 2 * 5 * 60 * 1000;
+
+// A cycle nobody could attribute. Both classes travel together everywhere in
+// this codebase: route is no longer produced, but stored cycles carry it, and
+// handling only uplink would silently misread them.
+function unattributable(cycle: RecentCycle): boolean {
+  return cycle.fault === FAULT_UPLINK || cycle.fault === FAULT_ROUTE;
+}
+
+// A cycle that failed at the network layer. The empty string is what a cycle
+// with no stored attribution carries, and it is NOT red: absence of evidence is
+// not evidence of failure, and a monitor must never round in that direction.
+function infraRed(cycle: RecentCycle): boolean {
+  return cycle.fault !== FAULT_OK && cycle.fault !== "";
+}
+
+export type Track = {
+  // Consecutive reds counting back from the newest cycle.
+  streak: number;
+  // Reds anywhere inside the horizon.
+  count: number;
+  // How many cycles back the newest red is, or null if there is none in the
+  // whole served block — which reaches further back than the horizon, so a
+  // quiet banner can still say when the last failure was.
+  lastRedAgo: number | null;
+};
+
+export function track(
+  cycles: RecentCycle[],
+  isRed: (cycle: RecentCycle) => boolean,
+): Track {
+  // Clamped to what was actually served: on a cold database there are three
+  // cycles, and counting a horizon of twelve against them would score nine
+  // cycles that do not exist.
+  const horizon = cycles.slice(0, RECENT_CYCLES);
+  let streak = 0;
+  for (const cycle of horizon) {
+    if (!isRed(cycle)) break;
+    streak++;
+  }
+  const lastRedAgo = cycles.findIndex(isRed);
+  return {
+    streak,
+    count: horizon.filter(isRed).length,
+    lastRedAgo: lastRedAgo === -1 ? null : lastRedAgo,
+  };
+}
+
+export function scoreTrack(
+  t: Track,
+  thresholds: { streak: number; degraded: number; elevated: number },
+): State {
+  if (t.streak >= thresholds.streak || t.count >= thresholds.degraded) {
+    return "degraded";
+  }
+  if (t.count >= thresholds.elevated) return "elevated";
+  return "normal";
+}
+
+const FAILURE_THRESHOLDS = {
+  streak: DEGRADED_STREAK,
+  degraded: DEGRADED_RECENT,
+  elevated: ELEVATED_RECENT,
+};
+
+// Wrong answers cannot form a "streak" worth acting on the way dropped cycles
+// can — two wrong answers in a row is the same evidence as two in the hour —
+// so the streak rule is set out of reach and density decides.
+const WRONG_THRESHOLDS = {
+  streak: Number.POSITIVE_INFINITY,
+  degraded: DEGRADED_WRONG_RECENT,
+  elevated: ELEVATED_WRONG_RECENT,
+};
+
+// Which fault class the reds inside the horizon are mostly made of.
+//
+// Ties break OUTWARD — uplink over route over edge — because each layer makes
+// the ones beyond it unreadable. If nothing in Singapore answered we cannot say
+// anything about MiMo, and saying it anyway is how a monitor publishes an
+// outage that never happened.
+export function dominantFault(cycles: RecentCycle[]): {
+  fault: string | null;
+  counts: Record<string, number>;
+} {
+  const counts: Record<string, number> = {};
+  for (const cycle of cycles.slice(0, RECENT_CYCLES)) {
+    if (!infraRed(cycle)) continue;
+    counts[cycle.fault] = (counts[cycle.fault] ?? 0) + 1;
+  }
+  let fault: string | null = null;
+  for (const candidate of [FAULT_UPLINK, FAULT_ROUTE, FAULT_EDGE]) {
+    if ((counts[candidate] ?? 0) > (fault ? (counts[fault] ?? 0) : 0)) {
+      fault = candidate;
+    }
+  }
+  return { fault, counts };
+}
+
+// isStale is true when the newest cycle is old enough that nothing on the page
+// is current. Measured against the server's own generated_at rather than the
+// browser clock, so a skewed client cannot manufacture an outage.
+export function isStale(summary: Summary): boolean {
+  const newest = (summary.recent ?? [])[0];
+  if (!newest) return false;
+  const age = Date.parse(summary.generated_at) - Date.parse(newest.at);
+  return Number.isFinite(age) && age > STALE_AFTER_MS;
+}
+
+// How long ago, in words, a cycle n places back from the newest one ran.
+function agoWords(cyclesBack: number): string {
+  const minutes = cyclesBack * 5;
+  if (minutes < 5) return "just now";
+  if (minutes < 60) return `${minutes} minutes ago`;
+  const hours = Math.round(minutes / 60);
+  return hours === 1 ? "an hour ago" : `${hours} hours ago`;
+}
+
 export type Verdict = {
   state: State;
   headline: string;
@@ -70,15 +242,19 @@ export type Verdict = {
 
 // buildVerdict states the situation in plain English before any number appears.
 //
-// Precedence runs uplink -> route -> edge -> model, because each layer makes
-// the ones beyond it unreadable: if nothing in Singapore answered we cannot say
-// anything about MiMo, and saying it anyway is how a monitor publishes an
-// outage that never happened. (route is historical — see the branch below.)
+// `summary` is the FIXED window the banner reads (App.tsx NOW_WINDOW), never
+// the selected one: the banner answers "how is it right now" and the cards
+// answer "over the selected window". Tying the first to the second is what made
+// one failed cycle publish DEGRADED for as long as the range held it.
 export function buildVerdict(
   summary: Summary | null,
   baseline: Summary | null,
 ): Verdict {
-  if (!summary || summary.cycles === 0) {
+  // `?? []` for the same reason `faults` carried one: a payload that predates
+  // the field must read as "nothing to say", never crash the page it is the
+  // headline of.
+  const recent = summary?.recent ?? [];
+  if (!summary || summary.cycles === 0 || recent.length === 0) {
     return {
       state: "unknown",
       headline: "Collecting data — first samples within 5 minutes",
@@ -86,51 +262,27 @@ export function buildVerdict(
     };
   }
 
-  const faults = summary.faults ?? {};
-  if (faults[FAULT_UPLINK]) {
+  // Above every other branch, including the reasoning override below. A dead
+  // daemon leaves its last cycles on record, and if those were red then every
+  // rule further down would keep publishing an outage that stopped being
+  // measured hours ago.
+  if (isStale(summary)) {
+    const minutes = Math.round(
+      (Date.parse(summary.generated_at) - Date.parse(recent[0]!.at)) / 60000,
+    );
     return {
-      state: "degraded",
-      headline:
-        "Nothing in Singapore was reachable — this says nothing about MiMo",
+      state: "unknown",
+      headline: "No fresh measurement — the probe itself may be down",
       detail: [
-        `${faults[FAULT_UPLINK]} of ${summary.cycles} cycles reached neither MiMo nor the reference host, so they are excluded from availability. From one vantage point our own connection and the route to Singapore look identical, and neither is MiMo's to answer for.`,
+        `The last cycle landed ${minutes} minutes ago, and they run every 5. Nothing on this page is current.`,
       ],
     };
-  }
-  // Historical: cycles recorded while a second reference host still made the
-  // route-vs-uplink split possible. Nothing produces this any more, but stored
-  // cycles carry it and must still read correctly.
-  if (faults[FAULT_ROUTE]) {
-    return {
-      state: "degraded",
-      headline: "The route to Singapore is degraded — not MiMo, and not us",
-      detail: [
-        `${faults[FAULT_ROUTE]} of ${summary.cycles} cycles could not reach MiMo's edge OR an unrelated Singapore host.`,
-      ],
-    };
-  }
-  if (faults[FAULT_EDGE]) {
-    return {
-      state: "degraded",
-      headline: "MiMo's edge is unreachable — the route to Singapore is fine",
-      detail: [
-        `${faults[FAULT_EDGE]} of ${summary.cycles} cycles failed to reach MiMo while a second Singapore host answered.`,
-      ],
-    };
-  }
-
-  const detail: string[] = [];
-  let state: State = "normal";
-
-  for (const model of summary.models) {
-    const base = baseline?.models.find((m) => m.model_id === model.model_id);
-    const modelState = scoreModel(model, base ?? null);
-    state = worst(state, modelState.state);
-    detail.push(...modelState.detail);
   }
 
   // A non-zero reasoning count invalidates every latency figure in the window,
-  // so it outranks any latency verdict rather than sitting beside it.
+  // so it outranks any latency verdict rather than sitting beside it. It is
+  // scored over the same window whose figures it invalidates — no longer over
+  // whichever range the reader selected.
   const reasoning = summary.models.filter((m) => m.max_reasoning_tokens > 0);
   if (reasoning.length > 0) {
     return {
@@ -144,22 +296,41 @@ export function buildVerdict(
     };
   }
 
-  if (state === "normal") {
+  const infra = track(recent, infraRed);
+  const infraState = scoreTrack(infra, FAILURE_THRESHOLDS);
+  if (infraState !== "normal") {
+    return faultVerdict(infraState, recent, infra);
+  }
+
+  const detail: string[] = [];
+  let state: State = "normal";
+  const struggling: string[] = [];
+
+  for (const model of summary.models) {
+    const base = baseline?.models.find((m) => m.model_id === model.model_id);
+    const modelState = scoreModel(model, base ?? null, recent);
+    state = worst(state, modelState.state);
+    detail.push(...modelState.detail);
+    if (modelState.state !== "normal" && modelState.state !== "unknown") {
+      struggling.push(model.model_id);
+    }
+  }
+
+  if (state === "normal" || struggling.length === 0) {
     return {
-      state,
+      state: "normal",
+      // Forgetting is only acceptable if the page says what it forgot. Without
+      // this line, a banner that has gone quiet is indistinguishable from one
+      // that never had anything to report.
       headline: "Everything looks normal right now",
-      detail,
+      detail:
+        infra.lastRedAgo !== null
+          ? [
+              `The last failed cycle was ${agoWords(infra.lastRedAgo)}; the ${infra.lastRedAgo} since have all been clean.`,
+            ]
+          : detail,
     };
   }
-  const struggling = summary.models
-    .filter(
-      (m) =>
-        scoreModel(
-          m,
-          baseline?.models.find((b) => b.model_id === m.model_id) ?? null,
-        ).state !== "normal",
-    )
-    .map((m) => m.model_id);
   return {
     state,
     headline: `${struggling.join(" and ")} ${struggling.length > 1 ? "are" : "is"} having problems right now`,
@@ -167,25 +338,100 @@ export function buildVerdict(
   };
 }
 
-function scoreModel(
-  model: ModelSummary,
-  baseline: ModelSummary | null,
-): { state: State; detail: string[] } {
-  const detail: string[] = [];
+// faultVerdict speaks for the network layer, where the precedence that matters
+// is which layer failed rather than how much: uplink -> route -> edge, because
+// each one makes the ones beyond it unreadable.
+function faultVerdict(state: State, recent: RecentCycle[], t: Track): Verdict {
+  const { fault, counts } = dominantFault(recent);
+  const horizon = Math.min(RECENT_CYCLES, recent.length);
+  const when = t.lastRedAgo === null ? "just now" : agoWords(t.lastRedAgo);
 
-  const availability = scoreAvailability(
-    model.attempts > 0 ? model.available_pct : null,
-  );
-  if (availability !== "normal" && availability !== "unknown") {
+  const detail: string[] = [];
+  if (t.streak >= DEGRADED_STREAK) {
     detail.push(
-      `${model.model_id} availability has dropped to ${model.available_pct.toFixed(1)}%.`,
+      `The last ${t.streak} cycles in a row failed — the most recent ${when}.`,
+    );
+  } else if (t.count > 1) {
+    detail.push(
+      `${t.count} of the last ${horizon} cycles failed, the most recent ${when}.`,
+    );
+  } else {
+    detail.push(
+      `1 of the last ${horizon} cycles failed, ${when}. One cycle is not yet a pattern.`,
     );
   }
 
-  const correctness = scoreCorrectness(model.correct_pct);
-  if (correctness !== "normal" && correctness !== "unknown") {
+  if (fault === FAULT_UPLINK || fault === FAULT_ROUTE) {
+    const headline =
+      fault === FAULT_UPLINK
+        ? "Nothing in Singapore was reachable — this says nothing about MiMo"
+        : "The route to Singapore is degraded — not MiMo, and not us";
     detail.push(
-      `${model.model_id} answered ${model.correct_pct?.toFixed(1)}% of questions correctly.`,
+      fault === FAULT_UPLINK
+        ? "Those cycles reached neither MiMo nor the reference host, so they are excluded from availability. From one vantage point our own connection and the route to Singapore look identical, and neither is MiMo's to answer for."
+        : "Those cycles could not reach MiMo's edge OR an unrelated Singapore host.",
+    );
+    // A mixed run has to disclose the mix, or the headline claims more than the
+    // evidence supports.
+    const edge = counts[FAULT_EDGE] ?? 0;
+    if (edge > 0) {
+      detail.push(
+        `${edge} of them did reach a second Singapore host, so MiMo's own edge was down for ${edge === 1 ? "that cycle" : "those cycles"} too.`,
+      );
+    }
+    return { state, headline, detail };
+  }
+
+  detail.push(
+    "They failed to reach MiMo while a second Singapore host answered.",
+  );
+  const unattributed = (counts[FAULT_UPLINK] ?? 0) + (counts[FAULT_ROUTE] ?? 0);
+  if (unattributed > 0) {
+    detail.push(
+      `${unattributed} of them reached neither host, so ${unattributed === 1 ? "it cannot" : "they cannot"} be attributed to MiMo.`,
+    );
+  }
+  return {
+    state,
+    headline: "MiMo's edge is unreachable — the route to Singapore is fine",
+    detail,
+  };
+}
+
+// scoreModel reads availability and correctness from the recent cycles rather
+// than from the window's percentages: the banner is about now, and a percentage
+// over a day of cycles cannot say whether the failures in it are still
+// happening. The latency comparison stays on the window, because a percentile
+// needs more samples than an hour holds.
+function scoreModel(
+  model: ModelSummary,
+  baseline: ModelSummary | null,
+  recent: RecentCycle[],
+): { state: State; detail: string[] } {
+  const detail: string[] = [];
+  const horizon = Math.min(RECENT_CYCLES, recent.length);
+
+  // A model cannot be charged for a cycle where nothing in Singapore answered:
+  // the run failed on connect, before it ever reached MiMo.
+  const failures = track(
+    recent,
+    (c) => !unattributable(c) && c.models[model.model_id]?.ok === false,
+  );
+  const availability = scoreTrack(failures, FAILURE_THRESHOLDS);
+  if (availability !== "normal") {
+    detail.push(
+      `${model.model_id} failed ${failures.count} of the last ${horizon} runs.`,
+    );
+  }
+
+  const wrong = track(
+    recent,
+    (c) => c.models[model.model_id]?.answer_ok === false,
+  );
+  const correctness = scoreTrack(wrong, WRONG_THRESHOLDS);
+  if (correctness !== "normal") {
+    detail.push(
+      `${model.model_id} answered ${wrong.count} of the last ${horizon} questions wrongly.`,
     );
   }
 

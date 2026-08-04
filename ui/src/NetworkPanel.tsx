@@ -2,7 +2,7 @@ import type { NetSeries } from "./api/types";
 import { TARGET_MIMO, TARGET_REF_SGP } from "./api/types";
 import { Card } from "./ui";
 import { EChart } from "./charts/EChart";
-import { buildLineOption, WIRE_COLOR } from "./charts/options";
+import { buildLineOption, REFERENCE_COLOR, WIRE_COLOR } from "./charts/options";
 
 const LABELS: Record<string, string> = {
   [TARGET_MIMO]: "MiMo edge (Singapore)",
@@ -11,10 +11,11 @@ const LABELS: Record<string, string> = {
 
 // The reference line is faint; MiMo's own edge is the one being read. Both are
 // drawn in neutral ink rather than series colours, because neither of them is
-// a model.
+// a model — and the reference gets the darker of the two neutrals, so the two
+// lines separate on sight rather than on the legend.
 const COLORS: Record<string, string> = {
   [TARGET_MIMO]: "#faf9f5",
-  [TARGET_REF_SGP]: WIRE_COLOR,
+  [TARGET_REF_SGP]: REFERENCE_COLOR,
 };
 
 export function NetworkPanel({ series }: { series: NetSeries | null }) {

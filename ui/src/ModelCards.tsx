@@ -24,10 +24,18 @@ export function ModelCards({
     <div className="grid gap-4 sm:grid-cols-2">
       {models.map((m) => {
         const base = baseline?.models.find((b) => b.model_id === m.model_id);
+        // The counts, not just the percentages. A card describes the selected
+        // window, and over a day of cycles one dropped connection is 99.65%
+        // available — under the band, and painted as a state. The band decides
+        // how bad it is; the count decides whether anything happened at all.
         const availability = scoreAvailability(
           m.attempts > 0 ? m.available_pct : null,
+          m.attempts - m.succeeded,
         );
-        const correctness = scoreCorrectness(m.correct_pct);
+        const correctness = scoreCorrectness(
+          m.correct_pct,
+          m.answered - m.correct,
+        );
         const ttft = scoreRatio(m.ttft.p50_ms, base?.ttft.p50_ms ?? null);
 
         return (

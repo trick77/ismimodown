@@ -12,6 +12,14 @@ import { shouldUseLogScale } from "../format";
 export const SERIES_COLORS = ["#3987e5", "#d95926"] as const;
 // The network is drawn in neutral ink because it is not a model.
 export const WIRE_COLOR = "#9c9a92";
+// The Singapore reference host, one step darker than the neutral above. It is
+// the control, not the measurement — the line the reader checks against rather
+// than reads — so it recedes behind MiMo's own edge. Its own constant rather
+// than a darker WIRE_COLOR: that value is also the decomposition's "to the
+// edge" segment, where it is paired with SERVER_COLOR and its contrast is
+// already spent. Against #1f1f1e this sits near 3.6:1, above the 3:1 a chart
+// line needs to stay a line.
+export const REFERENCE_COLOR = "#6f6d67";
 
 // The server-side remainder in the decomposition. Deliberately NOT
 // SERIES_COLORS[0]: that hue is mimo-v2.5's identity, and the decomposition
