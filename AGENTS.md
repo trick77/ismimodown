@@ -43,7 +43,8 @@ nothing was measured. Never fold censored runs back INTO the percentiles.
 **Cycles run models concurrently, probes within a model sequentially.** Sequential models
 make a cycle cost the sum, so the cadence breaks at ~`CycleInterval / len(Models)` and the
 series thins out during the incident it exists to record. Two probes at once against one
-model contend for the same upstream node.
+model contend for the same upstream node. A wide cycle still costs infer+wide per model
+and can still overrun — that is recorded, not prevented.
 
 **A dropped tick is recorded, never just absorbed.** A cycle overrunning its slot is the
 only thing that writes `skipped_runs`; the `inFlight` guard cannot fire while cycles run

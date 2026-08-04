@@ -517,8 +517,21 @@ func (s *Store) Series(ctx context.Context, column, modelID, probeKind string, w
 			SELECT unixepoch(c.started_at) / %[1]d * %[1]d AS bucket, count(*) AS c
 			FROM infer_probes i
 			JOIN cycles c ON c.id = i.cycle_id
+			LEFT JOIN cycle_fault f ON f.cycle_id = c.id
 			WHERE i.model_id = ? AND i.probe = ? AND %[3]s
 			  AND c.started_at >= ?
+			  -- The SAME unattributable-cycle exclusion the summary applies to
+			  -- its censored count. A band on the chart is a claim about MiMo's
+			  -- distribution, exactly as the count on the card is, and a run cut
+			  -- off during OUR uplink outage is neither. Without this the card
+			  -- refuses to count a run that the chart still bands, over a caption
+			  -- saying probes here were cut off — two published figures for one
+			  -- concept, disagreeing.
+			  --
+			  -- Reachable, not theoretical: the fault is attributed from TCP
+			  -- handshakes at the top of the cycle while the HTTP request can get
+			  -- further, so a timeout on an 'uplink' cycle is a real row.
+			  AND COALESCE(f.fault, '') NOT IN (?, ?)
 			GROUP BY bucket
 		),
 		buckets AS (
@@ -532,7 +545,7 @@ func (s *Store) Series(ctx context.Context, column, modelID, probeKind string, w
 
 	args := []any{modelID, probeKind, rfc(since), modelID, probeKind}
 	args = append(args, censoredArgs...)
-	args = append(args, rfc(since))
+	args = append(args, rfc(since), probe.FaultUplink, probe.FaultRoute)
 
 	rows, err := s.db.QueryContext(ctx, q, args...)
 	if err != nil {

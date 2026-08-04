@@ -802,3 +802,46 @@ func TestAPartlyCensoredBucketCarriesBothItsValueAndItsCount(t *testing.T) {
 		t.Errorf("censored = %d, want 1", p.Censored)
 	}
 }
+
+// The chart band and the card's count are two publications of ONE claim, so
+// they must exclude the same cycles. The card already refuses to count a run
+// cut off during our own uplink outage; a chart that bands it anyway, over a
+// caption saying probes here were cut off, publishes our outage as MiMo's.
+func TestTheChartBandAndTheSummaryCountAgreeOnUnattributableCycles(t *testing.T) {
+	s := New(openTestDB(t))
+	now := time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC)
+	ctx := context.Background()
+
+	// Nothing in Singapore answered, and the inference run timed out with it.
+	// The fault is attributed from TCP handshakes at the top of the cycle while
+	// the HTTP request gets further, so this row is reachable, not contrived.
+	if _, err := s.Save(ctx, Cycle{
+		StartedAt: now.Add(-time.Minute),
+		Net: []probe.NetResult{
+			{Target: probe.TargetMimoSGP, OK: false, ErrorClass: probe.ErrClassConnectTimeout},
+			{Target: probe.TargetRefSGP, OK: false, ErrorClass: probe.ErrClassConnectTimeout},
+		},
+		Infer: []probe.InferResult{failedInfer("mimo-v2.5", probe.ErrClassTimeout, 240000)},
+	}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	w, _ := LookupWindow("24h")
+	sum, err := s.Summarize(ctx, w, []string{"mimo-v2.5"}, probe.ProbeInfer, now)
+	if err != nil {
+		t.Fatalf("Summarize: %v", err)
+	}
+	pts, err := s.Series(ctx, "ttft_ms", "mimo-v2.5", probe.ProbeInfer, w, now)
+	if err != nil {
+		t.Fatalf("Series: %v", err)
+	}
+
+	inCharts := 0
+	for _, p := range pts {
+		inCharts += p.Censored
+	}
+	if got := sum.Models[0].Censored; got != 0 || inCharts != 0 {
+		t.Errorf("censored: summary %d, series %d — both must be 0 on an uplink cycle, and above all EQUAL",
+			got, inCharts)
+	}
+}

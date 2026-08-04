@@ -373,6 +373,18 @@ func (s *Scheduler) RunCycle(ctx context.Context) {
 	// the other's queueing, which is the exact confound this probe exists to
 	// avoid — and it is why the in-flight guard is keyed by model+probe rather
 	// than held globally.
+	//
+	// This does NOT reintroduce the contention the pings are sequential to avoid.
+	// Those are three handshakes measuring the uplink itself, where our own
+	// parallelism IS the measurement error; these are latency-bound streams of a
+	// few dozen tokens against a remote endpoint, and every handshake in the
+	// cycle has already completed before the first one starts.
+	//
+	// A wide cycle still costs infer+wide per model — around 360 s at the
+	// per-model latencies that motivated this — so the hourly cycle can still run
+	// through its slot. recordMissedTicks makes that visible rather than silent,
+	// which is the honest outcome; serialising less than this would cost the
+	// isolation above.
 	var (
 		mu sync.Mutex
 		wg sync.WaitGroup
