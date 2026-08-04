@@ -36,7 +36,18 @@ const (
 	DefaultRefSGPHost = "sgp1.digitaloceanspaces.com"
 
 	// DefaultRefEUHost answers "is our uplink up at all" from a nearby PoP.
-	DefaultRefEUHost = "1.1.1.1"
+	//
+	// A hostname on Cloudflare's anycast network, NOT a bare resolver IP.
+	// 1.1.1.1, 9.9.9.9 and 8.8.8.8 were all measured unreachable on port 443
+	// (1.1.1.1:53 connects in 6.9 ms while 1.1.1.1:443 times out), because those
+	// addresses are provisioned for DNS and their 443 service is filtered on
+	// many networks. A permanently-failing europe reference would not create a
+	// false outage — AttributeFault only consults it once MiMo is already
+	// down — but it WOULD destroy the route-vs-uplink distinction exactly when
+	// that distinction matters. cloudflare.com is a real HTTPS endpoint, so 443
+	// is genuinely served, and it still answers from a nearby PoP (~20 ms
+	// measured from Zurich).
+	DefaultRefEUHost = "cloudflare.com"
 )
 
 // DefaultUserAgent impersonates opencode, because MiMo's token-plan endpoint is
