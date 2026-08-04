@@ -97,10 +97,6 @@ distinction without causing a visible failure.
 `../music` — UI stack (React 19 + Vite + TS + Tailwind v4), `@theme` tokens, `ui.tsx`
 `../loom` — MiMo client: `internal/llm/{client,types,session,stream}.go`
 
-## Plan of record
-
-`docs/plan.html` — open in Safari. Do not re-litigate settled decisions.
-
 ## Conventions
 
 `.yaml` never `.yml`. English UI, Europe/Zurich, 24-hour clock.
