@@ -3,6 +3,7 @@ package store
 import (
 	"database/sql"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -82,38 +83,10 @@ func TestSchemaTablesExistAndAreStrict(t *testing.T) {
 		}
 		// STRICT is the guard against a parsing bug storing text in a REAL
 		// column, where it would survive until a percentile query met it.
-		if !containsFold(sqlText, "STRICT") {
+		if !strings.Contains(strings.ToUpper(sqlText), "STRICT") {
 			t.Errorf("table %s is not STRICT", table)
 		}
 	}
-}
-
-func containsFold(haystack, needle string) bool {
-	for i := 0; i+len(needle) <= len(haystack); i++ {
-		if equalFold(haystack[i:i+len(needle)], needle) {
-			return true
-		}
-	}
-	return false
-}
-
-func equalFold(a, b string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		ca, cb := a[i], b[i]
-		if 'a' <= ca && ca <= 'z' {
-			ca -= 32
-		}
-		if 'a' <= cb && cb <= 'z' {
-			cb -= 32
-		}
-		if ca != cb {
-			return false
-		}
-	}
-	return true
 }
 
 // The network-vs-inference subtraction is a join on cycle_id. If an inference
