@@ -13,23 +13,43 @@ Working dir `/Users/jan/localgit/llmstats` (directory name is stale — the proj
 **mimostats**). Repo `git@github.com:trick77/mimostats.git`, public, default branch `master`,
 module `github.com/trick77/mimostats`. Site will be `mimostats.trick77.com`.
 
-All six planned phases are built. PRs #1–#6 merged; **PR #7 (compose, container healthcheck,
-DEPLOY.md) is open and CI-green**. Backend coverage 87.6%, UI 82.3%, floor 75%.
+**All six planned phases are built, reviewed and merged (PRs #1–#8). Nothing is open.**
+Release `0.0.8` is on GHCR as `ghcr.io/trick77/mimostats:latest`. Backend coverage 87.6%,
+UI 82.3%, floor 75%.
+
+The container has been built AND run locally: healthy under compose, all endpoints 200, SPA
+served from the embedded filesystem, cycles landing on aligned 5-minute ticks. What has never
+happened is a **real deployment on the Roubaix box with the real key**.
 
 Read first: `docs/plan.html` (open in Safari — plan of record, carries inline amendments),
-then `AGENTS.md` (the invariants).
+then `AGENTS.md` (the invariants), then `DEPLOY.md`.
 
 ## Do this next, in order
 
-1. **`/code-review medium 7 --fix`** — I cannot invoke it (`disable-model-invocation`); the
-   user must. It has found a real defect on every PR so far. Apply findings, then merge #7.
-2. Merging #7 cuts the next patch release. The image already builds: six release runs have
-   succeeded and `0.0.6` — the first build carrying the UI stage — is on GHCR as `latest`.
-   It has never been RUN, only built, so `docker compose up` is still unexercised.
-3. **Confirm the two reference ping hosts from the Roubaix box.** Every RTT so far is from
-   Zurich. `DEPLOY.md` has a copy-paste script. This is the longest-standing open item.
-4. Deploy per `DEPLOY.md`, then let it run 24h and confirm the network/server-side split looks
-   sane and consumption tracks the cost model.
+1. **Deploy**, following `DEPLOY.md` exactly — including `mkdir -p data && sudo chown 1000:1000
+   data` before the first `docker compose up -d`. That step is load-bearing on Linux and is
+   invisible on macOS, where the bind mount translates ownership.
+2. **Confirm the two reference ping hosts from that box.** `DEPLOY.md` has a copy-paste script.
+   Every RTT gathered so far is from Zurich. This is the longest-standing open item: a dead
+   europe reference does not create a false outage — attribution only consults it once MiMo is
+   already unreachable — but it silently destroys the route-vs-uplink distinction, and nothing
+   in the UI would show it.
+3. **The hard gate, once, with the real key:** every sample must have `reasoning_tokens = 0`
+   and `cached_tokens` at or near 0. The query is in `DEPLOY.md`. A non-zero reasoning count
+   means thinking came back on and every latency figure is measuring something else.
+4. **Let it run 24h.** Confirm the network/server-side split looks sane, and that consumption
+   tracks the measured model: infer is ~34 prompt + ~65 output tokens per run (576 runs/day),
+   wide ~3844 + 300 (48 runs/day) — about **256k tokens/day**, against the plan's 269k estimate.
+5. Open the site in **Safari** and watch a cycle land live over SSE.
+
+## Still unresolved, none of it blocking
+
+- **`/code-review` was never run on PR #8.** It found a real defect on every PR it did run on.
+- **The ITL decision was never confirmed.** The throughput chart leads with `output_tps` rather
+  than ITL p50 — see the findings below. Reversible in one panel.
+- **Cosmetic naming drift:** the working directory is still `llmstats`, as are `docs/plan.html`
+  and `docs/mockups/llmstats.html`. The docs were deliberately left alone during the rename
+  because they describe the plan as written.
 
 ## Workflow (non-negotiable)
 
@@ -83,3 +103,10 @@ Never call the residual "model time".
   `git checkout -- backend/web/dist/index.html` after building or the real bundle gets committed.
 - Peeq's dependabot ignore on `ncruces/go-sqlite3` is deliberately **not** copied (that pin
   exists for sqlite-vec, which this project does not use).
+- **The container healthcheck must stay the exec form** `["CMD", ...]`. The string form and
+  `docker run --health-cmd` are `CMD-SHELL`, run through a `/bin/sh` the distroless image does
+  not have — the container then reports unhealthy while answering every request, and an
+  orchestrator restart-loops a working service.
+- **`/data` ownership bites twice.** A fresh named volume seeds `root:root` unless the image
+  carries the directory (it now does); a bind mount takes the host directory's ownership, which
+  is why `DEPLOY.md` chowns it. Neither reproduces on macOS.
