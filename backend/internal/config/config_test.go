@@ -230,3 +230,81 @@ func TestLoadAcceptsIPv6PingHostButStillRejectsHostPort(t *testing.T) {
 		}
 	})
 }
+
+// compose.yaml passes every optional variable through as "${VAR:-}", so an
+// operator who does not set one hands the container an EMPTY string rather than
+// leaving it unset. That form was chosen so this file stays the only place a
+// default is written — and it is only safe because set-but-empty and unset are
+// treated identically here.
+//
+// If that ever stops holding, a stock `docker compose up` blanks the whole
+// configuration at once: empty models, an empty database path, and — the one
+// that would not even fail loudly — an empty system prompt, which is the
+// difference between measuring prefill and measuring a cache lookup.
+func TestSetButEmptyIsTreatedAsUnset(t *testing.T) {
+	setMinimalEnv(t)
+
+	// Exactly the variables compose.yaml passes with an empty fallback.
+	for _, key := range []string{
+		"BACKEND_MODELS",
+		"BACKEND_DB_PATH",
+		"BACKEND_MIMO_BASE_URL",
+		"BACKEND_RETENTION",
+		"BACKEND_LOG_LEVEL",
+		"BACKEND_PING_MIMO_HOST",
+		"BACKEND_PING_REF_SGP_HOST",
+		"BACKEND_PROBE_SYSTEM_PROMPT",
+		"BACKEND_PROBE_USER_AGENT",
+		"BACKEND_PING_TIMEOUT",
+		"BACKEND_PROBE_DIAL_TIMEOUT",
+		"BACKEND_PROBE_HEADER_TIMEOUT",
+		"BACKEND_PROBE_TTFT_TIMEOUT",
+		"BACKEND_PROBE_IDLE_TIMEOUT",
+		"BACKEND_PROBE_TIMEOUT",
+	} {
+		t.Setenv(key, "")
+	}
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load with every optional variable set to empty: %v", err)
+	}
+
+	if got, want := strings.Join(cfg.Models, ","), strings.Join(DefaultModels, ","); got != want {
+		t.Errorf("Models = %q, want the built-in %q", got, want)
+	}
+	if cfg.DBPath != "/data/mimostats.db" {
+		t.Errorf("DBPath = %q, want /data/mimostats.db", cfg.DBPath)
+	}
+	if cfg.BaseURL != DefaultBaseURL {
+		t.Errorf("BaseURL = %q, want %q", cfg.BaseURL, DefaultBaseURL)
+	}
+	// The invariant that would fail silently rather than loudly.
+	if cfg.ProbeSystemPrompt != DefaultSystemPrompt {
+		t.Errorf("ProbeSystemPrompt = %q, want the default; an empty one lets MiMo inject its own",
+			cfg.ProbeSystemPrompt)
+	}
+	if cfg.ProbeUserAgent != DefaultUserAgent {
+		t.Errorf("ProbeUserAgent = %q, want %q", cfg.ProbeUserAgent, DefaultUserAgent)
+	}
+	if cfg.Retention != 2160*time.Hour {
+		t.Errorf("Retention = %v, want 2160h", cfg.Retention)
+	}
+	// The whole ladder, since compose passes all six the same way.
+	for _, tc := range []struct {
+		name string
+		got  time.Duration
+		want time.Duration
+	}{
+		{"PingTimeout", cfg.PingTimeout, 5 * time.Second},
+		{"DialTimeout", cfg.DialTimeout, 10 * time.Second},
+		{"HeaderTimeout", cfg.HeaderTimeout, 60 * time.Second},
+		{"TTFTTimeout", cfg.TTFTTimeout, 150 * time.Second},
+		{"IdleTimeout", cfg.IdleTimeout, 45 * time.Second},
+		{"ProbeTimeout", cfg.ProbeTimeout, 240 * time.Second},
+	} {
+		if tc.got != tc.want {
+			t.Errorf("%s = %v, want %v", tc.name, tc.got, tc.want)
+		}
+	}
+}

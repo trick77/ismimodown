@@ -22,6 +22,26 @@ services:
       BACKEND_ADDR: ":8080"
       BACKEND_LOG_LEVEL: debug
       BACKEND_MIMO_API_KEY: "${BACKEND_MIMO_API_KEY:?BACKEND_MIMO_API_KEY is required}"
+      # The same passthrough as the production file, and for a stronger reason:
+      # this stack exists to try things against the built container, and the
+      # ladder is the most likely thing to want to try. Empty fallbacks, so
+      # config.Load stays the only place a default is written — see compose.yaml
+      # for why that matters. Anything not listed here never reaches the
+      # container, whatever .env says.
+      BACKEND_MODELS: "${BACKEND_MODELS:-}"
+      BACKEND_DB_PATH: "${BACKEND_DB_PATH:-}"
+      BACKEND_MIMO_BASE_URL: "${BACKEND_MIMO_BASE_URL:-}"
+      BACKEND_RETENTION: "${BACKEND_RETENTION:-}"
+      BACKEND_PING_MIMO_HOST: "${BACKEND_PING_MIMO_HOST:-}"
+      BACKEND_PING_REF_SGP_HOST: "${BACKEND_PING_REF_SGP_HOST:-}"
+      BACKEND_PROBE_SYSTEM_PROMPT: "${BACKEND_PROBE_SYSTEM_PROMPT:-}"
+      BACKEND_PROBE_USER_AGENT: "${BACKEND_PROBE_USER_AGENT:-}"
+      BACKEND_PING_TIMEOUT: "${BACKEND_PING_TIMEOUT:-}"
+      BACKEND_PROBE_DIAL_TIMEOUT: "${BACKEND_PROBE_DIAL_TIMEOUT:-}"
+      BACKEND_PROBE_HEADER_TIMEOUT: "${BACKEND_PROBE_HEADER_TIMEOUT:-}"
+      BACKEND_PROBE_TTFT_TIMEOUT: "${BACKEND_PROBE_TTFT_TIMEOUT:-}"
+      BACKEND_PROBE_IDLE_TIMEOUT: "${BACKEND_PROBE_IDLE_TIMEOUT:-}"
+      BACKEND_PROBE_TIMEOUT: "${BACKEND_PROBE_TIMEOUT:-}"
     ports:
       - "127.0.0.1:8080:8080"
     volumes:
