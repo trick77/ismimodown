@@ -121,10 +121,25 @@ type InferResult struct {
 	TTFATMs float64
 	TotalMs float64
 
-	// ITLP50Ms leads the throughput chart, not OutputTPS. At ~70 output tokens
-	// the decode window is ~1.5 s, so gross tok/s is structurally noisy — a
-	// couple of stray gaps swing it several percent. The same run yields ~70
-	// inter-token intervals whose median is statistically solid.
+	// ITLP50Ms is the median gap between CONTENT CHUNKS — which is not the same
+	// thing as inter-token latency, and the difference is not academic.
+	//
+	// The plan chose ITL p50 to lead the throughput chart on the reasoning that
+	// one run yields ~70 inter-token intervals whose median is statistically
+	// solid, where gross tok/s over a ~1.5 s window is noisy. That reasoning
+	// assumes one token per chunk arriving smoothly. MEASURED, it does not hold:
+	// MiMo batches several tokens into a chunk and delivers chunks in bursts. A
+	// real wide run on mimo-v2.5 recorded itl_p50 = 0.0075 ms against
+	// itl_p95 = 55.6 ms and 70.4 tok/s over a 4.4 s decode window — more than
+	// half the gaps were essentially zero, so the median collapsed while
+	// throughput was perfectly healthy.
+	//
+	// Both metrics are stored and neither is discarded. But a chart that leads
+	// with ITL p50 would show a flatline at zero for a model that is streaming
+	// fine, so the charting decision in phase 5 must be taken against real data
+	// rather than against the plan's assumption. OutputTPS over the decode
+	// window agrees with the implied per-token figure (70.4 vs 66 tok/s on that
+	// run) and is the more robust of the two.
 	ITLP50Ms  float64
 	ITLP95Ms  float64
 	OutputTPS float64

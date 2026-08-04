@@ -70,6 +70,19 @@ const DefaultUserAgent = "opencode/1.18.11 ai-sdk/openai-compatible/3.0.20 ai-sd
 // the probe keeps working and only the numbers become wrong.
 const DefaultSystemPrompt = "You are a helpful assistant."
 
+// DefaultModels are the two probed models, confirmed served on the tp- key by
+// the pre-implementation curl against /v1/models.
+//
+// mimo-v2.5 is the omnimodal model; mimo-v2.5-pro is the 1T/42B-active text
+// flagship. Different weight classes, so latency between them is comparable and
+// quality is not — which the UI must say. The -asr and -tts variants the
+// endpoint also serves are not chat models and are deliberately absent.
+//
+// Configurable so a second vendor is a config change rather than an
+// architectural one, which is what makes the single-vendor scope a decision
+// rather than a limitation.
+var DefaultModels = []string{"mimo-v2.5", "mimo-v2.5-pro"}
+
 // Config holds all runtime settings.
 type Config struct {
 	Addr      string // HTTP listen address
@@ -86,6 +99,9 @@ type Config struct {
 	// unbroken wall of auth failures as a MiMo outage.
 	BaseURL string
 	APIKey  string
+
+	// Models probed every cycle.
+	Models []string
 
 	// Probe targets for the TCP ping layer.
 	MimoHost   string
@@ -151,6 +167,7 @@ func Load() (Config, error) {
 		RefEUHost:         env("BACKEND_PING_REF_EU_HOST", DefaultRefEUHost),
 		ProbeUserAgent:    env("BACKEND_PROBE_USER_AGENT", DefaultUserAgent),
 		ProbeSystemPrompt: env("BACKEND_PROBE_SYSTEM_PROMPT", DefaultSystemPrompt),
+		Models:            splitList(env("BACKEND_MODELS", ""), DefaultModels),
 	}
 
 	var err error
@@ -186,6 +203,9 @@ func Load() (Config, error) {
 	// added and the two cannot be told apart.
 	if strings.TrimSpace(cfg.Origin) == "" {
 		return Config{}, fmt.Errorf("BACKEND_ORIGIN must not be empty")
+	}
+	if len(cfg.Models) == 0 {
+		return Config{}, fmt.Errorf("BACKEND_MODELS must name at least one model")
 	}
 	if err := validateBaseURL(cfg.BaseURL); err != nil {
 		return Config{}, err
@@ -223,6 +243,23 @@ func Load() (Config, error) {
 	}
 
 	return cfg, nil
+}
+
+// splitList parses a comma-separated override, trimming blanks. An override
+// that is present but yields nothing usable returns empty rather than silently
+// reverting to the default: "BACKEND_MODELS=," is a mistake worth failing on,
+// not a request for the defaults.
+func splitList(raw string, def []string) []string {
+	if strings.TrimSpace(raw) == "" {
+		return append([]string(nil), def...)
+	}
+	out := make([]string, 0, 2)
+	for _, part := range strings.Split(raw, ",") {
+		if p := strings.TrimSpace(part); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 func validateBaseURL(raw string) error {
