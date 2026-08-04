@@ -1,5 +1,5 @@
 import type { ModelSeries, Point } from "./api/types";
-import { Card } from "./ui";
+import { Card, CensoredNote } from "./ui";
 import { EChart } from "./charts/EChart";
 import { buildLineOption, colorForModel } from "./charts/options";
 
@@ -34,6 +34,23 @@ export function PrefillPanel({
   }
 
   const hasWide = Object.keys(series).some((k) => k.includes("3800"));
+  const bucketS = infer?.bucket_s ?? wide?.bucket_s;
+  const option = buildLineOption({
+    series,
+    order,
+    colorOf: (name) => colorForModel(name.split(" · ")[0]!, models),
+    // Colour follows the model, so the two probes of one model share a
+    // hue; the wide series is dashed so they stay distinguishable.
+    dashed: (name) => name.includes("3800"),
+    // The short probe is the BASELINE here, not the subject. It is the
+    // same series the "Time to first token" chart plots directly above,
+    // and at equal weight this panel reads as that chart repeated —
+    // which is exactly how it was read. Muted, the wide line and the
+    // gap beneath it become the figure.
+    muted: (name) => !name.includes("3800"),
+    unit: "ms",
+    bucketMs: bucketS !== undefined ? bucketS * 1000 : undefined,
+  });
 
   return (
     <Card
@@ -42,21 +59,7 @@ export function PrefillPanel({
     >
       {Object.keys(series).length > 0 ? (
         <EChart
-          option={buildLineOption({
-            series,
-            order,
-            colorOf: (name) => colorForModel(name.split(" · ")[0]!, models),
-            // Colour follows the model, so the two probes of one model share a
-            // hue; the wide series is dashed so they stay distinguishable.
-            dashed: (name) => name.includes("3800"),
-            // The short probe is the BASELINE here, not the subject. It is the
-            // same series the "Time to first token" chart plots directly above,
-            // and at equal weight this panel reads as that chart repeated —
-            // which is exactly how it was read. Muted, the wide line and the
-            // gap beneath it become the figure.
-            muted: (name) => !name.includes("3800"),
-            unit: "ms",
-          })}
+          option={option}
           ariaLabel="Time to first token for the short and wide probes, per model"
         />
       ) : (
@@ -86,6 +89,7 @@ export function PrefillPanel({
           </span>
         </li>
       </ul>
+      <CensoredNote bands={option.censoredBands} />
       {!hasWide && (
         <p className="mt-3 text-label text-muted">
           The wide probe runs hourly, so it takes an hour before this gap is

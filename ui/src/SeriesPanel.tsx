@@ -1,5 +1,5 @@
 import type { ModelSeries } from "./api/types";
-import { Card } from "./ui";
+import { Card, CensoredNote } from "./ui";
 import { EChart } from "./charts/EChart";
 import { buildLineOption, colorForModel } from "./charts/options";
 
@@ -26,6 +26,7 @@ export function SeriesPanel({
     colorOf: (name) => colorForModel(name, models),
     unit,
     forceLinear,
+    bucketMs: series ? series.bucket_s * 1000 : undefined,
   });
 
   return (
@@ -50,6 +51,7 @@ export function SeriesPanel({
         </p>
       )}
       <Legend models={models} />
+      <CensoredNote bands={option.censoredBands} />
     </Card>
   );
 }

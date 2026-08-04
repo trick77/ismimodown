@@ -42,6 +42,48 @@ function allValues(series: Record<string, Point[]>): (number | null)[] {
   return Object.values(series).flatMap((points) => points.map((p) => p.p50));
 }
 
+// The censoring band colour. The fault amber, not a series hue: a stretch where
+// measurements were cut off is not a measurement.
+const CENSORED = "#c98500";
+
+// censoredBuckets collects the bucket starts, in ms, where any series had a
+// sample cut off by the timeout ladder.
+//
+// Across all series rather than per series: the band says "the top of the
+// distribution was cut off in this stretch", and drawing one per model would
+// stack two translucent amber rectangles into a darker one that means nothing
+// more than the single band does. The per-model count is on the model card.
+export function censoredBuckets(series: Record<string, Point[]>): number[] {
+  const starts = new Set<number>();
+  for (const points of Object.values(series)) {
+    for (const p of points) {
+      if (p.censored > 0) starts.add(p.t * 1000);
+    }
+  }
+  return [...starts].sort((a, b) => a - b);
+}
+
+// censoredBands merges adjacent censored buckets into single spans.
+//
+// Merged because an incident is a stretch, not a row of stripes: eight
+// neighbouring bucket-wide rectangles read as eight separate events, and the
+// seams between them read as recovery that never happened.
+export function censoredBands(
+  series: Record<string, Point[]>,
+  bucketMs: number,
+): [number, number][] {
+  const bands: [number, number][] = [];
+  for (const start of censoredBuckets(series)) {
+    const last = bands[bands.length - 1];
+    if (last && start <= last[1]) {
+      last[1] = start + bucketMs;
+      continue;
+    }
+    bands.push([start, start + bucketMs]);
+  }
+  return bands;
+}
+
 type LineOpts = {
   series: Record<string, Point[]>;
   order: string[];
@@ -66,6 +108,10 @@ type LineOpts = {
   // the panel reads as the previous chart repeated, and the gap disappears into
   // it. Muting the baseline is what makes the gap the thing you see.
   muted?: (name: string) => boolean;
+  // bucketMs is the window's bucket width, needed to give a censoring band a
+  // right edge. Without it no bands are drawn — a band of unknown width is worse
+  // than none, because it would misstate how much of the window was affected.
+  bucketMs?: number;
 };
 
 // buildLineOption is the shared shape for every time series on the page.
@@ -77,12 +123,22 @@ export function buildLineOption({
   forceLinear = false,
   dashed,
   muted,
+  bucketMs,
 }: LineOpts) {
   // The y-axis switches to log automatically when the window's dynamic range
   // exceeds 20x, because a linear axis collapses either the normal reading or
   // the spike. The caller stamps "LOG SCALE" on the plot when this is true — a
   // log axis read as linear is worse than no chart.
   const log = !forceLinear && shouldUseLogScale(allValues(series));
+
+  // Where the timeout ladder cut runs off, the line is drawn from the runs that
+  // FINISHED — so it is at its most flattering exactly where it is least
+  // complete, and where every value is missing it is not drawn at all, which
+  // looks identical to the probe not running. The band is what makes the
+  // difference visible; without it the chart's best-looking stretches are
+  // unreadable.
+  const bands = bucketMs ? censoredBands(series, bucketMs) : [];
+  const names = order.filter((name) => series[name] !== undefined);
 
   return {
     animation: false,
@@ -110,36 +166,58 @@ export function buildLineOption({
       axisLabel: { color: AXIS, fontSize: 10 },
       splitLine: { lineStyle: { color: GRID, type: "dashed" } },
     },
-    series: order
-      .filter((name) => series[name] !== undefined)
-      .map((name) => {
-        // Ground, not figure — see `muted` on LineOpts. Thinner and dimmer, and
-        // with the area fill pulled most of the way out: at 0.12 the fill is
-        // what carries the eye, so leaving it while thinning the stroke would
-        // mute the wrong half of the series.
-        const isMuted = muted?.(name) ?? false;
-        return {
-          name,
-          type: "line",
-          showSymbol: false,
-          // Gaps are gaps: never connect across a bucket with no data.
-          connectNulls: false,
-          lineStyle: {
-            width: isMuted ? 1 : 2,
-            opacity: isMuted ? 0.5 : 1,
-            color: colorOf(name),
-            type: dashed?.(name) ? "dashed" : "solid",
-          },
-          itemStyle: { color: colorOf(name) },
-          // No area fill under a dashed series: two filled areas in the same hue
-          // stack into a solid block and hide the gap between the lines.
-          areaStyle: dashed?.(name)
-            ? undefined
-            : { opacity: isMuted ? 0.04 : 0.12, color: colorOf(name) },
-          data: toPairs(series[name]!),
-        };
-      }),
+    series: names.map((name, i) => {
+      // Ground, not figure — see `muted` on LineOpts. Thinner and dimmer, and
+      // with the area fill pulled most of the way out: at 0.12 the fill is
+      // what carries the eye, so leaving it while thinning the stroke would
+      // mute the wrong half of the series.
+      const isMuted = muted?.(name) ?? false;
+      return {
+        name,
+        type: "line",
+        showSymbol: false,
+        // Gaps are gaps: never connect across a bucket with no data.
+        connectNulls: false,
+        lineStyle: {
+          width: isMuted ? 1 : 2,
+          opacity: isMuted ? 0.5 : 1,
+          color: colorOf(name),
+          type: dashed?.(name) ? "dashed" : "solid",
+        },
+        itemStyle: { color: colorOf(name) },
+        // No area fill under a dashed series: two filled areas in the same hue
+        // stack into a solid block and hide the gap between the lines.
+        areaStyle: dashed?.(name)
+          ? undefined
+          : { opacity: isMuted ? 0.04 : 0.12, color: colorOf(name) },
+        data: toPairs(series[name]!),
+        // Hung off the FIRST series only. markArea is per series, so attaching
+        // it to each would paint the same rectangles once per model and darken
+        // the band into something that reads as a severity it does not carry.
+        // silent, so it never takes over the tooltip from the data.
+        markArea:
+          i === 0 && bands.length > 0
+            ? {
+                silent: true,
+                // ECharts paints markArea BENEATH the series, so this fill is
+                // read through the line's own area fill and loses much of its
+                // chroma on the way. Checked on the rendered plot: below ~0.3 it
+                // arrives as a grey shadow, which reads as a rendering artefact
+                // rather than as the caution the legend swatch promises.
+                itemStyle: { color: CENSORED, opacity: 0.3 },
+                data: bands.map(([from, to]) => [
+                  { xAxis: from },
+                  { xAxis: to },
+                ]),
+              }
+            : undefined,
+      };
+    }),
     logScale: log,
+    // Surfaced so the panel can announce the bands in words. A colour-only
+    // signal is not a signal here: the whole point is a reader who would
+    // otherwise take the plot at face value.
+    censoredBands: bands.length,
   };
 }
 

@@ -647,3 +647,158 @@ func TestRouteCyclesAreExcludedLikeUplink(t *testing.T) {
 			ms.Attempts, ms.Available)
 	}
 }
+
+// failedInfer is a run that reached MiMo and was cut off by our own ladder.
+func failedInfer(model, class string, totalMs float64) probe.InferResult {
+	return probe.InferResult{
+		ModelID: model, Probe: probe.ProbeInfer,
+		TotalMs: totalMs, OK: false, ErrorClass: class,
+	}
+}
+
+// Excluding failed runs from the percentiles is right, and it truncates the
+// distribution: the runs removed are the SLOWEST ones, so the published P95 is
+// a percentile of the survivors and it improves as the endpoint gets worse.
+// Nothing in the figures themselves can show that, so the count has to.
+func TestCensoredRunsAreCountedSoTheTruncatedTailIsVisible(t *testing.T) {
+	s := New(openTestDB(t))
+	now := time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC)
+	ctx := context.Background()
+
+	seedCycles(t, s, "mimo-v2.5", now, 19, 900)
+	// One of each censoring class, plus a refusal that is NOT one.
+	for i, class := range []string{
+		probe.ErrClassHeaderTimeout,
+		probe.ErrClassTTFTTimeout,
+		probe.ErrClassStalled,
+		probe.ErrClassTimeout,
+		probe.ErrClassRefused,
+	} {
+		if _, err := s.Save(ctx, Cycle{
+			StartedAt: now.Add(-time.Duration(i+1) * time.Second), Net: okNet(),
+			Infer: []probe.InferResult{failedInfer("mimo-v2.5", class, 60000)},
+		}); err != nil {
+			t.Fatalf("Save: %v", err)
+		}
+	}
+
+	w, _ := LookupWindow("24h")
+	sum, err := s.Summarize(ctx, w, []string{"mimo-v2.5"}, probe.ProbeInfer, now)
+	if err != nil {
+		t.Fatalf("Summarize: %v", err)
+	}
+	ms := sum.Models[0]
+
+	// Four cut off by the ladder. connection_refused measured no latency at all,
+	// so there is no tail it could have truncated — it belongs to availability.
+	if ms.Censored != 4 {
+		t.Errorf("censored = %d, want 4 (the ladder classes only, not connection_refused)", ms.Censored)
+	}
+	if ms.Attempts != 24 {
+		t.Errorf("attempts = %d, want 24 — censoring shares the attempt denominator", ms.Attempts)
+	}
+	// And it changes nothing about the percentiles themselves.
+	if ms.TTFT.N != 19 {
+		t.Errorf("percentile n = %d, want 19; censored runs stay out of the percentiles", ms.TTFT.N)
+	}
+}
+
+// A run cut off during OUR OWN uplink outage is not MiMo's slow tail. The
+// censored count shares the attempt denominator, so it must share its exclusion.
+func TestCensoredCountExcludesUnattributableCycles(t *testing.T) {
+	s := New(openTestDB(t))
+	now := time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC)
+	ctx := context.Background()
+
+	// Nothing in Singapore answered, and the inference run timed out with it.
+	if _, err := s.Save(ctx, Cycle{
+		StartedAt: now.Add(-time.Minute),
+		Net: []probe.NetResult{
+			{Target: probe.TargetMimoSGP, OK: false, ErrorClass: probe.ErrClassConnectTimeout},
+			{Target: probe.TargetRefSGP, OK: false, ErrorClass: probe.ErrClassConnectTimeout},
+		},
+		Infer: []probe.InferResult{failedInfer("mimo-v2.5", probe.ErrClassTimeout, 240000)},
+	}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	w, _ := LookupWindow("24h")
+	sum, err := s.Summarize(ctx, w, []string{"mimo-v2.5"}, probe.ProbeInfer, now)
+	if err != nil {
+		t.Fatalf("Summarize: %v", err)
+	}
+	if ms := sum.Models[0]; ms.Censored != 0 {
+		t.Errorf("censored = %d on an uplink cycle, want 0 — that is our outage, not their tail", ms.Censored)
+	}
+}
+
+// A bucket where every run was cut off has no successful sample to group. On an
+// inner reading it would not exist, and a missing bucket renders as a gap —
+// identical to a stretch where the probe was not running at all. Total
+// truncation is the one case a reader most needs to be told about.
+func TestABucketOfNothingButCensoredRunsStillExists(t *testing.T) {
+	s := New(openTestDB(t))
+	now := time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC)
+	ctx := context.Background()
+
+	// Well inside one 15-minute bucket, and nothing else in the window.
+	for i := 0; i < 3; i++ {
+		if _, err := s.Save(ctx, Cycle{
+			StartedAt: now.Add(-time.Duration(i+1) * time.Minute), Net: okNet(),
+			Infer: []probe.InferResult{failedInfer("mimo-v2.5", probe.ErrClassTTFTTimeout, 150000)},
+		}); err != nil {
+			t.Fatalf("Save: %v", err)
+		}
+	}
+
+	w, _ := LookupWindow("24h")
+	pts, err := s.Series(ctx, "ttft_ms", "mimo-v2.5", probe.ProbeInfer, w, now)
+	if err != nil {
+		t.Fatalf("Series: %v", err)
+	}
+	if len(pts) != 1 {
+		t.Fatalf("points = %d, want 1: an all-censored bucket must not vanish", len(pts))
+	}
+	p := pts[0]
+	if p.Censored != 3 {
+		t.Errorf("censored = %d, want 3", p.Censored)
+	}
+	if p.N != 0 {
+		t.Errorf("n = %d, want 0 — no run finished in this bucket", p.N)
+	}
+	if p.P50 != nil {
+		t.Errorf("p50 = %v, want nil: a censored bucket has no value, and a zero would draw a floor", *p.P50)
+	}
+}
+
+// The commoner case: some runs finished and some were cut off. The line is
+// drawn from the survivors, which is exactly why the bucket has to say so.
+func TestAPartlyCensoredBucketCarriesBothItsValueAndItsCount(t *testing.T) {
+	s := New(openTestDB(t))
+	now := time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC)
+	ctx := context.Background()
+
+	seedCycles(t, s, "mimo-v2.5", now, 3, 900) // 3 successes, one bucket
+	if _, err := s.Save(ctx, Cycle{
+		StartedAt: now.Add(-30 * time.Second), Net: okNet(),
+		Infer: []probe.InferResult{failedInfer("mimo-v2.5", probe.ErrClassStalled, 45000)},
+	}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	w, _ := LookupWindow("24h")
+	pts, err := s.Series(ctx, "ttft_ms", "mimo-v2.5", probe.ProbeInfer, w, now)
+	if err != nil {
+		t.Fatalf("Series: %v", err)
+	}
+	if len(pts) != 1 {
+		t.Fatalf("points = %d, want 1", len(pts))
+	}
+	p := pts[0]
+	if p.N != 3 || p.P50 == nil || *p.P50 != 900 {
+		t.Errorf("n = %d, p50 = %v, want 3 and 900", p.N, p.P50)
+	}
+	if p.Censored != 1 {
+		t.Errorf("censored = %d, want 1", p.Censored)
+	}
+}

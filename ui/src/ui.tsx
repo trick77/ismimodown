@@ -31,6 +31,30 @@ export function StateChip({ state }: { state: State }) {
   );
 }
 
+// CensoredNote explains the amber bands on a chart.
+//
+// In WORDS, beside the colour, for the same reason every state chip carries its
+// word: the reader this exists for is the one who would otherwise take the plot
+// at face value, and a shaded rectangle they cannot name does not reach them.
+// It also cannot be a tooltip — the stretch it describes is often exactly where
+// there is no line to hover.
+export function CensoredNote({ bands }: { bands: number }) {
+  if (bands < 1) return null;
+  return (
+    <p className="mt-3 flex items-start gap-2 text-label text-muted">
+      <span
+        className="mt-[5px] inline-block h-3 w-4 shrink-0 rounded-sm bg-fault-edge/25"
+        aria-hidden="true"
+      />
+      <span>
+        Shaded: probes here were cut off by the timeout limits and are not in
+        the percentiles. The line is drawn from the runs that finished, so the
+        slowest ones are missing from it.
+      </span>
+    </p>
+  );
+}
+
 export function Pill({
   active,
   onClick,

@@ -277,6 +277,11 @@ func (s *server) handleMethodology(w http.ResponseWriter, r *http.Request) {
 			"cache_defeat":    "The wide prompt is unique per run, varied at the front because prompt caches key on the leading prefix. The short probe needs no such treatment but does carry a system message of its own — with none, the endpoint supplies one (~250 tokens, most of it cache-served), which would inflate the token budget and turn measured prefill into a cache lookup. cached_tokens is recorded every run and must stay near zero.",
 			"exclusions": map[string]any{
 				"percentiles": "Failed runs are excluded from every latency percentile and counted in availability instead. Otherwise a 240 000 ms timeout lands in the P50 and an outage reads as catastrophic latency.",
+				// The unflattering consequence of the rule directly above it, and
+				// the reason this endpoint exists: the exclusion is correct AND it
+				// truncates the distribution, and a reader who is told only the
+				// first half has been told the flattering half.
+				"censoring":   "The runs that exclusion removes are the slowest ones, so every latency percentile here is a percentile of the runs that FINISHED — and it improves as truncation worsens. A probe is cut off when it produces no response headers, no first token, or no further chunk within the configured limits, or when it passes the overall deadline. Every summary carries a 'censored' count of how many attempts were cut off that way, and every chart bucket carries its own; a bucket where everything was cut off is published with no value and a censored count rather than omitted. Connection failures are not counted as censoring: nothing was measured, so no tail was truncated.",
 				"suppression": "Fewer than " + strconv.Itoa(samples.MinSamplesForPercentile) + " successful samples in a window returns insufficient_data rather than a number.",
 				"uplink_down": "Cycles where neither MiMo nor the reference host answered are attributed 'uplink' — historically split into 'uplink' and 'route' while a second reference host existed — and failures on them are excluded from any provider availability figure. The cause may be our uplink or the route; with one reference host the two are indistinguishable, and neither is MiMo's to answer for. A run that succeeded anyway is still counted: it is evidence MiMo answered.",
 			},

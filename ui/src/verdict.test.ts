@@ -18,6 +18,7 @@ function model(over: Partial<ModelSummary> = {}): ModelSummary {
     attempts: 100,
     succeeded: 100,
     available_pct: 100,
+    censored: 0,
     answered: 100,
     correct: 100,
     correct_pct: 100,

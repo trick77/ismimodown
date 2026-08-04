@@ -7,9 +7,10 @@ import {
   SERIES_COLORS,
 } from "./options";
 
-const pt = (t: number, p50: number | null): Point => ({
+const pt = (t: number, p50: number | null, censored = 0): Point => ({
   t,
-  n: 1,
+  n: p50 === null ? 0 : 1,
+  censored,
   p50,
   p95: p50,
 });
@@ -238,5 +239,104 @@ describe("dashed series", () => {
       unit: "ms",
     });
     expect(opt.series[0]!.lineStyle.type).toBe("solid");
+  });
+});
+
+// The latency charts are computed over runs that FINISHED. Where the timeout
+// ladder cut runs off, the line is drawn from the survivors — so it looks its
+// best exactly where it is least complete, and where everything was cut off it
+// is not drawn at all, which is indistinguishable from the probe not running.
+describe("censoring bands", () => {
+  const BUCKET = 900_000; // 15 minutes
+
+  it("draws no band when nothing was censored", () => {
+    const opt = buildLineOption({
+      series: { a: [pt(0, 900), pt(900, 950)] },
+      order: ["a"],
+      colorOf: () => "#fff",
+      unit: "ms",
+      bucketMs: BUCKET,
+    });
+    expect(opt.censoredBands).toBe(0);
+    expect(opt.series[0]!.markArea).toBeUndefined();
+  });
+
+  it("bands a bucket that has a value but lost its slow runs", () => {
+    const opt = buildLineOption({
+      series: { a: [pt(0, 900), pt(900, 950, 2)] },
+      order: ["a"],
+      colorOf: () => "#fff",
+      unit: "ms",
+      bucketMs: BUCKET,
+    });
+    expect(opt.censoredBands).toBe(1);
+    expect(opt.series[0]!.markArea!.data).toEqual([
+      [{ xAxis: 900_000 }, { xAxis: 1_800_000 }],
+    ]);
+  });
+
+  // The case the band exists for: no line at all, because every run was cut
+  // off. Without the band this is a plain gap.
+  it("bands a bucket that produced no value at all", () => {
+    const opt = buildLineOption({
+      series: { a: [pt(0, null, 3)] },
+      order: ["a"],
+      colorOf: () => "#fff",
+      unit: "ms",
+      bucketMs: BUCKET,
+    });
+    expect(opt.censoredBands).toBe(1);
+  });
+
+  // An incident is a stretch, not a row of stripes. Unmerged, the seams between
+  // adjacent buckets read as recoveries that never happened.
+  it("merges adjacent censored buckets into one span", () => {
+    const opt = buildLineOption({
+      series: { a: [pt(0, 900, 1), pt(900, 900, 1), pt(1800, 900, 1)] },
+      order: ["a"],
+      colorOf: () => "#fff",
+      unit: "ms",
+      bucketMs: BUCKET,
+    });
+    expect(opt.censoredBands).toBe(1);
+    expect(opt.series[0]!.markArea!.data).toEqual([
+      [{ xAxis: 0 }, { xAxis: 2_700_000 }],
+    ]);
+  });
+
+  it("keeps separate incidents separate", () => {
+    const opt = buildLineOption({
+      series: { a: [pt(0, 900, 1), pt(900, 900), pt(1800, 900, 1)] },
+      order: ["a"],
+      colorOf: () => "#fff",
+      unit: "ms",
+      bucketMs: BUCKET,
+    });
+    expect(opt.censoredBands).toBe(2);
+  });
+
+  // markArea is per series. Painted on every one, the same rectangles stack
+  // into a darker band that reads as a severity it does not carry.
+  it("hangs the band off one series only", () => {
+    const opt = buildLineOption({
+      series: { a: [pt(0, 900, 1)], b: [pt(0, 900, 1)] },
+      order: ["a", "b"],
+      colorOf: () => "#fff",
+      unit: "ms",
+      bucketMs: BUCKET,
+    });
+    expect(opt.series[0]!.markArea).toBeDefined();
+    expect(opt.series[1]!.markArea).toBeUndefined();
+  });
+
+  // A band of unknown width would misstate how much of the window was affected.
+  it("draws nothing without a bucket width", () => {
+    const opt = buildLineOption({
+      series: { a: [pt(0, 900, 5)] },
+      order: ["a"],
+      colorOf: () => "#fff",
+      unit: "ms",
+    });
+    expect(opt.censoredBands).toBe(0);
   });
 });

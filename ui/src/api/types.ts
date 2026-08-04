@@ -19,6 +19,11 @@ export type ModelSummary = {
   attempts: number;
   succeeded: number;
   available_pct: number;
+  // censored is how many attempts our own timeout ladder cut off. It is the
+  // caveat the percentiles cannot carry: they are computed over runs that
+  // FINISHED, so the runs counted here were removed from the top of the
+  // distribution — and the figures improve as truncation worsens.
+  censored: number;
   answered: number;
   correct: number;
   correct_pct: number | null;
@@ -50,6 +55,11 @@ export type Summary = {
 export type Point = {
   t: number;
   n: number;
+  // censored is how many samples in this bucket were cut off by the timeout
+  // ladder. A bucket can be censored and still carry a value — the line is then
+  // drawn from the runs that finished — and a bucket with n = 0 and censored > 0
+  // exists precisely so total truncation cannot be mistaken for a gap.
+  censored: number;
   // null means the bucket had too few successful samples. It must render as a
   // GAP, never as zero.
   p50: number | null;

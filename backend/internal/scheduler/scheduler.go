@@ -5,6 +5,8 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -109,6 +111,14 @@ type Scheduler struct {
 	// takes 2-3 minutes when things go bad, and a global lock would let one slow
 	// model suppress the other's samples — manufacturing a correlated outage
 	// across two independent series.
+	//
+	// It is a BACKSTOP, not the thing that counts overruns. Run drives one cycle
+	// at a time and each model's two probes share a goroutine, so no key is ever
+	// held when it is asked for again and this guard cannot fire as the code
+	// stands. Reading skipped_runs as "the guard fired" was wrong for exactly
+	// that reason; overruns are counted where they actually happen, against the
+	// scheduled slots a long cycle ran through. See recordMissedTicks. Keep the
+	// guard: it is what makes dispatching cycles without waiting safe later.
 	mu       sync.Mutex
 	inFlight map[string]bool
 
@@ -141,9 +151,52 @@ func (s *Scheduler) Run(ctx context.Context) {
 	for {
 		s.RunCycle(ctx)
 
-		if !sched.Sleep(ctx, s.nextDelay()) {
+		d, missed := s.nextDelay()
+		s.recordMissedTicks(ctx, missed)
+
+		if !sched.Sleep(ctx, d) {
 			slog.Info("scheduler stopping")
 			return
+		}
+	}
+}
+
+// recordMissedTicks writes one skipped run per model for every scheduled slot a
+// long cycle ran straight through.
+//
+// Without this the drop is INVISIBLE. The catch-up in nextDelay silently
+// advances the anchor past the missed slots, so the cycles simply are not
+// there — and a missing cycle reads as "no data", which is indistinguishable
+// from a daemon that was not deployed yet. The overrun counter beside the
+// availability strip meanwhile reported zero, because the only thing that ever
+// wrote to it was the in-flight guard in runProbe, and that guard cannot fire:
+// cycles run one at a time, so a run is never still in flight when the next one
+// starts. The counter was structurally incapable of being non-zero.
+//
+// Recorded per MODEL and against `infer`: every cycle runs the short probe for
+// every model, so those runs really were lost. `wide` is conditional and is not
+// claimed — a slot that would not have carried it did not lose it.
+//
+// A failed write is logged and dropped rather than retried. This is a counter
+// for a human reading a dashboard, and losing a tick from it must never be able
+// to stall the probe loop it is counting.
+func (s *Scheduler) recordMissedTicks(ctx context.Context, missed []time.Time) {
+	if len(missed) == 0 {
+		return
+	}
+	slog.Warn("cycle overran its slot; scheduled ticks dropped",
+		"ticks", len(missed), "models", len(s.deps.Models),
+		"first", missed[0], "last", missed[len(missed)-1])
+
+	for _, tick := range missed {
+		for _, model := range s.deps.Models {
+			if err := s.deps.Store.RecordSkip(ctx, tick, model, probe.ProbeInfer); err != nil {
+				// Shutdown cancels the context mid-write; that is not a fault.
+				if !errors.Is(err, context.Canceled) {
+					slog.Error("record missed tick failed", "err", err, "tick", tick)
+				}
+				return
+			}
 		}
 	}
 }
@@ -163,7 +216,17 @@ func (s *Scheduler) Run(ctx context.Context) {
 // overruns its slot simply lands on the next one, and the cadence never walks.
 // The jitter is applied around the aligned instant, so it still spreads load
 // without reintroducing the walk.
-func (s *Scheduler) nextDelay() time.Duration {
+//
+// It also returns the slots that were run straight through, so the drop can be
+// counted rather than merely absorbed. Removing the drift is not the same as
+// removing the loss: an overrunning cycle still samples less often exactly when
+// the endpoint is struggling, and the caller records that. See
+// recordMissedTicks.
+//
+// The FIRST call never reports a miss, and correctly so: it is the call that
+// establishes the anchor, and the slots before it belong to a time when the
+// process was not running. Those are a deploy gap, not an overrun.
+func (s *Scheduler) nextDelay() (time.Duration, []time.Time) {
 	now := s.deps.Now()
 
 	// The anchor advances by exactly one interval per cycle and is NEVER
@@ -186,7 +249,12 @@ func (s *Scheduler) nextDelay() time.Duration {
 	}
 	// Catch up when cycles overran their slots, so a slow patch does not leave
 	// the schedule permanently behind the wall clock.
+	//
+	// Every iteration here is a slot that came and went while the cycle was
+	// still running. Collected, not just skipped — see recordMissedTicks.
+	var missed []time.Time
 	for !s.nextTick.After(now) {
+		missed = append(missed, s.nextTick)
 		s.nextTick = s.nextTick.Add(CycleInterval)
 	}
 
@@ -200,7 +268,7 @@ func (s *Scheduler) nextDelay() time.Duration {
 	if d < MinInterval {
 		d = MinInterval
 	}
-	return d
+	return d, missed
 }
 
 // wideIsDue answers whether this cycle should carry the wide probe.
@@ -283,16 +351,63 @@ func (s *Scheduler) RunCycle(ctx context.Context) {
 
 	wide := s.wideIsDue(ctx, started)
 
+	// The models run CONCURRENTLY, and the probes within one model do not.
+	//
+	// Sequentially across models, a cycle costs the SUM of the models' latencies,
+	// so the cadence breaks at a per-model latency of roughly CycleInterval
+	// divided by the model count — about 145 s with two models. mimo-v2.5-pro
+	// genuinely takes minutes when things go bad, and the cycle that overran then
+	// ran through the next slot entirely: the series thinned out precisely during
+	// the incident it exists to record, and the surviving samples were the fast
+	// ones. Concurrently the cycle costs the MAX instead, so one slow model no
+	// longer spends the other's budget.
+	//
+	// It also stops one model's stall from displacing the other's reading in
+	// time. Every row in a cycle is stamped with the cycle's start, and under the
+	// sequential order the second model's probe could begin minutes after that
+	// stamp — including minutes after the ping its residual is subtracted
+	// against. Same JOIN, same cycle_id, much less staleness inside it.
+	//
+	// Within one model, infer and wide stay strictly sequential. Two runs at once
+	// against the same model contend for the same upstream node and each measures
+	// the other's queueing, which is the exact confound this probe exists to
+	// avoid — and it is why the in-flight guard is keyed by model+probe rather
+	// than held globally.
+	var (
+		mu sync.Mutex
+		wg sync.WaitGroup
+	)
 	for _, model := range s.deps.Models {
-		if res, ok := s.runProbe(ctx, model, probe.ProbeInfer, n, started); ok {
-			cycle.Infer = append(cycle.Infer, res)
-		}
-		if wide {
-			if res, ok := s.runProbe(ctx, model, probe.ProbeWide, n, started); ok {
-				cycle.Infer = append(cycle.Infer, res)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+
+			var got []probe.InferResult
+			if res, ok := s.runProbe(ctx, model, probe.ProbeInfer, n, started); ok {
+				got = append(got, res)
 			}
-		}
+			if wide {
+				if res, ok := s.runProbe(ctx, model, probe.ProbeWide, n, started); ok {
+					got = append(got, res)
+				}
+			}
+
+			mu.Lock()
+			defer mu.Unlock()
+			cycle.Infer = append(cycle.Infer, got...)
+		}()
 	}
+	wg.Wait()
+
+	// Completion order is now a race, and the write order below is not allowed to
+	// be. Sorted so a cycle's rows land in the database in the same order every
+	// time, whichever model happened to finish first.
+	slices.SortFunc(cycle.Infer, func(a, b probe.InferResult) int {
+		if c := strings.Compare(a.ModelID, b.ModelID); c != 0 {
+			return c
+		}
+		return strings.Compare(a.Probe, b.Probe)
+	})
 
 	// Shutdown mid-cycle: do not persist a half-measured cycle whose missing
 	// models would read as an outage.
