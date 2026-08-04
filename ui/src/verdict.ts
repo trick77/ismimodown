@@ -197,6 +197,12 @@ const WRONG_THRESHOLDS = {
 // the ones beyond it unreadable. If nothing in Singapore answered we cannot say
 // anything about MiMo, and saying it anyway is how a monitor publishes an
 // outage that never happened.
+//
+// Only those three classes are recognised, while infraRed accepts any non-ok,
+// non-empty string. That coupling is deliberate and it is held by the CHECK
+// constraint on cycle_fault: a fourth class stored server-side would score as
+// red here and then fall through to the edge headline, so adding one means
+// adding it to this list in the same change.
 export function dominantFault(cycles: RecentCycle[]): {
   fault: string | null;
   counts: Record<string, number>;
@@ -331,9 +337,16 @@ export function buildVerdict(
           : detail,
     };
   }
+  // The headline follows the severity. At elevated the evidence is one failure
+  // inside the hour, and "having problems" claims more than that — the same
+  // over-claim the network branch makes a point of not making one line above.
   return {
     state,
-    headline: `${struggling.join(" and ")} ${struggling.length > 1 ? "are" : "is"} having problems right now`,
+    headline: `${struggling.join(" and ")} ${struggling.length > 1 ? "are" : "is"} ${
+      state === "degraded"
+        ? "having problems right now"
+        : "showing the odd failure right now"
+    }`,
     detail,
   };
 }
@@ -419,8 +432,13 @@ function scoreModel(
   );
   const availability = scoreTrack(failures, FAILURE_THRESHOLDS);
   if (availability !== "normal") {
+    // The same softener the network branch carries, for the same reason: one
+    // failure is an anecdote whichever layer it came from, and a sentence that
+    // does not say so reads as a verdict.
     detail.push(
-      `${model.model_id} failed ${failures.count} of the last ${horizon} runs.`,
+      failures.count === 1
+        ? `${model.model_id} failed 1 of the last ${horizon} runs. One run is not yet a pattern.`
+        : `${model.model_id} failed ${failures.count} of the last ${horizon} runs.`,
     );
   }
 

@@ -322,6 +322,19 @@ describe("buildVerdict", () => {
     expect(v.detail.join(" ")).toMatch(/71% longer/);
   });
 
+  // One failed run is an anecdote whichever layer produced it, so the model
+  // branch has to say so in the same voice the network branch does.
+  it("softens a single model failure the way it softens a single cycle", () => {
+    const v = buildVerdict(
+      summary({ recent: recentModelFailures([0]) }),
+      summary(),
+    );
+    expect(v.state).toBe("elevated");
+    expect(v.headline).toMatch(/showing the odd failure/i);
+    expect(v.headline).not.toMatch(/having problems/i);
+    expect(v.detail.join(" ")).toMatch(/not yet a pattern/i);
+  });
+
   // The run failed on connect, before it ever reached MiMo. Counting it against
   // the model manufactures provider downtime out of our own outage.
   it("does not charge a model for cycles nothing in Singapore answered", () => {

@@ -290,6 +290,27 @@ describe("App", () => {
       expect(opens()).toBe(3);
     });
 
+    // The banner reads a fixed window and the cards read the selected one, so a
+    // load wants three summaries — but on the default window two of them are
+    // the same URL. Every /api/* call spends a token from the per-IP limiter,
+    // and this runs on every cycle and every stream event.
+    it("asks for each summary window once, not once per consumer", async () => {
+      const fetchMock = mockFetch();
+      vi.stubGlobal("fetch", fetchMock);
+      render(<App />);
+
+      await waitFor(() =>
+        expect(screen.getByTestId("verdict")).toHaveTextContent(/normal/i),
+      );
+      const windows = fetchMock.mock.calls
+        .map((c) => String(c[0]))
+        .filter((u) => u.includes("/api/summary"))
+        .map((u) => new URL(u, "http://x").searchParams.get("window"));
+      expect(new Set(windows).size).toBe(windows.length);
+      // 24h serves both the selected window and the banner's.
+      expect(windows.sort()).toEqual(["24h", "7d"]);
+    });
+
     it("refetches on the probe's cadence even while the stream stays open", async () => {
       vi.useFakeTimers({ shouldAdvanceTime: true });
       const fetchMock = mockFetch();

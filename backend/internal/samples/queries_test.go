@@ -1069,3 +1069,41 @@ func TestSummarizeCarriesTheRecentBlock(t *testing.T) {
 		t.Fatalf("recent = %d, want 4", len(sum.Recent))
 	}
 }
+
+// The block is served per probe kind, like every other query here. Nothing
+// pinned that until now: a WHERE i.probe typo would have quietly mixed the wide
+// probe's runs into the verdict the infer probe is scored on.
+func TestRecentCyclesAreScopedToTheProbe(t *testing.T) {
+	s := New(openTestDB(t))
+	now := time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC)
+	ctx := context.Background()
+
+	wide := okInfer("mimo-v2.5", 1400)
+	wide.Probe = probe.ProbeWide
+	narrow := failedInfer("mimo-v2.5", probe.ErrClassTTFTTimeout, 30000)
+	if _, err := s.Save(ctx, Cycle{
+		StartedAt: now, Net: okNet(),
+		Infer: []probe.InferResult{narrow, wide},
+	}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	for _, tc := range []struct {
+		probeKind string
+		wantOK    bool
+	}{
+		{probe.ProbeInfer, false},
+		{probe.ProbeWide, true},
+	} {
+		got, err := s.RecentCycles(ctx, tc.probeKind)
+		if err != nil {
+			t.Fatalf("RecentCycles(%s): %v", tc.probeKind, err)
+		}
+		if len(got) != 1 {
+			t.Fatalf("%s: cycles = %d, want 1", tc.probeKind, len(got))
+		}
+		if run := got[0].Models["mimo-v2.5"]; run.OK != tc.wantOK {
+			t.Errorf("%s: ok = %v, want %v", tc.probeKind, run.OK, tc.wantOK)
+		}
+	}
+}

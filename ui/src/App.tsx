@@ -113,21 +113,25 @@ export default function App() {
 
   const load = useCallback(async (key: string, signal?: AbortSignal) => {
     try {
-      // Three summaries, and on the default window two of them are the same
-      // request: the daemon's response cache is keyed on window and probe, so
-      // ?window=24h costs nothing extra.
-      const [s, now, b, t, w, p, n] = await Promise.all([
-        getSummary(key, "infer", signal),
-        getSummary(NOW_WINDOW, "infer", signal),
-        getSummary(BASELINE_WINDOW, "infer", signal),
+      // Three summaries — the selected window, the banner's fixed one, the
+      // baseline — but DEDUPLICATED, because on ?window=24h the first two are
+      // the same request and on ?window=7d so are the first and third. The
+      // daemon would serve the duplicate from its cache, but every /api/* call
+      // still spends a token from the per-IP limiter, and this runs on every
+      // cycle and every stream event.
+      const wanted = [...new Set([key, NOW_WINDOW, BASELINE_WINDOW])];
+      const [summaries, t, w, p, n] = await Promise.all([
+        Promise.all(wanted.map((k) => getSummary(k, "infer", signal))),
         getSeries("ttft", key, "infer", signal),
         getSeries("ttft", key, "wide", signal),
         getSeries("tps", key, "infer", signal),
         getNetSeries(key, signal),
       ]);
+      const byWindow = new Map(wanted.map((k, i) => [k, summaries[i]!]));
+      const s = byWindow.get(key)!;
       setSummary(s);
-      setNowSummary(now);
-      setBaseline(b);
+      setNowSummary(byWindow.get(NOW_WINDOW)!);
+      setBaseline(byWindow.get(BASELINE_WINDOW)!);
       setTtft(t);
       setWideTtft(w);
       setTps(p);
