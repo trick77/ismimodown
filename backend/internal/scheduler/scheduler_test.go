@@ -660,6 +660,41 @@ func TestASlowModelDoesNotHoldUpTheOtherModelsProbe(t *testing.T) {
 	<-done
 }
 
+// A three-hour gap is not a cycle that ran long — no cycle can, the probe
+// ladder bounds it at minutes. It is the wall clock moving: an NTP step, a
+// suspended host, a restored snapshot. Claiming every slot in it would put
+// dozens of "skipped" against a tooltip saying the previous cycle was still
+// running, which is the deploy-gap misread this counter exists to prevent.
+func TestAClockJumpIsNotClaimedAsAnOverrun(t *testing.T) {
+	s, db := newTestScheduler(t, &fakeProber{}, &fakePinger{})
+
+	var ticks []time.Time
+	base := time.Date(2026, 8, 4, 6, 10, 0, 0, time.UTC)
+	for i := 0; i < 36; i++ { // three hours of five-minute slots
+		ticks = append(ticks, base.Add(time.Duration(i)*CycleInterval))
+	}
+	s.recordMissedTicks(context.Background(), ticks)
+
+	var n int
+	if err := db.QueryRow(`SELECT count(*) FROM skipped_runs`).Scan(&n); err != nil {
+		t.Fatalf("query: %v", err)
+	}
+	if want := MaxRecordedMisses * 2; n != want {
+		t.Errorf("skipped_runs = %d, want %d — a clock jump must not be claimed slot by slot", n, want)
+	}
+
+	// The ones kept are the most recent: those are the slots adjacent to the
+	// cycle that actually ran, and the only ones a reader could act on.
+	var first string
+	if err := db.QueryRow(`SELECT min(occurred_at) FROM skipped_runs`).Scan(&first); err != nil {
+		t.Fatalf("query: %v", err)
+	}
+	want := ticks[len(ticks)-MaxRecordedMisses].Format(time.RFC3339Nano)
+	if first != want {
+		t.Errorf("earliest recorded tick = %s, want %s", first, want)
+	}
+}
+
 // Negative jitter must not fire the cycle in the past or immediately.
 func TestNextDelayNeverFiresImmediately(t *testing.T) {
 	s, _ := newTestScheduler(t, &fakeProber{}, &fakePinger{})

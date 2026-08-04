@@ -90,8 +90,8 @@ export function ModelCards({
                 data-testid={`censored-${m.model_id}`}
               >
                 {m.censored} of {m.attempts} runs were cut off by the timeout
-                limits. The percentiles above cover the {m.succeeded} that
-                finished, so the slowest runs in this window are not in them.
+                limits. Only runs that finished reach the percentiles above, so
+                the slowest runs in this window are not in them.
               </p>
             )}
 

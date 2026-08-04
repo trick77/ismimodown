@@ -49,6 +49,22 @@ const WideInterval = time.Hour
 // use up the available room.
 const WideSlack = CycleInterval / 2
 
+// MaxRecordedMisses bounds how many dropped slots ONE overrun may claim.
+//
+// A cycle's length is bounded by the probe ladder: a wide cycle costs at most
+// infer+wide per model with the models concurrent, which is minutes, not hours.
+// A catch-up longer than that is not an overrun at all — it is the wall clock
+// moving, from an NTP step, a suspended host or a restored VM snapshot. Left
+// uncapped, a three-hour jump would insert one skipped_runs row per model per
+// five-minute slot and put "72 skipped" beside the availability strip, under a
+// tooltip saying the previous cycle was still running. That is exactly the
+// misread this counter exists to prevent, in a new form.
+//
+// The anchor still catches all the way up in nextDelay — only the CLAIM about
+// the skipped slots is capped, and the excess is logged so a real clock jump is
+// still visible to whoever reads the logs.
+const MaxRecordedMisses = 6
+
 // Prober is the inference client seam. *probe.Client satisfies it.
 type Prober interface {
 	Run(ctx context.Context, req probe.Request) (probe.InferResult, error)
@@ -180,22 +196,41 @@ func (s *Scheduler) Run(ctx context.Context) {
 // A failed write is logged and dropped rather than retried. This is a counter
 // for a human reading a dashboard, and losing a tick from it must never be able
 // to stall the probe loop it is counting.
+//
+// More than MaxRecordedMisses slots is a clock jump rather than an overrun, and
+// only the most recent MaxRecordedMisses are claimed. See that constant.
 func (s *Scheduler) recordMissedTicks(ctx context.Context, missed []time.Time) {
 	if len(missed) == 0 {
 		return
 	}
-	slog.Warn("cycle overran its slot; scheduled ticks dropped",
-		"ticks", len(missed), "models", len(s.deps.Models),
+	unclaimed := 0
+	if len(missed) > MaxRecordedMisses {
+		unclaimed = len(missed) - MaxRecordedMisses
+		missed = missed[len(missed)-MaxRecordedMisses:]
+	}
+	// Two different events, so two different messages: relabelling a clock jump
+	// as an overrun in the logs is the same misattribution the cap removes from
+	// the strip, only moved somewhere a reader trusts more.
+	msg := "cycle overran its slot; scheduled ticks dropped"
+	if unclaimed > 0 {
+		msg = "wall clock moved past many slots; recording only the most recent"
+	}
+	slog.Warn(msg,
+		"ticks", len(missed), "unclaimed", unclaimed, "models", len(s.deps.Models),
 		"first", missed[0], "last", missed[len(missed)-1])
 
 	for _, tick := range missed {
 		for _, model := range s.deps.Models {
 			if err := s.deps.Store.RecordSkip(ctx, tick, model, probe.ProbeInfer); err != nil {
-				// Shutdown cancels the context mid-write; that is not a fault.
-				if !errors.Is(err, context.Canceled) {
-					slog.Error("record missed tick failed", "err", err, "tick", tick)
+				// Shutdown cancels the context mid-write; that is not a fault,
+				// and the rest of the batch has nowhere to go either.
+				if errors.Is(err, context.Canceled) {
+					return
 				}
-				return
+				// One lost counter tick, not the rest of the batch: a single
+				// failed INSERT says nothing about the next one, and abandoning
+				// them understates the drop in the direction that flatters.
+				slog.Error("record missed tick failed", "err", err, "tick", tick)
 			}
 		}
 	}
@@ -374,11 +409,18 @@ func (s *Scheduler) RunCycle(ctx context.Context) {
 	// avoid — and it is why the in-flight guard is keyed by model+probe rather
 	// than held globally.
 	//
-	// This does NOT reintroduce the contention the pings are sequential to avoid.
-	// Those are three handshakes measuring the uplink itself, where our own
-	// parallelism IS the measurement error; these are latency-bound streams of a
-	// few dozen tokens against a remote endpoint, and every handshake in the
-	// cycle has already completed before the first one starts.
+	// The PINGS are unaffected: they all completed before the first probe is
+	// dispatched, so nothing here contends with the measurement the residual is
+	// subtracted against.
+	//
+	// The probes' OWN handshakes do now overlap, and that is a real if small
+	// cost. probe.NewClient sets DisableKeepAlives, so each run opens a fresh
+	// DNS+TCP+TLS connection, and two of those now share the uplink for a few
+	// milliseconds. It lands inside ttft_ms and therefore inside the published
+	// residual. Accepted rather than hidden: the residual is hundreds to
+	// thousands of milliseconds, the overlap is a fraction of one RTT, and the
+	// alternative — serialising the models — is the multi-minute sampling
+	// collapse this change exists to remove.
 	//
 	// A wide cycle still costs infer+wide per model — around 360 s at the
 	// per-model latencies that motivated this — so the hourly cycle can still run
