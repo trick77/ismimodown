@@ -65,12 +65,6 @@ func LookupWindow(key string) (Window, bool) {
 	return Window{}, false
 }
 
-// NowWindow is what "right now" means on the dashboard.
-//
-// Deliberately short: a 24-hour median hides a problem that started an hour
-// ago, which is exactly the problem you most want to see on opening the page.
-const NowWindow = 30 * time.Minute
-
 // BaselineWindow is the rolling reference that higher-is-worse metrics are
 // scored against. Rolling rather than absolute so the page keeps working if
 // MiMo gets permanently faster or slower.
