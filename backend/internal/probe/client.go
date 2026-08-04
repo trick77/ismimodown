@@ -428,6 +428,16 @@ func classifyRequestErr(outer, stream context.Context, err error) string {
 		// The outer deadline tripped before headers.
 		return ErrClassTimeout
 	}
+	// Checked BEFORE the net.Error timeout test: a resolver that times out on
+	// its own returns a *net.DNSError whose Timeout() is true, so testing
+	// net.Error first reports a DNS outage as a connect timeout — blaming the
+	// endpoint for a failure that never reached it. (A lookup killed by the
+	// OUTER deadline still lands on `timeout` above, which is correct: what
+	// expired was the run, not the resolver.)
+	var dnsErr *net.DNSError
+	if errors.As(err, &dnsErr) {
+		return ErrClassDNS
+	}
 	var netErr net.Error
 	if errors.As(err, &netErr) && netErr.Timeout() {
 		return ErrClassConnectTimeout
@@ -437,10 +447,6 @@ func classifyRequestErr(outer, stream context.Context, err error) string {
 	}
 	if strings.Contains(err.Error(), "connection refused") {
 		return ErrClassRefused
-	}
-	var dnsErr *net.DNSError
-	if errors.As(err, &dnsErr) {
-		return ErrClassDNS
 	}
 	return ErrClassConnectTimeout
 }
@@ -453,6 +459,13 @@ func classifyStreamErr(ctx context.Context, err error) string {
 	}
 	if errors.Is(err, context.DeadlineExceeded) {
 		return ErrClassTimeout
+	}
+	// An oversized SSE line is the response not being the stream we think it is,
+	// which is what maxSSELineBytes exists to detect. Without this it falls
+	// through to `stalled` and reads on the dashboard as a MiMo network stall
+	// rather than the protocol failure it is.
+	if errors.Is(err, bufio.ErrTooLong) {
+		return ErrClassProtocol
 	}
 	return ErrClassStalled
 }
