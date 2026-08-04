@@ -8,7 +8,7 @@ export function SamplesTable({ samples }: { samples: Sample[] }) {
   return (
     <Card
       title="Raw cycles"
-      subtitle="The most recent runs, unaggregated. Failed runs show their error class; the provider's error body is recorded for operators and never served here, because it can echo request fragments."
+      subtitle="The most recent runs, unaggregated. Failed runs show their error class."
     >
       {samples.length > 0 ? (
         <div className="overflow-x-auto">

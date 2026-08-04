@@ -1,6 +1,7 @@
 package web
 
 import (
+	"mime"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -87,5 +88,43 @@ func TestHandlerDoesNotFallBackForAssets(t *testing.T) {
 		if strings.Contains(rec.Body.String(), "mimostats") {
 			t.Errorf("%s: served the shell body for a missing asset", path)
 		}
+	}
+}
+
+// Chrome refuses a manifest served as text/plain and silently drops the PWA
+// icons and theme colour with it — a failure with no error anywhere the
+// developer looks. Go's mime table has no .webmanifest entry, so the
+// registration in embed.go is the only thing standing between the manifest and
+// that default.
+//
+// This one asserts the registration directly, and so runs everywhere. The
+// serving test below needs a real build embedded, and backend/web/dist is
+// gitignored apart from index.html — on a fresh checkout and in CI it skips,
+// which would leave the registration with no cover that gates a merge.
+func TestWebmanifestExtensionIsRegistered(t *testing.T) {
+	if got := mime.TypeByExtension(".webmanifest"); !strings.HasPrefix(got, "application/manifest+json") {
+		t.Errorf("mime.TypeByExtension(\".webmanifest\") = %q, want application/manifest+json", got)
+	}
+}
+
+// The other half: that the registration actually reaches the FileServer, rather
+// than being shadowed by the system mime table it merges into.
+func TestManifestIsServedWithItsOwnType(t *testing.T) {
+	h, err := Handler()
+	if err != nil {
+		t.Fatalf("Handler: %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/manifest.webmanifest", nil))
+
+	// The placeholder dist in the repo carries only index.html, so a 404 here is
+	// the fresh-checkout case rather than a regression. The type is what is
+	// under test, and it is only observable when the file is present.
+	if rec.Code == http.StatusNotFound {
+		t.Skip("no manifest in the embedded dist — run the UI build first")
+	}
+	if got := rec.Header().Get("Content-Type"); !strings.HasPrefix(got, "application/manifest+json") {
+		t.Errorf("Content-Type = %q, want application/manifest+json", got)
 	}
 }

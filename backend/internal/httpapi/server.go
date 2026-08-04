@@ -65,10 +65,16 @@ type Deps struct {
 
 	// Published on /api/methodology, so the page states what was actually
 	// measured rather than what the code once intended to measure.
-	Models         []string
-	BaseURL        string
-	RefSGPHost     string
-	RefEUHost      string
+	Models     []string
+	BaseURL    string
+	RefSGPHost string
+	RefEUHost  string
+
+	// ProbeUserAgent is deliberately NOT published: the request shape is
+	// operator-only, because an endpoint that can recognise the probe by its
+	// payload can serve it differently. It stays wired here so
+	// TestRequestShapeIsNotServed can configure a distinctive value and assert
+	// no public endpoint ever echoes it.
 	ProbeUserAgent string
 
 	// Now is a seam for tests.

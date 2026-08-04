@@ -20,10 +20,7 @@ export function MethodologyPanel() {
   }, []);
 
   return (
-    <Card
-      title="Methodology"
-      subtitle="Published in full, including the parts that are unflattering. A monitor that hides its method is a monitor you cannot check."
-    >
+    <Card title="Methodology">
       {doc ? (
         <dl className="grid gap-4">
           {Object.entries(doc).map(([key, value]) => (

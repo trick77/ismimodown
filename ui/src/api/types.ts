@@ -81,8 +81,8 @@ export type Sample = {
   output_tps: number | null;
   ok: boolean;
   answer_ok: boolean | null;
-  question_id: string | null;
-  // Note what is absent: error_detail. The server never serves it.
+  // Note what is absent: error_detail, and which question produced answer_ok.
+  // The server never serves either.
   error_class: string | null;
 };
 
@@ -98,7 +98,6 @@ export type ModelsResponse = {
   models: ModelInfo[];
   probes: string[];
   windows: string[];
-  caveat: string;
 };
 
 export const TARGET_MIMO = "mimo_sgp";

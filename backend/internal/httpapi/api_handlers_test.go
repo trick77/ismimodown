@@ -26,7 +26,7 @@ func newAPIServer(t *testing.T) (http.Handler, *samples.Store) {
 		BaseURL:        "https://token-plan-sgp.example/v1",
 		RefSGPHost:     "sgp1.example.com",
 		RefEUHost:      "eu.example.com",
-		ProbeUserAgent: "opencode/test",
+		ProbeUserAgent: testUserAgent,
 		Now:            func() time.Time { return testNow },
 	})
 	return h, store
@@ -267,6 +267,55 @@ func TestNoPublicEndpointEmitsErrorDetail(t *testing.T) {
 	})
 }
 
+const testUserAgent = "someagent/9.9.9 probe-fixture/1.0"
+
+// The request shape is operator-only. Anything that lets the endpoint recognise
+// this probe by its payload lets it serve the probe differently, and every
+// figure on the site would then measure the special case instead of production.
+//
+// Two things in particular: the client string the probe presents, and the id of
+// the rotating question. Both are recorded and both stay unserved.
+func TestRequestShapeIsNotServed(t *testing.T) {
+	h, store := newAPIServer(t)
+
+	if _, err := store.Save(context.Background(), samples.Cycle{
+		StartedAt: testNow.Add(-time.Minute),
+		Net: []probe.NetResult{
+			{Target: probe.TargetMimoSGP, OK: true, ConnectMs: 170},
+			{Target: probe.TargetRefSGP, OK: true, ConnectMs: 265},
+			{Target: probe.TargetRefEU, OK: true, ConnectMs: 16},
+		},
+		Infer: []probe.InferResult{{
+			ModelID: "mimo-v2.5", Probe: probe.ProbeInfer, TTFTMs: 900,
+			OK: true, QuestionID: "capital-france",
+		}},
+	}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	for _, p := range []string{
+		"/api/models",
+		"/api/methodology",
+		"/api/summary?window=24h",
+		"/api/samples?model=mimo-v2.5&limit=100",
+	} {
+		t.Run(p, func(t *testing.T) {
+			body := get(t, h, p).Body.String()
+			// The configured agent string, and the field that would carry it.
+			if strings.Contains(body, testUserAgent) {
+				t.Errorf("endpoint served the probe's client string: %s", body)
+			}
+			if strings.Contains(body, "user_agent") {
+				t.Errorf("endpoint exposes a user_agent field: %s", body)
+			}
+			// The question rotation names what is actually being asked.
+			if strings.Contains(body, "question_id") || strings.Contains(body, "capital-france") {
+				t.Errorf("endpoint exposes the question rotation: %s", body)
+			}
+		})
+	}
+}
+
 // The error CLASS is public — it is the whole failure vocabulary the dashboard
 // renders — so suppressing detail must not suppress that too.
 func TestErrorClassIsServedEvenThoughDetailIsNot(t *testing.T) {
@@ -307,7 +356,8 @@ func TestMethodologyPublishesTheUnflatteringParts(t *testing.T) {
 	for _, must := range []string{
 		"server-side time",     // never "model time"
 		"no European GPUs",     // why the residual is not model time
-		"opencode",             // the UA is disclosed verbatim, not hidden
+		"client_identity",      // that the probe does not present as neutral
+		"reasoning_tokens",     // the check that keeps thinking out of the timings
 		"Not the same carrier", // the SGP reference limitation
 		"insufficient_data",    // percentile suppression
 		"never served publicly",
@@ -320,6 +370,28 @@ func TestMethodologyPublishesTheUnflatteringParts(t *testing.T) {
 	if strings.Contains(strings.ToLower(body), "model time") &&
 		!strings.Contains(body, "would be a claim the measurement cannot support") {
 		t.Error("methodology uses 'model time' without the disclaimer")
+	}
+}
+
+// The scope line names the models, and BACKEND_MODELS can change them. Spelling
+// them out as a literal makes the one endpoint the site's credibility rests on
+// state what the code once intended to probe rather than what it probes.
+func TestMethodologyScopeNamesTheConfiguredModels(t *testing.T) {
+	db := openTestDB(t)
+	h := NewServer(Deps{
+		DB: db, Samples: samples.New(db),
+		Models: []string{"mimo-v9-tiny", "mimo-v9-huge"},
+		Now:    func() time.Time { return testNow },
+	})
+
+	body := get(t, h, "/api/methodology").Body.String()
+	for _, id := range []string{"mimo-v9-tiny", "mimo-v9-huge"} {
+		if !strings.Contains(body, id) {
+			t.Errorf("scope omits the configured model %q: %s", id, body)
+		}
+	}
+	if strings.Contains(body, "mimo-v2.5") {
+		t.Errorf("scope names a model that is not configured: %s", body)
 	}
 }
 

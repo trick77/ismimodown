@@ -66,10 +66,21 @@ function mockFetch(overrides: Record<string, unknown> = {}) {
             : url.includes("/api/methodology")
               ? {
                   scope:
-                    "A MiMo latency monitor, not a cross-vendor benchmark.",
+                    "Latency of mimo-v2.5 and mimo-v2.5-pro, measured from one host.",
                 }
               : {};
     if (url.includes("/api/events")) {
+      // eventsStatus makes the stream FAIL instead, which is what the reconnect
+      // tests need — streamSSE throws on a non-OK response.
+      if (overrides.eventsStatus) {
+        return new Response("", { status: Number(overrides.eventsStatus) });
+      }
+      // A 200 whose body is already finished: the stream RESOLVES rather than
+      // throwing, which is what a draining daemon or a proxy answering 200 with
+      // no body looks like from here.
+      if (overrides.eventsCloseImmediately) {
+        return new Response("", { status: 200 });
+      }
       // Never resolves during a test; the component aborts it on unmount.
       return new Promise<Response>(() => {});
     }
@@ -99,13 +110,14 @@ describe("App", () => {
     expect(screen.getByText("916 ms")).toBeInTheDocument();
   });
 
-  // The scope caveat is not decoration: the name does not say it, and anyone
-  // screenshotting a number should see both limits without scrolling.
-  it("states the scope in the masthead", () => {
+  // The scope is published, not implied: it comes from the daemon via
+  // /api/methodology, so the page cannot claim a scope the backend is not
+  // actually measuring. Async because it is fetched, not hardcoded.
+  it("publishes the scope on the methodology panel", async () => {
     vi.stubGlobal("fetch", mockFetch());
     render(<App />);
     expect(
-      screen.getByText(/not a cross-vendor benchmark/i),
+      await screen.findByText(/measured from one host/i),
     ).toBeInTheDocument();
   });
 
@@ -190,5 +202,78 @@ describe("App", () => {
     );
     // The masthead survives, so the page still explains what it is.
     expect(screen.getByText(/mimostats/i)).toBeInTheDocument();
+  });
+
+  // A dashboard that has quietly stopped updating is worse than one that says
+  // it cannot load: it shows numbers, and they are wrong. The stream ends for
+  // reasons that are not errors — a sleeping laptop, a proxy capping connection
+  // age, a daemon restart — so neither of these paths is redundant.
+  describe("staying current", () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("reopens the event stream after it drops", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      const fetchMock = mockFetch({ eventsStatus: 503 });
+      vi.stubGlobal("fetch", fetchMock);
+      render(<App />);
+
+      const opens = () =>
+        fetchMock.mock.calls.filter((c) => String(c[0]).includes("/api/events"))
+          .length;
+
+      await waitFor(() => expect(opens()).toBe(1));
+      // The backoff doubles: first retry at 1s, the next 2s after that. Asserted
+      // as two separate advances so a constant-delay retry loop fails here.
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(opens()).toBe(2);
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(opens()).toBe(3);
+    });
+
+    // A stream that ends the instant it opens must not reset the backoff. It
+    // resolves rather than throws, so treating "resolved" as "worked" pins the
+    // client at one reconnect per second for as long as the tab is open —
+    // invisible on screen, obvious in the server's access log.
+    it("backs off even when the stream closes cleanly on open", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      const fetchMock = mockFetch({ eventsCloseImmediately: true });
+      vi.stubGlobal("fetch", fetchMock);
+      render(<App />);
+
+      const opens = () =>
+        fetchMock.mock.calls.filter((c) => String(c[0]).includes("/api/events"))
+          .length;
+
+      await waitFor(() => expect(opens()).toBe(1));
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(opens()).toBe(2);
+      // The doubling has to survive a resolving stream too: a second 1s wait
+      // must NOT produce a third open.
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(opens()).toBe(2);
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(opens()).toBe(3);
+    });
+
+    it("refetches on the probe's cadence even while the stream stays open", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      const fetchMock = mockFetch();
+      vi.stubGlobal("fetch", fetchMock);
+      render(<App />);
+
+      const loads = () =>
+        fetchMock.mock.calls.filter((c) =>
+          String(c[0]).includes("/api/summary"),
+        ).length;
+
+      await waitFor(() => expect(loads()).toBeGreaterThan(0));
+      const before = loads();
+      // A stream that stays open but stops delivering looks exactly like one
+      // with nothing to say, so the interval has to fire regardless.
+      await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
+      expect(loads()).toBeGreaterThan(before);
+    });
   });
 });

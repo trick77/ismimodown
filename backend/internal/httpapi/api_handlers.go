@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/trick77/mimostats/internal/probe"
@@ -48,9 +49,8 @@ func (s *server) sendJSON(w http.ResponseWriter, body []byte) {
 	_, _ = w.Write(body)
 }
 
-// handleModels lists what is being probed, and says plainly that the two models
-// are different weight classes — latency between them is comparable, quality is
-// not.
+// handleModels lists what is being probed: the models, the probe kinds and the
+// windows the API will accept.
 func (s *server) handleModels(w http.ResponseWriter, r *http.Request) {
 	// Built inside the closure, so a cache hit costs a map lookup rather than
 	// rebuilding the payload on every request.
@@ -67,10 +67,8 @@ func (s *server) handleModels(w http.ResponseWriter, r *http.Request) {
 			Models  []model  `json:"models"`
 			Probes  []string `json:"probes"`
 			Windows []string `json:"windows"`
-			Caveat  string   `json:"caveat"`
 		}{
 			Probes: []string{probe.ProbeInfer, probe.ProbeWide},
-			Caveat: "Different weight classes: latency is comparable between them, quality is not.",
 		}
 		for _, id := range s.deps.Models {
 			out.Models = append(out.Models, model{ID: id, Note: notes[id]})
@@ -239,7 +237,11 @@ func (s *server) handleMethodology(w http.ResponseWriter, r *http.Request) {
 	// cache hit should not pay to reconstruct it.
 	s.writeJSON(w, r, "methodology", func() (any, error) {
 		return map[string]any{
-			"scope": "A MiMo latency monitor, not a cross-vendor benchmark. Two models, one vendor.",
+			// The model names come from the configured set rather than a
+			// literal, because BACKEND_MODELS can change them. A hardcoded
+			// pair would let this endpoint — the one the site's credibility
+			// rests on — name models nothing is actually probing.
+			"scope": "Latency of " + strings.Join(s.deps.Models, " and ") + ", measured from one host, every five minutes. Each model is its own series.",
 			// The vantage point is still disclosed — it is a real limit on every
 			// figure here — but it is prose, not a labelled identifier. There is
 			// one probe host and no second one planned, so a machine-readable id
@@ -267,12 +269,9 @@ func (s *server) handleMethodology(w http.ResponseWriter, r *http.Request) {
 					"why":  "Answers whether our own uplink is up at all, so a local outage is never published as a provider outage.",
 				},
 			},
-			"user_agent": map[string]any{
-				"value": s.deps.ProbeUserAgent,
-				"why":   "The endpoint is an opencode-facing product, so probing it with a neutral agent would not measure what production traffic experiences. Disclosed verbatim rather than hidden.",
-			},
-			"reasoning":    "Disabled on every request via both {\"thinking\":{\"type\":\"disabled\"}} and enable_thinking:false. reasoning_tokens is recorded on every sample and must be 0; a non-zero value invalidates the latency figures for that window.",
-			"cache_defeat": "The wide prompt carries a random 8-character nonce BEFORE the document, because caches key on the leading prefix. cached_tokens is recorded every run and must stay near zero. The short probe needs no nonce, but does need an explicit system message: without one the endpoint injects its own (~250 tokens, most of it cache-served), which would inflate the token budget and turn measured prefill into a cache lookup.",
+			"client_identity": "Requests present as a real coding agent rather than a neutral client, because the endpoint is a coding-agent product and neutral traffic would not measure what production traffic experiences.",
+			"reasoning":       "Thinking is disabled on every request, through both of the switches the API offers for it. The check that matters is published on every sample: reasoning_tokens must be 0, and a non-zero value invalidates every latency figure for that window.",
+			"cache_defeat":    "The wide prompt is unique per run, varied at the front because prompt caches key on the leading prefix. The short probe needs no such treatment but does carry a system message of its own — with none, the endpoint supplies one (~250 tokens, most of it cache-served), which would inflate the token budget and turn measured prefill into a cache lookup. cached_tokens is recorded every run and must stay near zero.",
 			"exclusions": map[string]any{
 				"percentiles": "Failed runs are excluded from every latency percentile and counted in availability instead. Otherwise a 240 000 ms timeout lands in the P50 and an outage reads as catastrophic latency.",
 				"suppression": "Fewer than " + strconv.Itoa(samples.MinSamplesForPercentile) + " successful samples in a window returns insufficient_data rather than a number.",
@@ -280,7 +279,7 @@ func (s *server) handleMethodology(w http.ResponseWriter, r *http.Request) {
 			},
 			"throughput_caveat": "itl_p50_ms is the median gap between STREAM CHUNKS, not between tokens. The endpoint batches tokens into chunks and delivers them in bursts, so on a healthy run the median can collapse toward zero (measured 0.0075 ms against 70 tok/s). output_tps over the decode window is the robust figure; both are published.",
 			"retention":         "Raw samples are kept for 3 months and swept nightly. No rollups, so no window longer than that is offered.",
-			"error_detail":      "Provider error bodies are recorded for operators but never served publicly, because they can echo request fragments.",
+			"error_detail":      "Provider error bodies are recorded for operators and never served publicly. The error class is served, and it is the part that names the failure.",
 		}, nil
 	})
 }

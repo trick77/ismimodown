@@ -6,8 +6,8 @@ import { buildLineOption, WIRE_COLOR } from "./charts/options";
 
 const LABELS: Record<string, string> = {
   [TARGET_MIMO]: "MiMo edge (Singapore)",
-  [TARGET_REF_SGP]: "reference · Singapore",
-  [TARGET_REF_EU]: "reference · Europe",
+  [TARGET_REF_SGP]: "Reference (Singapore)",
+  [TARGET_REF_EU]: "Reference (Europe)",
 };
 
 // Reference lines are faint; MiMo's own edge is the one being read. All three
