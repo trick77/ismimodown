@@ -549,3 +549,98 @@ func TestUplinkExclusionAppliesToMimoButNotTheReference(t *testing.T) {
 			got.Attempts, got.Available)
 	}
 }
+
+// A run that SUCCEEDED on an unattributable cycle is still MiMo answering.
+//
+// The fault is attributed from TCP handshakes taken at the top of the cycle, so
+// a handshake that timed out while the completion went through is entirely
+// possible. Dropping that row would not just under-count attempts: it would
+// take the answer grade and the reasoning-token gate with it, and the gate is
+// the one figure that invalidates every latency number in the window.
+func TestSuccessfulRunsOnUplinkCyclesStillCount(t *testing.T) {
+	s := New(openTestDB(t))
+	now := time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC)
+	ctx := context.Background()
+
+	seedCycles(t, s, "mimo-v2.5", now, 10, 900)
+
+	in := okInfer("mimo-v2.5", 950)
+	in.Usage.CompletionTokenDetails.ReasoningTokens = 512
+	if _, err := s.Save(ctx, Cycle{
+		StartedAt: now.Add(-30 * time.Minute),
+		Net:       deadNet(),
+		Infer:     []probe.InferResult{in},
+	}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	w, _ := LookupWindow("24h")
+	sum, err := s.Summarize(ctx, w, []string{"mimo-v2.5"}, probe.ProbeInfer, now)
+	if err != nil {
+		t.Fatalf("Summarize: %v", err)
+	}
+	ms := sum.Models[0]
+
+	if ms.Attempts != 11 || ms.Succeeded != 11 {
+		t.Errorf("attempts = %d, succeeded = %d, want 11 and 11 — a run that succeeded is evidence MiMo answered",
+			ms.Attempts, ms.Succeeded)
+	}
+	if ms.MaxReasoningTokens != 512 {
+		t.Errorf("max_reasoning_tokens = %d, want 512 — the hard gate must not be filtered away by fault attribution",
+			ms.MaxReasoningTokens)
+	}
+	if ms.Answered != 11 {
+		t.Errorf("answered = %d, want 11 — a graded answer is not unattributable", ms.Answered)
+	}
+	// The invariant the exclusion must never break: a sample cannot be in the
+	// percentiles without being in the denominator it is drawn from.
+	if ms.TTFT.N > ms.Attempts {
+		t.Errorf("ttft.n = %d > attempts = %d — latency counted from a run whose attempt was not",
+			ms.TTFT.N, ms.Attempts)
+	}
+}
+
+// 'route' is the historical half of the same verdict and must be excluded on
+// the same terms.
+//
+// It was produced while a European reference host still separated "our uplink
+// is down" from "the route to Singapore is degraded". In BOTH, MiMo and the
+// Singapore reference were unreachable, so the inference probe failed on
+// connect. Stored cycles carry it, and excluding only 'uplink' would leave the
+// manufactured downtime in every window reaching back that far.
+func TestRouteCyclesAreExcludedLikeUplink(t *testing.T) {
+	s := New(openTestDB(t))
+	now := time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC)
+	ctx := context.Background()
+
+	seedCycles(t, s, "mimo-v2.5", now, 10, 900)
+	for i := 0; i < 10; i++ {
+		id, err := s.Save(ctx, Cycle{
+			StartedAt: now.Add(-time.Duration(i+1) * time.Hour),
+			Net:       deadNet(),
+			Infer: []probe.InferResult{{
+				ModelID: "mimo-v2.5", Probe: probe.ProbeInfer,
+				OK: false, ErrorClass: probe.ErrClassConnectTimeout,
+			}},
+		})
+		if err != nil {
+			t.Fatalf("Save: %v", err)
+		}
+		// Nothing produces 'route' any more, so it is written directly — the
+		// point is precisely that historical rows must still read correctly.
+		if _, err := s.db.ExecContext(ctx,
+			`UPDATE cycle_fault SET fault = ? WHERE cycle_id = ?`, probe.FaultRoute, id); err != nil {
+			t.Fatalf("update fault: %v", err)
+		}
+	}
+
+	w, _ := LookupWindow("24h")
+	sum, err := s.Summarize(ctx, w, []string{"mimo-v2.5"}, probe.ProbeInfer, now)
+	if err != nil {
+		t.Fatalf("Summarize: %v", err)
+	}
+	if ms := sum.Models[0]; ms.Attempts != 10 || ms.Available != 100 {
+		t.Errorf("attempts = %d, available = %v%%, want 10 and 100%% — 'route' is as unattributable as 'uplink'",
+			ms.Attempts, ms.Available)
+	}
+}

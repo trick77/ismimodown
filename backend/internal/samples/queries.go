@@ -97,11 +97,14 @@ type ModelSummary struct {
 	// above and counted here — otherwise an outage reads as catastrophic
 	// latency.
 	//
-	// Cycles attributed 'uplink' are not counted at all: nothing in Singapore
-	// answered, so the failure cannot be shown to be MiMo's. Attempts is
-	// therefore the denominator the percentage is honest about, not the raw
-	// cycle count — a window that is entirely uplink reports 0 attempts, which
-	// clients render as no data.
+	// FAILED runs on unattributable cycles ('uplink', and its historical split
+	// 'route') are not counted at all: nothing in Singapore answered, so the
+	// failure cannot be shown to be MiMo's. A run that SUCCEEDED on such a
+	// cycle still counts — it is positive evidence MiMo answered, and dropping
+	// it would also drop its answer grade and its reasoning/cache canaries.
+	// Attempts is therefore the denominator the percentage is honest about, not
+	// the raw cycle count — a window of nothing but unattributable failures
+	// reports 0 attempts, which clients render as no data.
 	Attempts  int     `json:"attempts"`
 	Succeeded int     `json:"succeeded"`
 	Available float64 `json:"available_pct"`
@@ -234,7 +237,11 @@ func (s *Store) Summarize(ctx context.Context, w Window, models []string, probeK
 		}
 		out.Models = append(out.Models, ms)
 	}
-	for _, target := range []string{"mimo_sgp", "ref_sgp"} {
+	// The constants, not literals: netSummary decides whether to apply the
+	// unattributable-cycle exclusion by comparing against probe.TargetMimoSGP,
+	// and a literal drifting from it would silently switch the exclusion off
+	// without failing a single test.
+	for _, target := range []string{probe.TargetMimoSGP, probe.TargetRefSGP} {
 		ns, err := s.netSummary(ctx, target, since)
 		if err != nil {
 			return Summary{}, err
@@ -258,8 +265,8 @@ func (s *Store) modelSummary(ctx context.Context, modelID, probeKind string, sin
 		return ms, err
 	}
 
-	// Cycles attributed 'uplink' are excluded from the counting, not merely from
-	// the percentiles.
+	// Failures on unattributable cycles are excluded from the counting, not
+	// merely from the percentiles.
 	//
 	// When nothing in Singapore answered, the inference probe failed too — on
 	// connect, before it ever reached MiMo. Counting that as a failed ATTEMPT
@@ -268,13 +275,25 @@ func (s *Store) modelSummary(ctx context.Context, modelID, probeKind string, sin
 	// downtime. /api/methodology and the availability strip have both always
 	// said these are excluded; this is where that finally becomes true.
 	//
+	// 'route' rides along with 'uplink': it is the historical half of the same
+	// verdict, produced while a European reference host still split the two, and
+	// in both cases MiMo AND the Singapore reference were unreachable. Stored
+	// cycles still carry it, so excluding one without the other would leave the
+	// same manufactured downtime in every window that reaches back far enough.
+	//
+	// The i.ok = 1 escape matters: the fault is attributed from TCP handshakes
+	// taken at the top of the cycle, and a run that nonetheless SUCCEEDED is
+	// positive evidence MiMo answered. Dropping it would also drop its answer
+	// grade and its reasoning/cached-token canaries — the hard gates — and would
+	// leave its latency in the percentiles while its attempt went uncounted.
+	//
 	// LEFT JOIN with COALESCE rather than an inner join: every cycle gets a
 	// cycle_fault row in the same transaction, so a missing one is impossible
 	// today — but an inner join would silently DROP such a cycle from
 	// availability entirely, which is a worse failure than counting it.
 	//
-	// A window that is entirely uplink lands on Attempts = 0, which the clients
-	// already render as "no data" rather than as 0%.
+	// A window of nothing but unattributable failures lands on Attempts = 0,
+	// which the clients already render as "no data" rather than as 0%.
 	var correct, answered sql.NullInt64
 	var maxReason, maxCached sql.NullInt64
 	err = s.db.QueryRowContext(ctx, `
@@ -289,8 +308,8 @@ func (s *Store) modelSummary(ctx context.Context, modelID, probeKind string, sin
 		JOIN cycles c ON c.id = i.cycle_id
 		LEFT JOIN cycle_fault f ON f.cycle_id = c.id
 		WHERE i.model_id = ? AND i.probe = ? AND c.started_at >= ?
-		  AND COALESCE(f.fault, '') != ?`,
-		modelID, probeKind, rfc(since), probe.FaultUplink,
+		  AND (i.ok = 1 OR COALESCE(f.fault, '') NOT IN (?, ?))`,
+		modelID, probeKind, rfc(since), probe.FaultUplink, probe.FaultRoute,
 	).Scan(&ms.Attempts, &ms.Succeeded, &answered, &correct, &maxReason, &maxCached)
 	if err != nil {
 		return ms, err
@@ -346,7 +365,8 @@ func (s *Store) netSummary(ctx context.Context, target string, since time.Time) 
 		}
 	}
 
-	// The uplink exclusion applies to MiMo's target and to it alone.
+	// The unattributable-cycle exclusion applies to MiMo's target and to it
+	// alone.
 	//
 	// MiMo's edge is a PROVIDER figure, and the promise is that we never publish
 	// our own outage as theirs — so a cycle where nothing at all answered is
@@ -359,14 +379,19 @@ func (s *Store) netSummary(ctx context.Context, target string, since time.Time) 
 	// would make a flaky reference look healthier than it is — hiding the thing
 	// the number exists to reveal. So the references keep their unfiltered
 	// count, and the asymmetry is the point rather than an oversight.
+	//
+	// The n.ok = 1 escape is unreachable under today's attribution — a cycle is
+	// only 'uplink'/'route' when the mimo handshake failed — but it is what makes
+	// ns.Connect.N <= ns.Attempts hold structurally rather than by coincidence,
+	// exactly as i.ok = 1 does in modelSummary. Keep it if the rule ever changes.
 	excludeUplink := target == probe.TargetMimoSGP
 	err = s.db.QueryRowContext(ctx, `
 		SELECT count(*), COALESCE(sum(n.ok), 0) FROM net_probes n
 		JOIN cycles c ON c.id = n.cycle_id
 		LEFT JOIN cycle_fault f ON f.cycle_id = c.id
 		WHERE n.target = ? AND c.started_at >= ?
-		  AND (? = 0 OR COALESCE(f.fault, '') != ?)`,
-		target, rfc(since), boolToInt(excludeUplink), probe.FaultUplink,
+		  AND (? = 0 OR n.ok = 1 OR COALESCE(f.fault, '') NOT IN (?, ?))`,
+		target, rfc(since), boolToInt(excludeUplink), probe.FaultUplink, probe.FaultRoute,
 	).Scan(&ns.Attempts, &ns.Succeeded)
 	if err != nil {
 		return ns, err
