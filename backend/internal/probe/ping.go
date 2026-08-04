@@ -93,19 +93,45 @@ func (p *Pinger) Ping(ctx context.Context, target, host string) NetResult {
 		dial = (&net.Dialer{}).DialContext
 	}
 
-	// Measure the handshake alone — the resolve above is already accounted for
-	// and must not be double-counted into connect_ms.
-	connectStart := time.Now()
-	conn, err := dial(ctx, "tcp", net.JoinHostPort(addrs[0], pingPort))
-	res.ConnectMs = msSince(connectStart)
-	if err != nil {
-		res.ErrorClass = classifyNetErr(ctx, err, ErrClassConnectTimeout)
-		res.ErrorDetail = err.Error()
-		return res
+	// Try every resolved address, not just the first.
+	//
+	// This is a credibility question, not a robustness nicety. MiMo's edge
+	// resolves to EIGHT addresses and cloudflare.com to four (v4 and v6 mixed),
+	// and LookupHost's ordering is not guaranteed — on a dual-stack host RFC
+	// 6724 can put IPv6 first, which on a box with present-but-broken IPv6
+	// means every probe fails forever. Either way, pinning to addrs[0] turns
+	// "one address in the rotation is bad" into a published provider outage.
+	//
+	// A real client does not behave that way: net.Dial with a hostname walks
+	// the list. The dial here is per-address only so the handshake can be timed
+	// in isolation, and that must not cost the resilience the question
+	// ("is this endpoint reachable?") actually implies.
+	//
+	// connect_ms is the SUCCESSFUL handshake alone, never the sum of failed
+	// attempts before it — otherwise a slow first address would masquerade as
+	// edge latency. The resolve above is likewise not folded in.
+	var lastErr error
+	for _, addr := range addrs {
+		connectStart := time.Now()
+		conn, err := dial(ctx, "tcp", net.JoinHostPort(addr, pingPort))
+		elapsed := msSince(connectStart)
+		if err == nil {
+			_ = conn.Close()
+			res.ConnectMs = elapsed
+			res.OK = true
+			return res
+		}
+		lastErr = err
+		// A cancelled or expired context will not be helped by the next
+		// address, and walking the rest would blow past the ping timeout.
+		if ctx.Err() != nil {
+			res.ConnectMs = elapsed
+			break
+		}
 	}
-	_ = conn.Close()
 
-	res.OK = true
+	res.ErrorClass = classifyNetErr(ctx, lastErr, ErrClassConnectTimeout)
+	res.ErrorDetail = lastErr.Error()
 	return res
 }
 
@@ -124,11 +150,10 @@ func classifyNetErr(ctx context.Context, err error, fallback string) string {
 		return ErrClassRefused
 	}
 
+	// A resolver failure is ours (or the resolver's), never the endpoint's —
+	// timeout or not, which is why both cases land on the same class.
 	var dnsErr *net.DNSError
 	if errors.As(err, &dnsErr) {
-		if dnsErr.IsTimeout {
-			return ErrClassDNS
-		}
 		return ErrClassDNS
 	}
 

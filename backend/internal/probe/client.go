@@ -100,6 +100,16 @@ type Request struct {
 func (c *Client) Run(ctx context.Context, req Request) (InferResult, error) {
 	res := InferResult{ModelID: req.ModelID, Probe: req.Probe, QuestionID: req.QuestionID}
 
+	// An unset cap is a caller bug, and a silent one: MaxCompletionTokens is
+	// `omitempty`, so zero drops the field entirely and the model runs to its
+	// own default. That is the exact failure the pre-implementation curls
+	// existed to rule out — it breaks the latency numbers (a 2 000-token
+	// response is not measuring what a 70-token one measures) and the cost
+	// model at the same time. Fail loudly rather than bill for it.
+	if req.MaxTokens <= 0 {
+		return res, fmt.Errorf("probe request for %s/%s has no output cap", req.ModelID, req.Probe)
+	}
+
 	body, err := json.Marshal(chatCompletionRequest{
 		Model: req.ModelID,
 		Messages: []Message{

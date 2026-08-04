@@ -244,7 +244,7 @@ func TestTimeoutLadderClassifiesEachLayer(t *testing.T) {
 		defer srv.Close()
 
 		res, err := NewClient(testConfig(srv.URL)).Run(context.Background(), Request{
-			ModelID: "m", Probe: ProbeInfer, Prompt: "q",
+			ModelID: "m", Probe: ProbeInfer, Prompt: "q", MaxTokens: 150,
 		})
 		if err != nil {
 			t.Fatalf("Run: %v", err)
@@ -267,7 +267,7 @@ func TestTimeoutLadderClassifiesEachLayer(t *testing.T) {
 		defer srv.Close()
 
 		res, err := NewClient(testConfig(srv.URL)).Run(context.Background(), Request{
-			ModelID: "m", Probe: ProbeInfer, Prompt: "q",
+			ModelID: "m", Probe: ProbeInfer, Prompt: "q", MaxTokens: 150,
 		})
 		if err != nil {
 			t.Fatalf("Run: %v", err)
@@ -292,7 +292,7 @@ func TestTimeoutLadderClassifiesEachLayer(t *testing.T) {
 		defer srv.Close()
 
 		res, err := NewClient(testConfig(srv.URL)).Run(context.Background(), Request{
-			ModelID: "m", Probe: ProbeInfer, Prompt: "q",
+			ModelID: "m", Probe: ProbeInfer, Prompt: "q", MaxTokens: 150,
 		})
 		if err != nil {
 			t.Fatalf("Run: %v", err)
@@ -330,7 +330,7 @@ func TestTimeoutLadderClassifiesEachLayer(t *testing.T) {
 		cfg.TTFTTimeout = 400 * time.Millisecond
 		cfg.IdleTimeout = 300 * time.Millisecond
 		res, err := NewClient(cfg).Run(context.Background(), Request{
-			ModelID: "m", Probe: ProbeInfer, Prompt: "q",
+			ModelID: "m", Probe: ProbeInfer, Prompt: "q", MaxTokens: 150,
 		})
 		if err != nil {
 			t.Fatalf("Run: %v", err)
@@ -355,7 +355,7 @@ func TestFailedRunIsStillARecordedSample(t *testing.T) {
 	defer srv.Close()
 
 	res, err := NewClient(testConfig(srv.URL)).Run(context.Background(), Request{
-		ModelID: "mimo-v2.5", Probe: ProbeInfer, Prompt: "q",
+		ModelID: "mimo-v2.5", Probe: ProbeInfer, Prompt: "q", MaxTokens: 150,
 	})
 	if err != nil {
 		t.Fatalf("Run must not return an error for a transport failure: %v", err)
@@ -394,7 +394,7 @@ func TestHTTPStatusClassification(t *testing.T) {
 			defer srv.Close()
 
 			res, err := NewClient(testConfig(srv.URL)).Run(context.Background(), Request{
-				ModelID: "m", Probe: ProbeInfer, Prompt: "q",
+				ModelID: "m", Probe: ProbeInfer, Prompt: "q", MaxTokens: 150,
 			})
 			if err != nil {
 				t.Fatalf("Run: %v", err)
@@ -425,7 +425,7 @@ func TestAuthFailureIsNotReportedAsAMimoOutage(t *testing.T) {
 	defer srv.Close()
 
 	res, _ := NewClient(testConfig(srv.URL)).Run(context.Background(), Request{
-		ModelID: "m", Probe: ProbeInfer, Prompt: "q",
+		ModelID: "m", Probe: ProbeInfer, Prompt: "q", MaxTokens: 150,
 	})
 	if res.ErrorClass != ErrClassAuth {
 		t.Errorf("class = %q, want %q", res.ErrorClass, ErrClassAuth)
@@ -448,7 +448,7 @@ func TestAnswerAssertionDrivesTheCorrectnessCanary(t *testing.T) {
 
 		q := Question{ID: "capital-france", Ask: "What is the capital city of France?", Want: "Paris"}
 		res, err := NewClient(testConfig(srv.URL)).Run(context.Background(), Request{
-			ModelID: "m", Probe: ProbeInfer, Prompt: q.Prompt(),
+			ModelID: "m", Probe: ProbeInfer, Prompt: q.Prompt(), MaxTokens: 150,
 			QuestionID: q.ID, Assert: q.Assert,
 		})
 		if err != nil {
@@ -488,7 +488,7 @@ func TestFailedRunHasNoAnswerVerdict(t *testing.T) {
 
 	q := Question{ID: "q", Ask: "a", Want: "Paris"}
 	res, _ := NewClient(testConfig(srv.URL)).Run(context.Background(), Request{
-		ModelID: "m", Probe: ProbeInfer, Prompt: q.Prompt(), Assert: q.Assert,
+		ModelID: "m", Probe: ProbeInfer, Prompt: q.Prompt(), MaxTokens: 150, Assert: q.Assert,
 	})
 	if res.AnswerOK != nil {
 		t.Errorf("answer_ok = %v, must stay nil when the run never produced an answer", *res.AnswerOK)
@@ -503,7 +503,7 @@ func TestMalformedChunkIsAProtocolError(t *testing.T) {
 	defer srv.Close()
 
 	res, _ := NewClient(testConfig(srv.URL)).Run(context.Background(), Request{
-		ModelID: "m", Probe: ProbeInfer, Prompt: "q",
+		ModelID: "m", Probe: ProbeInfer, Prompt: "q", MaxTokens: 150,
 	})
 	if res.ErrorClass != ErrClassProtocol {
 		t.Errorf("class = %q, want %q", res.ErrorClass, ErrClassProtocol)
@@ -520,7 +520,7 @@ func TestTruncatedStreamIsNotSuccess(t *testing.T) {
 	defer srv.Close()
 
 	res, _ := NewClient(testConfig(srv.URL)).Run(context.Background(), Request{
-		ModelID: "m", Probe: ProbeInfer, Prompt: "q",
+		ModelID: "m", Probe: ProbeInfer, Prompt: "q", MaxTokens: 150,
 	})
 	if res.OK {
 		t.Error("a stream that ended without [DONE] must not be recorded as success")
@@ -544,7 +544,7 @@ func TestCancellationIsNotAFault(t *testing.T) {
 	}()
 
 	res, err := NewClient(testConfig(srv.URL)).Run(ctx, Request{
-		ModelID: "m", Probe: ProbeInfer, Prompt: "q",
+		ModelID: "m", Probe: ProbeInfer, Prompt: "q", MaxTokens: 150,
 	})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
@@ -582,5 +582,27 @@ func TestPercentileDoesNotMutateInput(t *testing.T) {
 	_ = percentile(vals, 50)
 	if vals[0] != 5 || vals[1] != 1 || vals[2] != 3 {
 		t.Errorf("percentile mutated its input: %v", vals)
+	}
+}
+
+// MaxCompletionTokens is `omitempty`, so a zero cap silently drops the field
+// and the model runs to its own default — breaking both the latency numbers and
+// the cost model at once. That is the exact failure the pre-implementation
+// curls existed to rule out, so it must be a loud caller error.
+func TestRunRejectsARequestWithNoOutputCap(t *testing.T) {
+	var called bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+	}))
+	defer srv.Close()
+
+	_, err := NewClient(testConfig(srv.URL)).Run(context.Background(), Request{
+		ModelID: "mimo-v2.5", Probe: ProbeWide, Prompt: "q", // MaxTokens deliberately unset
+	})
+	if err == nil {
+		t.Fatal("expected an error for a request with no output cap")
+	}
+	if called {
+		t.Error("an uncapped request must never reach the endpoint — it would be billed")
 	}
 }

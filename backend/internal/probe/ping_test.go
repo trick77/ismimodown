@@ -192,3 +192,73 @@ func TestAttributeFaultCoversEveryRowOfTheTable(t *testing.T) {
 		})
 	}
 }
+
+// A host resolving to several addresses must not be declared unreachable
+// because the FIRST one is bad. MiMo's edge resolves to eight addresses and
+// cloudflare.com to four; pinning to addrs[0] would turn one bad address — or
+// an IPv6-first ordering on a box with broken v6 — into a published provider
+// outage that never happened.
+func TestPingTriesEveryResolvedAddress(t *testing.T) {
+	good, stop := listenerAcceptingAfter(t, 0)
+	defer stop()
+
+	// Reserve then release a port so it is almost certainly refusing.
+	dead, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	badAddr := dead.Addr().String()
+	dead.Close()
+
+	var attempts []string
+	p := NewPinger(5 * time.Second)
+	p.resolver = net.DefaultResolver
+	// Two "addresses": the first refuses, the second answers.
+	targets := []string{badAddr, good}
+	idx := 0
+	p.dial = func(ctx context.Context, network, _ string) (net.Conn, error) {
+		if idx >= len(targets) {
+			t.Fatalf("dialled more times (%d) than there were addresses", idx+1)
+		}
+		target := targets[idx]
+		idx++
+		attempts = append(attempts, target)
+		return (&net.Dialer{}).DialContext(ctx, network, target)
+	}
+
+	res := p.Ping(context.Background(), TargetMimoSGP, "localhost")
+
+	if !res.OK {
+		t.Fatalf("expected the second address to succeed, got class=%s detail=%s",
+			res.ErrorClass, res.ErrorDetail)
+	}
+	if len(attempts) < 2 {
+		t.Errorf("only %d address(es) attempted; a bad first address would read as an outage",
+			len(attempts))
+	}
+	// connect_ms must be the SUCCESSFUL handshake alone — folding in the failed
+	// attempt before it would masquerade as edge latency.
+	if res.ConnectMs > 2000 {
+		t.Errorf("connect_ms = %v; it must time the successful handshake only", res.ConnectMs)
+	}
+}
+
+// When every address fails, the probe still reports a failure rather than
+// silently succeeding or panicking on an empty address list.
+func TestPingFailsWhenEveryAddressFails(t *testing.T) {
+	dead, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	badAddr := dead.Addr().String()
+	dead.Close()
+
+	res := pingerTo(2*time.Second, badAddr).Ping(context.Background(), TargetRefEU, "localhost")
+
+	if res.OK {
+		t.Fatal("expected failure when no address answers")
+	}
+	if res.ErrorClass == "" {
+		t.Error("a failed ping must carry an error class")
+	}
+}
