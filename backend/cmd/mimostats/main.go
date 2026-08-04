@@ -4,6 +4,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -17,9 +18,12 @@ import (
 	"github.com/trick77/mimostats/internal/config"
 	"github.com/trick77/mimostats/internal/httpapi"
 	"github.com/trick77/mimostats/internal/probe"
+	"github.com/trick77/mimostats/internal/ratelimit"
 	"github.com/trick77/mimostats/internal/retention"
 	"github.com/trick77/mimostats/internal/samples"
+	sched2 "github.com/trick77/mimostats/internal/sched"
 	"github.com/trick77/mimostats/internal/scheduler"
+	"github.com/trick77/mimostats/internal/sse"
 	"github.com/trick77/mimostats/internal/store"
 	"github.com/trick77/mimostats/internal/version"
 	"github.com/trick77/mimostats/web"
@@ -71,6 +75,27 @@ func run() error {
 	}
 
 	sampleStore := samples.New(db)
+	broker := sse.New()
+	// 2 requests/second sustained, 20 in a burst: generous for a browser
+	// loading a dashboard (a handful of parallel fetches), tight enough that a
+	// scraper cannot pin the process.
+	limiter := ratelimit.New(2, 20)
+
+	apiServer := httpapi.NewServer(httpapi.Deps{
+		Version:        version.Version,
+		DB:             db,
+		Samples:        sampleStore,
+		Static:         static,
+		Broker:         broker,
+		Limiter:        limiter,
+		Origin:         cfg.Origin,
+		Models:         cfg.Models,
+		BaseURL:        cfg.BaseURL,
+		RefSGPHost:     cfg.RefSGPHost,
+		RefEUHost:      cfg.RefEUHost,
+		ProbeUserAgent: cfg.ProbeUserAgent,
+	})
+
 	sched := scheduler.New(scheduler.Deps{
 		Store: sampleStore,
 		Prober: probe.NewClient(probe.Config{
@@ -90,18 +115,19 @@ func run() error {
 		MimoHost:   cfg.MimoHost,
 		RefSGPHost: cfg.RefSGPHost,
 		RefEUHost:  cfg.RefEUHost,
+		OnCycle: func(cycleID int64) {
+			// Drop the cached responses first, THEN notify: a client that reacts
+			// to the event by refetching must not be served the pre-cycle
+			// payload it was just told is stale.
+			apiServer.OnCycle()
+			broker.Publish([]byte(fmt.Sprintf(`{"cycle_id":%d}`, cycleID)))
+		},
 	})
 	sweeper := retention.New(sampleStore, cfg.Retention)
 
-	handler := httpapi.New(httpapi.Deps{
-		Version: version.Version,
-		DB:      db,
-		Static:  static,
-	})
-
 	srv := &http.Server{
 		Addr:    cfg.Addr,
-		Handler: handler,
+		Handler: apiServer,
 		// ReadHeaderTimeout bounds a slowloris client on a public endpoint.
 		// WriteTimeout is deliberately NOT set: /api/events is a long-lived SSE
 		// stream and any write deadline would sever it mid-connection.
@@ -117,9 +143,19 @@ func run() error {
 	// the WaitGroup: a cycle mid-flight must finish its write or abandon it
 	// cleanly, never be killed between the INSERT and the COMMIT.
 	var wg sync.WaitGroup
-	wg.Add(2)
+	wg.Add(3)
 	go func() { defer wg.Done(); sched.Run(ctx) }()
 	go func() { defer wg.Done(); sweeper.Run(ctx) }()
+	// The rate limiter's bucket map is keyed by client IP, so it is an
+	// unbounded caller-controlled allocation without a sweep. A full bucket is
+	// indistinguishable from a fresh one, so dropping idle entries loses
+	// nothing.
+	go func() {
+		defer wg.Done()
+		for sched2.Sleep(ctx, 10*time.Minute) {
+			limiter.Sweep(30 * time.Minute)
+		}
+	}()
 
 	errCh := make(chan error, 1)
 	go func() {
