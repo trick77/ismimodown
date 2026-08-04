@@ -62,6 +62,9 @@ is dead — 401). Never commit it; `.gitignore` covers `.env` and `.env.*`. Scan
   of the same-carrier argument (disclosed on the methodology page).
 - **`ref_eu` is `cloudflare.com`, not `1.1.1.1`.** Bare resolver IPs are filtered on port 443 on
   many networks (`1.1.1.1:53` connects, `:443` times out).
+  *Superseded:* the European reference probe was removed — there is one reference host
+  (`ref_sgp`) now, and `route` is no longer produced. The resolver-IP caveat still applies to
+  whatever `BACKEND_PING_REF_SGP_HOST` is set to.
 - **The `wide` corpus is ~3222 words ≈ 3844 prompt tokens**, sized against the plan's 4k target.
 
 ## Invariants that fail silently — the reason most of the tests exist

@@ -22,6 +22,10 @@ CREATE INDEX idx_cycles_origin_started_at ON cycles (origin, started_at);
 
 -- The network layer: a bare TCP handshake to port 443. No TLS, no HTTP, no
 -- auth, no tokens.
+--
+-- 'ref_eu' is historical — that probe was removed and nothing writes it any
+-- more. It stays in the CHECK because rows written before the removal are still
+-- stored and still readable.
 CREATE TABLE net_probes (
   cycle_id    INTEGER NOT NULL REFERENCES cycles (id) ON DELETE CASCADE,
   target      TEXT NOT NULL CHECK (target IN ('mimo_sgp', 'ref_sgp', 'ref_eu')),
@@ -82,8 +86,17 @@ CREATE INDEX idx_infer_probes_model_probe ON infer_probes (model_id, probe, cycl
 --
 --   mimo ok                       -> 'ok'
 --   mimo fail, ref_sgp ok         -> 'edge'   (MiMo's edge; the route is fine)
+--   mimo + ref_sgp fail           -> 'uplink' (unattributable; window excluded
+--                                              from availability)
+--
+-- 'route' is historical: it needed a third probe (ref_eu, a European PoP) to be
+-- distinguishable from 'uplink' and is no longer produced. The old rule was
+--
 --   mimo + ref_sgp fail, ref_eu ok-> 'route'  (Europe->Singapore degraded)
---   all three fail                -> 'uplink' (ours; window excluded from availability)
+--   all three fail                -> 'uplink' (ours)
+--
+-- and it stays in the CHECK, as does 'ref_eu' in net_probes above, because
+-- cycles recorded under it are still stored and must still read correctly.
 CREATE TABLE cycle_fault (
   cycle_id INTEGER PRIMARY KEY REFERENCES cycles (id) ON DELETE CASCADE,
   fault    TEXT NOT NULL CHECK (fault IN ('ok', 'edge', 'route', 'uplink'))
