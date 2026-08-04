@@ -216,8 +216,6 @@ export default function App() {
 
         <div className="grid gap-6">
           <ModelCards summary={summary} baseline={baseline} />
-          <Decomposition summary={summary} edgeMs={mimoEdge} />
-          <AvailabilityStrip summary={summary} />
           <SeriesPanel
             title="Time to first token"
             subtitle="P50 per bucket. Failed runs are excluded — an outage is counted as availability, not as latency. Lower is better."
@@ -234,7 +232,15 @@ export default function App() {
             unit="tok/s"
             forceLinear
           />
+          {/* Everything from here down rests on the handshake, so the panel
+              that measures it comes first. Above, both of these forward-
+              referenced an edge RTT and a Singapore reference host the reader
+              had not met yet — the decomposition subtracted a number the page
+              had not yet shown, and the attribution appealed to a host it had
+              not yet introduced. */}
           <NetworkPanel series={net} />
+          <Decomposition summary={summary} edgeMs={mimoEdge} />
+          <AvailabilityStrip summary={summary} />
           <SamplesTable samples={samples} />
           <MethodologyPanel />
         </div>

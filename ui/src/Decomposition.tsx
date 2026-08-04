@@ -4,11 +4,15 @@ import { EChart } from "./charts/EChart";
 import { buildDecompositionOption } from "./charts/options";
 import { formatMs } from "./format";
 
-// The headline: TTFT split into the measured edge RTT and everything beyond it.
+// TTFT split into the measured edge RTT and everything beyond it.
 //
 // This is the number nobody else publishes, and the reason the whole cycle is
 // aligned — both halves come from the SAME five-minute tick, so the subtraction
 // is exact rather than interpolated.
+//
+// It sits below "The wire itself" rather than at the top of the page: the split
+// is a subtraction of the handshake, and a reader who has not seen the
+// handshake measured yet has no reason to accept the minuend.
 export function Decomposition({
   summary,
   edgeMs,
@@ -33,7 +37,7 @@ export function Decomposition({
         <>
           <EChart
             option={buildDecompositionOption(models)}
-            height={160}
+            height={120}
             ariaLabel="Time to first token split into edge round-trip and server-side time, per model"
           />
           <ul className="mt-3 space-y-1 text-label text-muted">

@@ -52,6 +52,11 @@
   /* The network is drawn in neutral ink because it is not a model. Giving it a
      series hue is how it ends up read as one. */
   --color-wire: #9c9a92;
+  /* The server-side remainder in the decomposition. The page accent, not a
+     series hue: that segment is drawn on every model's row, so a model colour
+     there would claim an identity it does not have. Mirrors SERVER_COLOR in
+     charts/options.ts — canvas cannot read a CSS variable. */
+  --color-server: #c6613f;
 
   /* Fault colours, matching the attribution table. Distinct from the series
      palette so a failure can never be mistaken for a measurement. */

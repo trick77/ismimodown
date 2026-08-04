@@ -147,6 +147,29 @@ describe("buildDecompositionOption", () => {
     const opt = buildDecompositionOption([{ id: "m", ttft: null, edge: 180 }]);
     expect(opt.series[1]!.data).toEqual([null]);
   });
+
+  // Both segments are drawn on EVERY model's row, so neither may wear a model
+  // hue: doing so made one colour mean "mimo-v2.5" in the cards and
+  // "server-side" here, on the same screen, including on the pro row.
+  it("paints neither segment in a model colour", () => {
+    const opt = buildDecompositionOption([
+      { id: "mimo-v2.5", ttft: 916, edge: 180 },
+      { id: "mimo-v2.5-pro", ttft: 1400, edge: 180 },
+    ]);
+    for (const s of opt.series) {
+      expect(SERIES_COLORS as readonly string[]).not.toContain(
+        s.itemStyle.color,
+      );
+    }
+  });
+
+  // A bar sized purely by the category band read as a status meter rather than
+  // a measurement once the plot got short.
+  it("caps bar thickness on both stacked segments", () => {
+    const opt = buildDecompositionOption([{ id: "m", ttft: 900, edge: 100 }]);
+    expect(opt.series[0]!.barMaxWidth).toBe(opt.series[1]!.barMaxWidth);
+    expect(opt.series[0]!.barMaxWidth).toBeLessThanOrEqual(20);
+  });
 });
 
 describe("muted series", () => {
