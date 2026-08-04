@@ -1,5 +1,5 @@
 import type { ModelSeries, Point } from "./api/types";
-import { Card, CensoredNote } from "./ui";
+import { Card, CensoredNote, OffPeakChip, OffPeakNote } from "./ui";
 import { EChart } from "./charts/EChart";
 import { buildLineOption, colorForModel } from "./charts/options";
 
@@ -50,12 +50,17 @@ export function PrefillPanel({
     muted: (name) => !name.includes("3800"),
     unit: "ms",
     bucketMs: bucketS !== undefined ? bucketS * 1000 : undefined,
+    // Prefill is a cost measured in latency, and the subtitle says so. What an
+    // extra 3800 tokens costs and what those tokens are billed at are the same
+    // question asked twice.
+    offPeak: true,
   });
 
   return (
     <Card
       title="Prefill cost"
       subtitle="TTFT at ~3800 input tokens against TTFT at ~34, per model. The gap between the lines is what prefill actually costs; a widening gap is the signal that catches a batching change or a requantisation. Lower is better, and so is a narrower gap."
+      right={option.offPeakSpans.length > 0 ? <OffPeakChip /> : null}
     >
       {Object.keys(series).length > 0 ? (
         <EChart
@@ -90,6 +95,7 @@ export function PrefillPanel({
         </li>
       </ul>
       <CensoredNote bands={option.censoredBands} />
+      <OffPeakNote spans={option.offPeakSpans} />
       {!hasWide && (
         <p className="mt-3 text-label text-muted">
           The wide probe runs hourly, so it takes an hour before this gap is

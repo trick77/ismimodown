@@ -1,9 +1,14 @@
 // The header says what the page measures. The scope shows itself — two model
 // cards, one endpoint on the methodology panel — so it is not also spelled out
 // in prose here.
+//
+// The bottom padding is deliberately smaller than the top. The verdict banner
+// directly below is a statement ABOUT the subtitle here, so it belongs nearer to
+// it than to the pulse strip beneath it; with even padding and the banner's own
+// margin below, it sat the other way round and read as a caption on the strip.
 export function Masthead() {
   return (
-    <header className="py-10 sm:py-16">
+    <header className="pt-10 pb-6 sm:pt-16 sm:pb-7">
       <p className="num text-micro uppercase tracking-[0.22em] text-faint">
         live → singapore · every 5 min
       </p>
