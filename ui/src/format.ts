@@ -69,6 +69,22 @@ const dateTimeFmt = new Intl.DateTimeFormat("en-GB", {
   timeZone: "Europe/Zurich",
 });
 
+// Date without a time, for an axis whose ticks are days apart.
+//
+// The 3mo axis stamped with a full date AND time overlapped its own labels into
+// an unreadable smear; at a 6-hour bucket the hour on a weekly tick is noise
+// anyway, and the tooltip still carries the exact time on hover.
+const dateFmt = new Intl.DateTimeFormat("en-GB", {
+  day: "2-digit",
+  month: "short",
+  timeZone: "Europe/Zurich",
+});
+
+export function formatDate(iso: string | number | Date): string {
+  const d = toDate(iso);
+  return d ? dateFmt.format(d) : "—";
+}
+
 export function formatTime(iso: string | number | Date): string {
   const d = toDate(iso);
   return d ? timeFmt.format(d) : "—";
