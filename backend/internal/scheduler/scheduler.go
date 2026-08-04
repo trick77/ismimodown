@@ -3,6 +3,7 @@ package scheduler
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"sync"
 	"sync/atomic"
@@ -26,11 +27,25 @@ const CycleJitter = 30 * time.Second
 // value can never turn this into a tight loop against a billed endpoint.
 const MinInterval = time.Minute
 
-// WideEveryNCycles runs the wide probe hourly: every 12th cycle at a 5-minute
-// cadence. Landing it ON a cycle rather than on its own timer is deliberate —
-// it gets its own network reading, so its TTFT is decomposable exactly like
-// infer's.
-const WideEveryNCycles = 12
+// WideInterval is how often the wide probe runs. Landing it ON a cycle rather
+// than on its own timer is deliberate — it gets its own network reading, so its
+// TTFT is decomposable exactly like infer's.
+const WideInterval = time.Hour
+
+// WideSlack is how early a cycle may claim the hourly slot.
+//
+// Cycles land every CycleInterval, jittered, so the one nearest the hour mark
+// is as likely to fall a little BEFORE it as after. Without slack that cycle
+// misses, the next one is a full interval later, and "hourly" quietly becomes
+// every 65 minutes — drifting further every time it happens.
+//
+// The slack can never double-fire as long as it stays below
+// WideInterval-CycleInterval: the cycle after a wide run is only one
+// CycleInterval past it, which is nowhere near the WideInterval-WideSlack
+// threshold. Half a cycle sits far inside that bound and is deliberately
+// conservative — it is sized to cover the jitter around the hour mark, not to
+// use up the available room.
+const WideSlack = CycleInterval / 2
 
 // Prober is the inference client seam. *probe.Client satisfies it.
 type Prober interface {
@@ -67,9 +82,27 @@ type Deps struct {
 type Scheduler struct {
 	deps Deps
 
-	// cycleCount drives both the question rotation and the wide cadence, so
-	// both are deterministic and reproducible from the cycle number alone.
+	// cycleCount drives the question rotation, which is deterministic and
+	// reproducible from the cycle number alone.
+	//
+	// It does NOT drive the wide cadence any more. This counter is
+	// memory-resident, so it restarts at zero with the process — fine for a
+	// rotation, where starting over just repeats a question, and wrong for a
+	// billed hourly probe, where it re-fires on every restart. See wideIsDue.
 	cycleCount atomic.Int64
+
+	// lastWideNano is an in-memory FLOOR on the wide cadence: the cycle time of
+	// the most recent wide probe this process actually dispatched, whether or
+	// not it was ever persisted.
+	//
+	// The database stays the source of truth across restarts — that is the whole
+	// point of wideIsDue — but it only knows about probes that were written. A
+	// daemon whose writes fail (full disk, read-only volume, a cycle abandoned
+	// mid-shutdown) keeps reading a stale timestamp, and once that is an hour
+	// old EVERY five-minute cycle fires the ~3800-token probe for every model.
+	// wideIsDue already refuses to spend on a database it cannot read; this
+	// closes the same hole on the write side.
+	lastWideNano atomic.Int64
 
 	// inFlight is the overrun guard, keyed by model+probe.
 	//
@@ -171,6 +204,60 @@ func (s *Scheduler) nextDelay() time.Duration {
 	return d
 }
 
+// wideIsDue answers whether this cycle should carry the wide probe.
+//
+// The question is asked of the DATABASE, not of a counter. cycleCount lives in
+// memory, so it says "cycle zero" again after every restart — and cycle zero is
+// a wide cycle, by design, so the prefill panel is not empty for an hour after a
+// fresh deploy. Those two facts together meant a daemon restarted three times
+// during a deploy sent three ~3800-token probes per model, and re-anchored the
+// hourly clock to the last restart. The intent was always "at most one per
+// hour"; this states it directly.
+//
+// No wide sample at all still fires immediately, which is the fresh-deploy case
+// the old cycle-zero rule existed to serve.
+//
+// A failed lookup skips the probe rather than running it. The wide probe is the
+// expensive one and the daemon is billed for it, so the safe direction when the
+// database cannot answer is to wait five minutes and ask again — a missed hourly
+// reading is a gap in a chart, while the other direction is an unbounded spend
+// on a database that stays broken.
+func (s *Scheduler) wideIsDue(ctx context.Context, now time.Time) bool {
+	last, ok, err := s.deps.Store.LastProbeAt(ctx, probe.ProbeWide)
+	if err != nil {
+		// A cancelled context is a shutdown, not a fault: the cycle is about to
+		// be abandoned anyway, and logging it at ERROR trains the reader to
+		// ignore the level that should mean something.
+		if !errors.Is(err, context.Canceled) {
+			slog.Error("wide cadence lookup failed; skipping the wide probe this cycle", "err", err)
+		}
+		return false
+	}
+	// A dispatch this process made but could not store still counts against the
+	// hour. See lastWideNano.
+	if nano := s.lastWideNano.Load(); nano != 0 {
+		if t := time.Unix(0, nano).UTC(); !ok || t.After(last) {
+			last, ok = t, true
+		}
+	}
+	if !ok {
+		return true
+	}
+	return now.Sub(last) >= WideInterval-WideSlack
+}
+
+// noteWideDispatch records that a wide probe was actually sent at `at`,
+// monotonically so concurrent cycles cannot walk the floor backwards.
+func (s *Scheduler) noteWideDispatch(at time.Time) {
+	v := at.UnixNano()
+	for {
+		cur := s.lastWideNano.Load()
+		if v <= cur || s.lastWideNano.CompareAndSwap(cur, v) {
+			return
+		}
+	}
+}
+
 // RunCycle executes exactly one cycle: three pings, then one inference run per
 // model, then a single atomic write.
 //
@@ -196,7 +283,7 @@ func (s *Scheduler) RunCycle(ctx context.Context) {
 		cycle.Net = append(cycle.Net, s.deps.Pinger.Ping(ctx, t.target, t.host))
 	}
 
-	wide := n%WideEveryNCycles == 0
+	wide := s.wideIsDue(ctx, started)
 
 	for _, model := range s.deps.Models {
 		if res, ok := s.runProbe(ctx, model, probe.ProbeInfer, n, started); ok {
@@ -250,6 +337,14 @@ func (s *Scheduler) runProbe(
 		return probe.InferResult{}, false
 	}
 	defer s.release(key)
+
+	// Recorded on DISPATCH, not on the decision and not on the write: an
+	// overrun-skipped wide never left the process and must still be retried
+	// next cycle, while one that was sent has been billed whether or not the
+	// cycle it belonged to survived to be persisted.
+	if kind == probe.ProbeWide {
+		s.noteWideDispatch(started)
+	}
 
 	req := probe.Request{ModelID: model, Probe: kind}
 	if kind == probe.ProbeWide {
