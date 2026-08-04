@@ -13,6 +13,14 @@ export const SERIES_COLORS = ["#3987e5", "#d95926"] as const;
 // The network is drawn in neutral ink because it is not a model.
 export const WIRE_COLOR = "#9c9a92";
 
+// The server-side remainder in the decomposition. Deliberately NOT
+// SERIES_COLORS[0]: that hue is mimo-v2.5's identity, and the decomposition
+// paints this segment on every model's row — including mimo-v2.5-pro's — so
+// borrowing it made one colour mean two different things on the same page.
+// This is the page accent, which encodes emphasis rather than identity.
+// Against #1f1f1e, paired with WIRE_COLOR: CVD ΔE 10.8, normal-vision ΔE 15.3.
+export const SERVER_COLOR = "#c6613f";
+
 export const FAULT_COLORS: Record<string, string> = {
   ok: "#5aa06a",
   edge: "#c98500",
@@ -28,6 +36,13 @@ export function colorForModel(modelID: string, models: string[]): string {
 const AXIS = "#6b6963";
 const GRID = "#2e2e2b";
 const INK = "#faf9f5";
+// --color-panel, the top stop of .card's surface. Canvas cannot read a CSS
+// variable, so the surface a chart sits on has to be restated here whenever a
+// mark needs to be cut out of it. .card is a gradient (#1f1f1e → #1c1c1b), so
+// this is an approximation rather than an exact match — the two ends differ by
+// three units per channel, which is below the threshold at which a 1px seam is
+// visible.
+const PANEL = "#1f1f1e";
 
 // toPairs maps points to [timestampMs, value].
 //
@@ -143,8 +158,8 @@ export function buildLineOption({
   };
 }
 
-// buildDecompositionOption is the headline chart: TTFT split into the measured
-// edge RTT and the residual.
+// buildDecompositionOption draws TTFT split into the measured edge RTT and the
+// residual.
 //
 // Stacked, because the whole claim is that the two sum to the observed TTFT.
 // The residual is labelled "server-side" and never "model" — the handshake
@@ -189,18 +204,29 @@ export function buildDecompositionOption(
       axisLabel: { color: AXIS, fontSize: 11 },
     },
     series: [
+      // barMaxWidth caps the bar rather than sizing it: with two categories in
+      // a short plot the ECharts default band left each bar ~50px tall, which
+      // read as a status meter instead of a measurement.
+      //
+      // The 1px border in the surface colour is what separates the two stacked
+      // segments — 1px from each puts a 2px cut between them. ECharts draws the
+      // border on all four sides, so it also shaves 1px off every other edge;
+      // that is invisible at this width, and the alternative (a transparent
+      // spacer series) would show up in the tooltip as a measurement.
       {
         name: "to the edge",
         type: "bar",
         stack: "ttft",
-        itemStyle: { color: WIRE_COLOR },
+        barMaxWidth: 18,
+        itemStyle: { color: WIRE_COLOR, borderColor: PANEL, borderWidth: 1 },
         data: edge,
       },
       {
         name: "server-side",
         type: "bar",
         stack: "ttft",
-        itemStyle: { color: SERIES_COLORS[0] },
+        barMaxWidth: 18,
+        itemStyle: { color: SERVER_COLOR, borderColor: PANEL, borderWidth: 1 },
         data: residual,
       },
     ],
