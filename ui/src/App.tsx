@@ -1,7 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { getNetSeries, getSamples, getSeries, getSummary } from "./api";
+import {
+  getNetSeries,
+  getPulse,
+  getSamples,
+  getSeries,
+  getSummary,
+} from "./api";
 import { streamSSE } from "./api/stream";
-import type { ModelSeries, NetSeries, Sample, Summary } from "./api/types";
+import type {
+  Cycle,
+  ModelSeries,
+  NetSeries,
+  Sample,
+  Summary,
+} from "./api/types";
 import { TARGET_MIMO } from "./api/types";
 import { Masthead } from "./Masthead";
 import { VerdictBanner } from "./VerdictBanner";
@@ -44,6 +56,15 @@ const CYCLE_MS = 5 * 60 * 1000;
 // documentation.
 const BASELINE_WINDOW = "7d";
 
+// One day of cycles at the 5-minute cadence. The pulse strip is the only thing
+// that wants this many, and it wants them narrow — see /api/pulse.
+const PULSE_CYCLES = 288;
+
+// What the Raw cycles table shows. It is also exactly what is fetched at full
+// detail: the table is the only place every column of a cycle is displayed, so
+// it is the only place they are requested.
+const TABLE_ROWS = 10;
+
 // The window lives in the query string rather than in component state, so a
 // view can be linked and reloaded. There is no router: one shell, one
 // parameter.
@@ -64,6 +85,7 @@ export default function App() {
   const [wideTtft, setWideTtft] = useState<ModelSeries | null>(null);
   const [tps, setTps] = useState<ModelSeries | null>(null);
   const [net, setNet] = useState<NetSeries | null>(null);
+  const [cycles, setCycles] = useState<Cycle[]>([]);
   const [samples, setSamples] = useState<Sample[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -93,7 +115,21 @@ export default function App() {
 
       const first = s.models[0]?.model_id;
       if (first) {
-        const raw = await getSamples(first, "infer", 288, signal);
+        // Two requests with two different shapes, because the two consumers
+        // want two different things and neither should pay for the other.
+        //
+        // PULSE_CYCLES is a day at the 5-minute cadence — the strip draws one
+        // bar per cycle and nothing less than the day makes its shape mean
+        // anything. But a bar needs five fields, so /api/pulse serves five.
+        //
+        // TABLE_ROWS is what the table shows, and only those rows carry every
+        // measurement. Asking /api/samples for the day and rendering ten of it
+        // is how a page ends up holding a detail series it never displays.
+        const [pulse, raw] = await Promise.all([
+          getPulse(first, "infer", PULSE_CYCLES, signal),
+          getSamples(first, "infer", TABLE_ROWS, signal),
+        ]);
+        setCycles(pulse.cycles);
         setSamples(raw.samples);
       }
     } catch (err) {
@@ -188,7 +224,7 @@ export default function App() {
         <Masthead />
         <VerdictBanner verdict={verdict} loading={loading} />
         <div className="mb-6">
-          <PulseStrip samples={samples} />
+          <PulseStrip cycles={cycles} />
         </div>
 
         <nav className="mb-6 flex flex-wrap gap-2" aria-label="Time window">
@@ -216,8 +252,6 @@ export default function App() {
 
         <div className="grid gap-6">
           <ModelCards summary={summary} baseline={baseline} />
-          <Decomposition summary={summary} edgeMs={mimoEdge} />
-          <AvailabilityStrip summary={summary} />
           <SeriesPanel
             title="Time to first token"
             subtitle="P50 per bucket. Failed runs are excluded — an outage is counted as availability, not as latency. Lower is better."
@@ -234,7 +268,17 @@ export default function App() {
             unit="tok/s"
             forceLinear
           />
+          {/* Everything from here down rests on the handshake, so the panel
+              that measures it comes first. Above, both of these forward-
+              referenced an edge RTT and a Singapore reference host the reader
+              had not met yet — the decomposition subtracted a number the page
+              had not yet shown, and the attribution appealed to a host no panel
+              had yet introduced. (The verdict banner can name that host: it is
+              a summary, and a summary is allowed to state a conclusion the
+              panels below then show the working for.) */}
           <NetworkPanel series={net} />
+          <Decomposition summary={summary} edgeMs={mimoEdge} />
+          <AvailabilityStrip summary={summary} />
           <SamplesTable samples={samples} />
           <MethodologyPanel />
         </div>

@@ -40,6 +40,51 @@ services:
       BACKEND_PING_MIMO_HOST: "${BACKEND_PING_MIMO_HOST:-token-plan-sgp.xiaomimimo.com}"
       BACKEND_PING_REF_SGP_HOST: "${BACKEND_PING_REF_SGP_HOST:-sgp1.digitaloceanspaces.com}"
 
+      # Everything below is passed through with an EMPTY fallback rather than a
+      # repeated literal, and that is deliberate: config.Load treats unset and
+      # set-but-empty identically and applies its own default, so this file does
+      # not restate a value it would then have to be kept in sync with.
+      #
+      # The timeout ladder is the case that makes it matter. Its bounds are
+      # validated against each other at boot (TTFT and idle must stay under the
+      # overall deadline), so a literal here that outlived a change to the Go
+      # default would keep silently forcing the old value — with the invariant
+      # still passing, because the numbers would still be internally consistent.
+      # The one place any of these defaults is written stays config.Load.
+      #
+      # Same reason there is no `env_file:`. It would pass the WHOLE .env,
+      # including BACKEND_MIMO_API_KEY, into every future service in this file
+      # by accident. Listing each variable keeps that explicit.
+
+      # Which models are probed, comma-separated. Empty means the built-in pair.
+      BACKEND_MODELS: "${BACKEND_MODELS:-}"
+
+      # Must stay inside the mounted volume below, or the history is written to
+      # the read-only rootfs and lost on every restart.
+      BACKEND_DB_PATH: "${BACKEND_DB_PATH:-}"
+
+      # NOT cosmetic, and not safe to blank: with no system message MiMo injects
+      # its own (~250 prompt tokens, most of it cache-served), which inflates the
+      # token budget and turns the prefill this probe exists to time into a cache
+      # lookup. config.Load rejects an empty one at boot.
+      BACKEND_PROBE_SYSTEM_PROMPT: "${BACKEND_PROBE_SYSTEM_PROMPT:-}"
+      # Probes present as a real coding agent on purpose — a neutral client would
+      # not measure what production traffic experiences. Disclosed on
+      # /api/methodology, so a change here changes what that page claims.
+      BACKEND_PROBE_USER_AGENT: "${BACKEND_PROBE_USER_AGENT:-}"
+
+      # The timeout ladder. Each layer has its own bound and its own error class,
+      # because a single outer deadline records "slow" and "dead" identically.
+      # Raising one moves the point at which a slow run stops being a latency
+      # sample and becomes a censored one — see the censoring note on the
+      # dashboard.
+      BACKEND_PING_TIMEOUT: "${BACKEND_PING_TIMEOUT:-}"
+      BACKEND_PROBE_DIAL_TIMEOUT: "${BACKEND_PROBE_DIAL_TIMEOUT:-}"
+      BACKEND_PROBE_HEADER_TIMEOUT: "${BACKEND_PROBE_HEADER_TIMEOUT:-}"
+      BACKEND_PROBE_TTFT_TIMEOUT: "${BACKEND_PROBE_TTFT_TIMEOUT:-}"
+      BACKEND_PROBE_IDLE_TIMEOUT: "${BACKEND_PROBE_IDLE_TIMEOUT:-}"
+      BACKEND_PROBE_TIMEOUT: "${BACKEND_PROBE_TIMEOUT:-}"
+
     healthcheck:
       # The binary probes itself: the runtime is distroless and carries no curl
       # or wget, and adding a shell to the image to run a healthcheck would

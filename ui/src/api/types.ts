@@ -102,6 +102,22 @@ export type SamplesResponse = {
   samples: Sample[];
 };
 
+// One bar of the pulse strip. A Sample with every column the strip does not
+// draw left on the server — a day of these is a shape, not a detail series.
+export type Cycle = {
+  at: string;
+  ttft_ms: number | null;
+  ok: boolean;
+  answer_ok: boolean | null;
+  error_class: string | null;
+};
+
+export type PulseResponse = {
+  model_id: string;
+  probe: string;
+  cycles: Cycle[];
+};
+
 export type ModelInfo = { id: string; note: string };
 
 export type ModelsResponse = {

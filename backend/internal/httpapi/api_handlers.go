@@ -182,36 +182,9 @@ var metricColumns = map[string]string{
 }
 
 func (s *server) handleSamples(w http.ResponseWriter, r *http.Request) {
-	probeKind, ok := s.probeKind(w, r)
+	model, probeKind, limit, ok := s.sampleQuery(w, r)
 	if !ok {
 		return
-	}
-
-	model := r.URL.Query().Get("model")
-	if model == "" && len(s.deps.Models) > 0 {
-		model = s.deps.Models[0]
-	}
-	if !s.knownModel(model) {
-		writeJSONError(w, http.StatusBadRequest, "unknown model")
-		return
-	}
-
-	// Clamped server-side; the samples package clamps again at its own limit.
-	limit := 100
-	if raw := r.URL.Query().Get("limit"); raw != "" {
-		n, err := strconv.Atoi(raw)
-		if err != nil || n <= 0 {
-			writeJSONError(w, http.StatusBadRequest, "limit must be a positive integer")
-			return
-		}
-		limit = n
-	}
-	// Clamped BEFORE the cache key is built, not just inside the samples
-	// package: the key would otherwise be caller-controlled, and every distinct
-	// limit an arbitrary scraper invents would mint a permanent cache entry —
-	// the response cache is a plain map with no eviction on read.
-	if limit > samples.MaxSampleLimit {
-		limit = samples.MaxSampleLimit
 	}
 
 	key := "samples|" + model + "|" + probeKind + "|" + strconv.Itoa(limit)
@@ -225,6 +198,70 @@ func (s *server) handleSamples(w http.ResponseWriter, r *http.Request) {
 		}
 		return map[string]any{"model_id": model, "probe": probeKind, "samples": rows}, nil
 	})
+}
+
+// handlePulse serves the same cycles as /api/samples with every column the
+// pulse strip does not draw removed.
+//
+// It is a separate endpoint rather than a ?fields= flag on /api/samples because
+// the projection is not a caller preference — it is the whole point. A flag
+// would leave the wide shape one query parameter away, which is the same as not
+// having narrowed anything. Here the wide payload is reachable only at the
+// small limits a table asks for.
+func (s *server) handlePulse(w http.ResponseWriter, r *http.Request) {
+	model, probeKind, limit, ok := s.sampleQuery(w, r)
+	if !ok {
+		return
+	}
+
+	key := "pulse|" + model + "|" + probeKind + "|" + strconv.Itoa(limit)
+	s.writeJSON(w, r, key, func() (any, error) {
+		rows, err := s.deps.Samples.RecentPulse(r.Context(), model, probeKind, limit)
+		if err != nil {
+			return nil, err
+		}
+		if rows == nil {
+			rows = []samples.Pulse{}
+		}
+		return map[string]any{"model_id": model, "probe": probeKind, "cycles": rows}, nil
+	})
+}
+
+// sampleQuery validates the model/probe/limit trio the two raw-cycle endpoints
+// share. It writes the error response itself and reports false when it has.
+func (s *server) sampleQuery(w http.ResponseWriter, r *http.Request) (model, probeKind string, limit int, ok bool) {
+	probeKind, ok = s.probeKind(w, r)
+	if !ok {
+		return "", "", 0, false
+	}
+
+	model = r.URL.Query().Get("model")
+	if model == "" && len(s.deps.Models) > 0 {
+		model = s.deps.Models[0]
+	}
+	if !s.knownModel(model) {
+		writeJSONError(w, http.StatusBadRequest, "unknown model")
+		return "", "", 0, false
+	}
+
+	// Clamped server-side; the samples package clamps again at its own limit.
+	limit = 100
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n <= 0 {
+			writeJSONError(w, http.StatusBadRequest, "limit must be a positive integer")
+			return "", "", 0, false
+		}
+		limit = n
+	}
+	// Clamped BEFORE the cache key is built, not just inside the samples
+	// package: the key would otherwise be caller-controlled, and every distinct
+	// limit an arbitrary scraper invents would mint a permanent cache entry —
+	// the response cache is a plain map with no eviction on read.
+	if limit > samples.MaxSampleLimit {
+		limit = samples.MaxSampleLimit
+	}
+	return model, probeKind, limit, true
 }
 
 // handleMethodology publishes what is actually being measured, including the

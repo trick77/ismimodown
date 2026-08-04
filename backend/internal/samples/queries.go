@@ -750,6 +750,74 @@ func (s *Store) RecentSamples(ctx context.Context, modelID, probeKind string, li
 	return out, rows.Err()
 }
 
+// Pulse is one cycle reduced to what a single bar of the strip draws: when it
+// ran, how tall it is, what colour it is, and what the tooltip says.
+//
+// It exists so a day of cycles can reach the page without the page being handed
+// a day of measurements. The strip needs 288 rows — one bar each — but it never
+// reads total_ms, itl_p50_ms or output_tps, and repeating model_id and probe on
+// every row restates what the envelope already said once. Serving Sample here
+// would disclose the full detail series to draw a shape.
+//
+// The ten rows that DO show every number come from RecentSamples at limit=10.
+// Two narrow requests, not one wide one.
+type Pulse struct {
+	At         time.Time `json:"at"`
+	TTFTMs     *float64  `json:"ttft_ms"`
+	OK         bool      `json:"ok"`
+	AnswerOK   *bool     `json:"answer_ok"`
+	ErrorClass *string   `json:"error_class"`
+}
+
+// RecentPulse returns the most recent cycles for a model, projected down to the
+// strip's fields. Newest first, like RecentSamples — the client reverses.
+func (s *Store) RecentPulse(ctx context.Context, modelID, probeKind string, limit int) ([]Pulse, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	if limit > MaxSampleLimit {
+		limit = MaxSampleLimit
+	}
+
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT c.started_at, i.ttft_ms, i.ok, i.answer_ok, i.error_class
+		FROM infer_probes i
+		JOIN cycles c ON c.id = i.cycle_id
+		WHERE i.model_id = ? AND i.probe = ?
+		ORDER BY c.started_at DESC, i.id DESC
+		LIMIT ?`, modelID, probeKind, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []Pulse
+	for rows.Next() {
+		var p Pulse
+		var at string
+		var okInt int
+		var ttft sql.NullFloat64
+		var answerOK sql.NullInt64
+		// error_detail is not selected here for the same reason it is not
+		// selected in RecentSamples: it can echo request fragments, and this
+		// row is served publicly.
+		var class sql.NullString
+		if err := rows.Scan(&at, &ttft, &okInt, &answerOK, &class); err != nil {
+			return nil, err
+		}
+		p.At, _ = time.Parse(time.RFC3339Nano, at)
+		p.TTFTMs = nullF(ttft)
+		p.OK = okInt == 1
+		if answerOK.Valid {
+			b := answerOK.Int64 == 1
+			p.AnswerOK = &b
+		}
+		p.ErrorClass = nullS(class)
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
 func nullF(v sql.NullFloat64) *float64 {
 	if !v.Valid {
 		return nil

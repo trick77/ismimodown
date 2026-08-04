@@ -2,6 +2,7 @@ package samples
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -843,5 +844,69 @@ func TestTheChartBandAndTheSummaryCountAgreeOnUnattributableCycles(t *testing.T)
 	if got := sum.Models[0].Censored; got != 0 || inCharts != 0 {
 		t.Errorf("censored: summary %d, series %d — both must be 0 on an uplink cycle, and above all EQUAL",
 			got, inCharts)
+	}
+}
+
+func TestRecentPulseMatchesRecentSamplesOrderAndClamp(t *testing.T) {
+	s := New(openTestDB(t))
+	now := time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC)
+	seedCycles(t, s, "mimo-v2.5", now, 30, 900)
+
+	rows, err := s.RecentPulse(context.Background(), "mimo-v2.5", probe.ProbeInfer, 999999)
+	if err != nil {
+		t.Fatalf("RecentPulse: %v", err)
+	}
+	// Exact, not `> MaxSampleLimit`: only 30 cycles exist, so that comparison
+	// can never fail and would pass a query returning nothing at all. What the
+	// absurd limit has to prove is that it neither errors nor over-returns.
+	if len(rows) != 30 {
+		t.Errorf("returned %d rows, want the 30 that exist (clamp is %d)", len(rows), MaxSampleLimit)
+	}
+	// Newest first, like RecentSamples: the strip reverses on the client, and
+	// the two endpoints disagreeing about direction would draw the day backwards.
+	for i := 1; i < len(rows); i++ {
+		if rows[i].At.After(rows[i-1].At) {
+			t.Errorf("pulse rows are not newest-first at index %d", i)
+		}
+	}
+
+	full, err := s.RecentSamples(context.Background(), "mimo-v2.5", probe.ProbeInfer, 999999)
+	if err != nil {
+		t.Fatalf("RecentSamples: %v", err)
+	}
+	if len(rows) != len(full) {
+		t.Fatalf("pulse returned %d rows, samples %d; the projection must not drop cycles", len(rows), len(full))
+	}
+	for i := range rows {
+		if !rows[i].At.Equal(full[i].At) || rows[i].OK != full[i].OK {
+			t.Errorf("row %d disagrees with the same cycle from RecentSamples", i)
+		}
+	}
+}
+
+// The whole reason /api/pulse exists: a day of cycles reaches the page without
+// the page being handed a day of measurements. If Pulse ever grows a latency
+// column beyond ttft_ms, the narrowing has silently stopped happening.
+func TestPulseTypeCarriesOnlyWhatTheStripDraws(t *testing.T) {
+	buf, err := json.Marshal(Pulse{At: time.Now()})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var fields map[string]any
+	if err := json.Unmarshal(buf, &fields); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	want := map[string]bool{
+		"at": true, "ttft_ms": true, "ok": true, "answer_ok": true, "error_class": true,
+	}
+	for k := range fields {
+		if !want[k] {
+			t.Errorf("Pulse serialises %q, which the strip does not draw", k)
+		}
+	}
+	for k := range want {
+		if _, ok := fields[k]; !ok {
+			t.Errorf("Pulse is missing %q, which the strip needs", k)
+		}
 	}
 }

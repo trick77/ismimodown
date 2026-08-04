@@ -229,6 +229,7 @@ func TestNoPublicEndpointEmitsErrorDetail(t *testing.T) {
 		"/api/series?metric=ttft&window=24h",
 		"/api/series?metric=network&window=24h",
 		"/api/samples?model=mimo-v2.5&limit=100",
+		"/api/pulse?model=mimo-v2.5&limit=100",
 	}
 	for _, p := range dataPaths {
 		t.Run(p, func(t *testing.T) {
@@ -294,6 +295,7 @@ func TestRequestShapeIsNotServed(t *testing.T) {
 		"/api/methodology",
 		"/api/summary?window=24h",
 		"/api/samples?model=mimo-v2.5&limit=100",
+		"/api/pulse?model=mimo-v2.5&limit=100",
 	} {
 		t.Run(p, func(t *testing.T) {
 			body := get(t, h, p).Body.String()
@@ -491,7 +493,8 @@ func TestEmptyDatabaseStillServesEveryEndpoint(t *testing.T) {
 	for _, p := range []string{
 		"/api/models", "/api/summary?window=24h",
 		"/api/series?metric=ttft&window=24h", "/api/series?metric=network&window=24h",
-		"/api/samples?model=mimo-v2.5", "/api/methodology",
+		"/api/samples?model=mimo-v2.5", "/api/pulse?model=mimo-v2.5",
+		"/api/methodology",
 	} {
 		t.Run(p, func(t *testing.T) {
 			rec := get(t, h, p)
@@ -546,6 +549,80 @@ func TestPublicBaseURL(t *testing.T) {
 	for _, tc := range cases {
 		if got := publicBaseURL(tc.in); got != tc.want {
 			t.Errorf("publicBaseURL(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+func TestPulseEndpointServesTheNarrowShape(t *testing.T) {
+	h, store := newAPIServer(t)
+	seed(t, store, 30, 900)
+
+	rec := get(t, h, "/api/pulse?model=mimo-v2.5&limit=288")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
+	}
+	var out struct {
+		ModelID string           `json:"model_id"`
+		Cycles  []map[string]any `json:"cycles"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if out.ModelID != "mimo-v2.5" {
+		t.Errorf("model_id = %q", out.ModelID)
+	}
+	if len(out.Cycles) != 30 {
+		t.Fatalf("returned %d cycles, want 30", len(out.Cycles))
+	}
+	// The point of the endpoint. Serving a Sample here would hand a day of full
+	// measurements to something that draws a bar.
+	for _, banned := range []string{"total_ms", "itl_p50_ms", "output_tps", "model_id", "probe"} {
+		if _, ok := out.Cycles[0][banned]; ok {
+			t.Errorf("cycle carries %q, which the strip never draws", banned)
+		}
+	}
+	for _, needed := range []string{"at", "ttft_ms", "ok"} {
+		if _, ok := out.Cycles[0][needed]; !ok {
+			t.Errorf("cycle is missing %q", needed)
+		}
+	}
+}
+
+func TestPulseEndpointClampsLimit(t *testing.T) {
+	h, store := newAPIServer(t)
+	seed(t, store, 30, 900)
+
+	rec := get(t, h, "/api/pulse?model=mimo-v2.5&limit=100000")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
+	}
+	var out struct {
+		Cycles []samples.Pulse `json:"cycles"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	// Exact, not `> MaxSampleLimit`: with 30 rows seeded that comparison can
+	// never fail, so it would pass a handler that returned nothing at all. The
+	// assertion that means something is "an absurd limit neither errors nor
+	// over-returns" — it serves what exists.
+	if len(out.Cycles) != 30 {
+		t.Errorf("returned %d cycles, want the 30 that exist", len(out.Cycles))
+	}
+}
+
+// The two raw-cycle endpoints share one validator, so a rejection on one must
+// be a rejection on the other.
+func TestPulseEndpointRejectsTheSameBadInputAsSamples(t *testing.T) {
+	h, _ := newAPIServer(t)
+
+	for _, p := range []string{
+		"/api/pulse?model=gpt-4",
+		"/api/pulse?model=mimo-v2.5&limit=abc",
+		"/api/pulse?model=mimo-v2.5&limit=-5",
+	} {
+		if rec := get(t, h, p); rec.Code != http.StatusBadRequest {
+			t.Errorf("%s: status = %d, want 400", p, rec.Code)
 		}
 	}
 }

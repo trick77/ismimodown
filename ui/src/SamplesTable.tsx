@@ -2,15 +2,36 @@ import type { Sample } from "./api/types";
 import { Card } from "./ui";
 import { formatMs, formatTime, formatTps } from "./format";
 
-// Raw cycles, nothing aggregated away. Also the accessible alternative to every
-// chart above: a screen reader gets the numbers, not a canvas.
+// How many cycles the table renders.
+//
+// The card's job is "what happened just now", and a wall of numbers nobody
+// scrolls to the end of does not answer it better than ten rows do — the pulse
+// strip above is what covers the whole day.
+//
+// App asks the server for exactly this many, so the slice below is normally a
+// no-op. It stays because the cap is the table's own rule: whatever it is
+// handed, this is what it draws.
+const ROWS = 10;
+
+// Raw cycles, nothing aggregated away — the one place on the page a screen
+// reader gets numbers rather than a canvas with a summary label.
+//
+// It used to claim to be the accessible alternative to every chart above. It
+// never quite was: the charts run to 3 months across both models, and this has
+// only ever held the infer probe for one. Now that it stops at ten rows the
+// claim is plainly false, so it is not made. The charts' own aria-labels are
+// what carry them, and closing that gap properly means giving each chart its
+// own tabular alternative, not making this table longer than anyone reads.
 export function SamplesTable({ samples }: { samples: Sample[] }) {
+  // Samples arrive newest-first from the API, so the head is the recent end.
+  const rows = samples.slice(0, ROWS);
+  // "At most" rather than a flat count: a fresh database has two cycles, and a
+  // subtitle claiming ten while showing two is wrong in exactly the situation
+  // where the reader is least sure what they are looking at.
+  const subtitle = `The last ${ROWS} runs at most, unaggregated. Failed runs show their error class.`;
   return (
-    <Card
-      title="Raw cycles"
-      subtitle="The most recent runs, unaggregated. Failed runs show their error class."
-    >
-      {samples.length > 0 ? (
+    <Card title="Raw cycles" subtitle={subtitle}>
+      {rows.length > 0 ? (
         <div className="overflow-x-auto">
           <table className="w-full min-w-[560px] text-label">
             <thead>
@@ -24,7 +45,7 @@ export function SamplesTable({ samples }: { samples: Sample[] }) {
               </tr>
             </thead>
             <tbody>
-              {samples.map((s, i) => (
+              {rows.map((s, i) => (
                 <tr
                   key={`${s.at}-${i}`}
                   className="border-t border-border-soft text-muted"
@@ -50,7 +71,13 @@ export function SamplesTable({ samples }: { samples: Sample[] }) {
                   </td>
                   <td className="py-2">
                     {s.ok ? (
-                      <span className="text-online">ok</span>
+                      // A tick reads faster than the word down a column of
+                      // rows, but a bare glyph is not a word to a screen
+                      // reader — so it keeps saying "ok".
+                      <span className="text-online">
+                        <span aria-hidden="true">✓</span>
+                        <span className="sr-only">ok</span>
+                      </span>
                     ) : (
                       <span className="num text-danger">
                         {s.error_class ?? "failed"}
