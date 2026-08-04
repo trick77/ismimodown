@@ -22,9 +22,11 @@ func TestStatusRecorderForwardsFlush(t *testing.T) {
 		flushed = true
 	})
 
+	// A neutral path, not /api/events: that is a real route now, and this test
+	// is about the middleware wrapper rather than the SSE handler.
 	srv := New(Deps{DB: openTestDB(t), Static: handler})
 	rec := httptest.NewRecorder()
-	srv.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/events", nil))
+	srv.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/stream-probe", nil))
 
 	if !flushed {
 		t.Error("Flush was not reachable through the middleware chain")
