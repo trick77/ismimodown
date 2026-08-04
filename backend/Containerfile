@@ -1,24 +1,34 @@
 # syntax=docker/dockerfile:1
 
-# --- Stage 1: build the Go binary (pure-Go, no cgo) with the embedded SPA ---
+# --- Stage 1: build the SPA ---
+FROM node:26-alpine AS ui
+WORKDIR /app/ui
+COPY ui/package.json ui/package-lock.json ./
+RUN npm ci
+COPY ui/ ./
+RUN npm run build
+
+# --- Stage 2: build the Go binary (pure-Go, no cgo) with the embedded SPA ---
 FROM golang:1.26-alpine AS build
 ARG BACKEND_VERSION=dev
 WORKDIR /app/backend
 COPY backend/go.mod backend/go.sum* ./
 RUN go mod download
 COPY backend/ ./
+# Overwrite the committed backend/web/dist placeholder with the real Vite bundle
+# so //go:embed all:dist bakes the production UI into the binary. vite.config.ts
+# builds straight to ../backend/web/dist (not the Vite-default ui/dist), so from
+# the ui stage's WORKDIR that lands at /app/backend/web/dist.
+COPY --from=ui /app/backend/web/dist ./web/dist
 RUN CGO_ENABLED=0 go build -ldflags="-s -w -X github.com/trick77/mimostats/internal/version.Version=${BACKEND_VERSION}" -o /out/mimostats ./cmd/mimostats
 
-# --- Stage 2: minimal runtime ---
+# --- Stage 3: minimal runtime ---
 #
 # distroless/static, unlike peeq's debian:13-slim: peeq shells out to ffmpeg and
 # yt-dlp for every download and needs a real userland. mimostats shells out to
 # nothing — it opens TCP sockets and talks HTTPS — so it gets the smaller,
 # shell-less base. ca-certificates comes with the image, which matters because
 # every inference probe is an outbound TLS call.
-#
-# The UI build stage lands in phase 5 alongside ui/. Until then the binary
-# embeds backend/web/dist/index.html, the committed placeholder.
 FROM gcr.io/distroless/static-debian12:nonroot AS runtime
 COPY --from=build /out/mimostats /usr/local/bin/mimostats
 EXPOSE 8080

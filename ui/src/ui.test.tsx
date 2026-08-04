@@ -1,0 +1,54 @@
+import { render, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
+import userEvent from "@testing-library/user-event";
+import { Figure, Pill, StateChip } from "./ui";
+
+describe("StateChip", () => {
+  // Colour is never the only signal: the state word must be present so the
+  // dashboard stays readable to a colour-blind reader and in a greyscale
+  // screenshot.
+  it("carries the state as a word, not only as a colour", () => {
+    render(<StateChip state="degraded" />);
+    expect(screen.getByTestId("state-chip")).toHaveTextContent("degraded");
+  });
+
+  it("names the unknown state rather than rendering blank", () => {
+    render(<StateChip state="unknown" />);
+    expect(screen.getByTestId("state-chip")).toHaveTextContent("no data");
+  });
+});
+
+describe("Figure", () => {
+  it("renders a sufficient value", () => {
+    render(<Figure label="TTFT p50" value="916 ms" n={288} />);
+    expect(screen.getByText("916 ms")).toBeInTheDocument();
+  });
+
+  // Below the sample threshold the UI must say so in words. Rendering 0 would
+  // draw a floor that does not exist, and that is the figure that gets
+  // screenshotted out of context.
+  it("says insufficient data instead of showing a number", () => {
+    render(<Figure label="TTFT p50" value="0 ms" sufficient={false} n={3} />);
+    expect(screen.getByTestId("insufficient")).toHaveTextContent(
+      /insufficient data/i,
+    );
+    expect(screen.queryByText("0 ms")).not.toBeInTheDocument();
+    // The sample count is still shown, so a reader knows how close it is.
+    expect(screen.getByTestId("insufficient")).toHaveTextContent("3");
+  });
+});
+
+describe("Pill", () => {
+  it("reports its pressed state to assistive tech and fires on click", async () => {
+    const onClick = vi.fn();
+    render(
+      <Pill active onClick={onClick}>
+        24h
+      </Pill>,
+    );
+    const button = screen.getByRole("button", { name: "24h" });
+    expect(button).toHaveAttribute("aria-pressed", "true");
+    await userEvent.click(button);
+    expect(onClick).toHaveBeenCalledOnce();
+  });
+});

@@ -73,5 +73,34 @@ jobs:
         run: ./hack/patch-coverage.sh "origin/${{ github.base_ref || 'master' }}"
         working-directory: .
 
-  # The UI job lands in phase 5 alongside ui/. Adding it now would fail every
-  # PR against a directory that does not exist.
+  ui:
+    name: UI (build + test)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ui
+    steps:
+      # fetch-depth: 0 — see the backend job.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: pip install diff-cover==10.3.0
+      - run: npm ci
+      - run: npm run format:check
+      # `npm run build` runs tsc --noEmit first, so a type error fails here
+      # rather than shipping a bundle that only breaks in a browser.
+      - run: npm run build
+      - run: npm run test:coverage
+      - run: ./hack/coverage-gate.sh ui
+        working-directory: .
+      - name: UI patch coverage
+        run: ./hack/patch-coverage.sh "origin/${{ github.base_ref || 'master' }}"
+        working-directory: .
