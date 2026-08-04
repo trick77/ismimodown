@@ -38,7 +38,7 @@ export function PrefillPanel({
   return (
     <Card
       title="Prefill cost"
-      subtitle="TTFT at ~3800 input tokens against TTFT at ~34, per model. The gap between the lines is what prefill actually costs; a widening gap is the signal that catches a batching change or a requantisation."
+      subtitle="TTFT at ~3800 input tokens against TTFT at ~34, per model. The gap between the lines is what prefill actually costs; a widening gap is the signal that catches a batching change or a requantisation. Lower is better, and so is a narrower gap."
     >
       {Object.keys(series).length > 0 ? (
         <EChart

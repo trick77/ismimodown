@@ -206,7 +206,7 @@ export default function App() {
           <AvailabilityStrip summary={summary} />
           <SeriesPanel
             title="Time to first token"
-            subtitle="P50 per bucket. Failed runs are excluded — an outage is counted as availability, not as latency."
+            subtitle="P50 per bucket. Failed runs are excluded — an outage is counted as availability, not as latency. Lower is better."
             series={ttft}
             models={models}
             unit="ms"
@@ -214,7 +214,7 @@ export default function App() {
           <PrefillPanel infer={ttft} wide={wideTtft} models={models} />
           <SeriesPanel
             title="Throughput"
-            subtitle="Output tokens per second over the decode window. This leads rather than inter-token latency, because MiMo batches tokens into chunks and delivers them in bursts — the median inter-chunk gap collapses toward zero on a perfectly healthy run."
+            subtitle="Output tokens per second over the decode window. This leads rather than inter-token latency, because MiMo batches tokens into chunks and delivers them in bursts — the median inter-chunk gap collapses toward zero on a perfectly healthy run. Higher is better."
             series={tps}
             models={models}
             unit="tok/s"
