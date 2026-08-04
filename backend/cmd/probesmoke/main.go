@@ -15,8 +15,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/trick77/llmstats/internal/config"
-	"github.com/trick77/llmstats/internal/probe"
+	"github.com/trick77/mimostats/internal/config"
+	"github.com/trick77/mimostats/internal/probe"
 )
 
 func main() {
@@ -64,8 +64,11 @@ func main() {
 			answerOK = fmt.Sprintf("%v", *res.AnswerOK)
 		}
 		fmt.Printf("\ninfer %s  ok=%v class=%s\n", model, res.OK, res.ErrorClass)
-		fmt.Printf("  ttft=%.0fms ttfat=%.0fms total=%.0fms itl_p50=%.1fms itl_p95=%.1fms tps=%.1f\n",
-			res.TTFTMs, res.TTFATMs, res.TotalMs, res.ITLP50Ms, res.ITLP95Ms, res.OutputTPS)
+		// ttfat-ttft printed at sub-millisecond resolution: in the healthy case
+		// MiMo's role chunk and first content chunk arrive in the same batch, so
+		// the gap is microseconds and %.0f would render it as zero.
+		fmt.Printf("  ttft=%.3fms ttfat=%.3fms (gap=%.3fms) total=%.0fms itl_p50=%.1fms itl_p95=%.1fms tps=%.1f\n",
+			res.TTFTMs, res.TTFATMs, res.TTFATMs-res.TTFTMs, res.TotalMs, res.ITLP50Ms, res.ITLP95Ms, res.OutputTPS)
 		fmt.Printf("  trace: dns=%.1fms connect=%.1fms tls=%.1fms\n", res.DNSMs, res.ConnectMs, res.TLSMs)
 		fmt.Printf("  tokens: prompt=%d output=%d cached=%d reasoning=%d  finish=%s\n",
 			res.Usage.PromptTokens, res.Usage.CompletionTokens,

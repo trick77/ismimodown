@@ -40,7 +40,9 @@ body can echo request fragments. A test asserts this.
 stopped working; on `infer` it means the system prompt went missing.
 
 **`reasoning_tokens` must be 0.** Send both `{"thinking":{"type":"disabled"}}` and
-`enable_thinking:false`.
+`enable_thinking:false`. This — not the `ttft_ms`/`ttfat_ms` delta — is the primary alarm for
+reasoning creeping back on. MiMo emits the role chunk and first content chunk in the same
+batch (measured gap ~0.008 ms), so those two columns are near-identical when healthy.
 
 **Ping is TCP-only, never ICMP.** ICMP is dropped as routine policy and needs `CAP_NET_RAW`.
 

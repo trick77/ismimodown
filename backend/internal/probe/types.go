@@ -104,9 +104,19 @@ type InferResult struct {
 	Probe   string
 
 	// TTFTMs is the first chunk carrying ANY delta; TTFATMs the first chunk
-	// carrying actual content. MiMo opens with an empty-content role chunk, so
-	// in the healthy case they differ by one chunk. Divergence beyond that is
-	// the alarm that reasoning has silently come back on.
+	// carrying actual content.
+	//
+	// MEASURED, and it changes how these should be read: MiMo emits the
+	// empty-content role chunk and the first content chunk in the SAME batch, so
+	// the healthy gap is ~0.008 ms, not "one chunk apart". The two columns are
+	// therefore near-identical in normal operation and a chart of their
+	// difference would be a flat zero.
+	//
+	// They are still both recorded, because if reasoning_content ever starts
+	// leading the stream the gap becomes large and obvious. But the PRIMARY
+	// alarm for reasoning creeping back on is reasoning_tokens != 0 (and
+	// reasoning_content appearing at all) — not the timestamp delta, which is
+	// the weaker, derived signal.
 	TTFTMs  float64
 	TTFATMs float64
 	TotalMs float64

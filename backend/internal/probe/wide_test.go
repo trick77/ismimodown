@@ -11,8 +11,12 @@ func TestWideDocumentIsTheRightSize(t *testing.T) {
 	// ~2 700 words is roughly 3 500–4 000 tokens: squarely in the range where
 	// prefill is measurable and caching is a real risk, which is the whole
 	// reason wide exists.
-	if words < 2000 || words > 3500 {
-		t.Errorf("document is %d words, want ~2700 (a 40 -> 4000 token gradient)", words)
+	// Measured against the live endpoint at ~1.19 prompt tokens per word, so
+	// ~3200 words lands near the 4000-token target the plan's prefill gradient
+	// (34 -> ~3800) and cost model are both sized against. Asserting words is a
+	// proxy; the real figure is checked by cmd/probesmoke.
+	if words < 3000 || words > 3600 {
+		t.Errorf("document is %d words, want ~3200 (a 34 -> ~3800 token gradient)", words)
 	}
 }
 
