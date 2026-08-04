@@ -32,9 +32,20 @@ type Window struct {
 	Bucket time.Duration
 }
 
-// Windows is the complete allow-list. Nothing longer than the retention window.
+// Windows is the complete allow-list. Nothing longer than the retention window,
+// and nothing SHORTER than the suppression threshold can be satisfied in.
+//
+// There was a 1h window. At one cycle every 5 minutes it can hold at most 12
+// samples against a MinSamplesForPercentile of 20, so it was structurally
+// incapable of ever returning a percentile: a flawless hour — 12 cycles, every
+// probe successful — still answered insufficient_data. Offering a window that
+// cannot answer under any conditions is worse than not offering it, because the
+// reader cannot tell "no data yet" from "this will never work".
+//
+// The floor for any window added here is MinSamplesForPercentile *
+// scheduler.CycleInterval, which is 100 minutes at today's numbers. Below that,
+// lower the threshold or do not offer the window.
 var Windows = []Window{
-	{"1h", time.Hour, 5 * time.Minute},
 	{"24h", 24 * time.Hour, 15 * time.Minute},
 	{"48h", 48 * time.Hour, 30 * time.Minute},
 	{"7d", 7 * 24 * time.Hour, 2 * time.Hour},

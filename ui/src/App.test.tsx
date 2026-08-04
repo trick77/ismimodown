@@ -155,6 +155,24 @@ describe("App", () => {
     );
   });
 
+  // 1h was removed: at one cycle every five minutes it could hold at most 12
+  // samples against a threshold of 20, so every card on it read
+  // insufficient_data forever. Links carrying it still exist — the window is
+  // written into the URL on every click — and they must land somewhere useful
+  // rather than on a blank or a dead button.
+  it("sends a stale ?window=1h link to the default rather than nowhere", () => {
+    window.history.replaceState(null, "", "/?window=1h");
+    vi.stubGlobal("fetch", mockFetch());
+    render(<App />);
+    expect(screen.getByRole("button", { name: "24h" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(
+      screen.queryByRole("button", { name: "1h" }),
+    ).not.toBeInTheDocument();
+  });
+
   // An unknown window in a shared link must not blank the page.
   it("falls back to the default window for an unknown value", () => {
     window.history.replaceState(null, "", "/?window=6mo");
