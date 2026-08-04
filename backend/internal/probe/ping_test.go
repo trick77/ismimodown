@@ -74,7 +74,7 @@ func TestPingSeparatesDNSFromConnect(t *testing.T) {
 	addr, stop := listenerAcceptingAfter(t, 0)
 	defer stop()
 
-	res := pingerTo(5*time.Second, addr).Ping(context.Background(), TargetRefEU, "localhost")
+	res := pingerTo(5*time.Second, addr).Ping(context.Background(), TargetRefSGP, "localhost")
 
 	if !res.OK {
 		t.Fatalf("expected OK, got %s", res.ErrorClass)
@@ -150,34 +150,34 @@ func TestPingRespectsCancellation(t *testing.T) {
 // findings, and nobody publishes both.
 func TestAttributeFaultCoversEveryRowOfTheTable(t *testing.T) {
 	cases := []struct {
-		name                string
-		mimo, refSGP, refEU bool
-		want                string
-		why                 string
+		name         string
+		mimo, refSGP bool
+		want         string
+		why          string
 	}{
 		{
-			name: "all reachable", mimo: true, refSGP: true, refEU: true, want: FaultOK,
+			name: "all reachable", mimo: true, refSGP: true, want: FaultOK,
 			why: "nothing is wrong at the network layer",
 		},
 		{
-			name: "mimo down, both references up", mimo: false, refSGP: true, refEU: true,
+			name: "mimo down, reference up", mimo: false, refSGP: true,
 			want: FaultEdge,
 			why:  "the route to Singapore demonstrably works, so this is MiMo's edge",
 		},
 		{
-			name: "mimo and sgp reference down, europe up", mimo: false, refSGP: false, refEU: true,
-			want: FaultRoute,
-			why:  "a second Singapore host is also unreachable — not MiMo, not us",
+			// The case that lost its resolution when the European reference was
+			// removed: this used to split into route-vs-uplink. It cannot any
+			// more, and the excluded class is the safe place to land — the
+			// alternative publishes our own outage as MiMo's.
+			name: "mimo and reference both down", mimo: false, refSGP: false,
+			want: FaultUplink,
+			why:  "unattributable from here; the window is excluded rather than blamed on MiMo",
 		},
 		{
-			name: "everything down", mimo: false, refSGP: false, refEU: false, want: FaultUplink,
-			why: "our own uplink; the window is excluded from everyone's availability",
-		},
-		{
-			// MiMo answering while our own anycast reference does not is odd, but
-			// it is not a MiMo fault, and calling it one would publish an outage
-			// that never happened.
-			name: "mimo up despite reference failures", mimo: true, refSGP: false, refEU: false,
+			// MiMo answering while our reference does not is odd, but it is not a
+			// MiMo fault, and calling it one would publish an outage that never
+			// happened.
+			name: "mimo up despite a reference failure", mimo: true, refSGP: false,
 			want: FaultOK,
 			why:  "MiMo answered; a reference quirk must never manufacture a provider outage",
 		},
@@ -185,11 +185,20 @@ func TestAttributeFaultCoversEveryRowOfTheTable(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := AttributeFault(tc.mimo, tc.refSGP, tc.refEU); got != tc.want {
-				t.Errorf("AttributeFault(%v,%v,%v) = %q, want %q — %s",
-					tc.mimo, tc.refSGP, tc.refEU, got, tc.want, tc.why)
+			if got := AttributeFault(tc.mimo, tc.refSGP); got != tc.want {
+				t.Errorf("AttributeFault(%v,%v) = %q, want %q — %s",
+					tc.mimo, tc.refSGP, got, tc.want, tc.why)
 			}
 		})
+	}
+}
+
+// FaultRoute is no longer produced, but it is still a legal stored value and
+// the dashboard still renders cycles that carry it. Deleting the constant would
+// break reading history that was correctly recorded under the old rule.
+func TestFaultRouteRemainsDefinedForStoredCycles(t *testing.T) {
+	if FaultRoute != "route" {
+		t.Errorf("FaultRoute = %q; stored cycles carry this exact value", FaultRoute)
 	}
 }
 
@@ -253,7 +262,7 @@ func TestPingFailsWhenEveryAddressFails(t *testing.T) {
 	badAddr := dead.Addr().String()
 	dead.Close()
 
-	res := pingerTo(2*time.Second, badAddr).Ping(context.Background(), TargetRefEU, "localhost")
+	res := pingerTo(2*time.Second, badAddr).Ping(context.Background(), TargetRefSGP, "localhost")
 
 	if res.OK {
 		t.Fatal("expected failure when no address answers")

@@ -102,9 +102,12 @@ export type ModelsResponse = {
 
 export const TARGET_MIMO = "mimo_sgp";
 export const TARGET_REF_SGP = "ref_sgp";
-export const TARGET_REF_EU = "ref_eu";
 
 export const FAULT_OK = "ok";
 export const FAULT_EDGE = "edge";
+// FAULT_ROUTE is no longer produced: telling a degraded route apart from a dead
+// uplink needed a second reference host, and there is only one now. Stored
+// cycles from before that change still carry it, so the dashboard still has to
+// render it.
 export const FAULT_ROUTE = "route";
 export const FAULT_UPLINK = "uplink";

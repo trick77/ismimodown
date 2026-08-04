@@ -68,7 +68,6 @@ type Deps struct {
 	Models     []string
 	BaseURL    string
 	RefSGPHost string
-	RefEUHost  string
 
 	// ProbeUserAgent is deliberately NOT published: the request shape is
 	// operator-only, because an endpoint that can recognise the probe by its

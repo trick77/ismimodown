@@ -99,7 +99,7 @@ describe("buildVerdict", () => {
 
   // Precedence runs uplink -> route -> edge -> model, because each layer makes
   // the ones beyond it unreadable.
-  it("blames our own uplink before anything else", () => {
+  it("declines to attribute before it blames anything else", () => {
     const v = buildVerdict(
       summary({
         faults: { ok: 200, edge: 40, route: 30, uplink: 18 },
@@ -107,16 +107,18 @@ describe("buildVerdict", () => {
       }),
       summary(),
     );
-    expect(v.headline).toMatch(/our own uplink/i);
+    expect(v.headline).toMatch(/nothing in singapore was reachable/i);
     // It may NAME MiMo, but only to disclaim it. Blaming the provider for our
     // own outage is the credibility-ending failure this whole layer prevents.
-    expect(v.headline).toMatch(/say nothing about MiMo/i);
+    expect(v.headline).toMatch(/says? nothing about MiMo/i);
     expect(v.headline).not.toMatch(
       /MiMo('s)? (is |edge )?(down|unreachable|broken)/i,
     );
   });
 
-  it("blames the route before MiMo's edge", () => {
+  // Historical fault class: no longer produced, but stored cycles carry it and
+  // must still read correctly rather than falling through to a model verdict.
+  it("still reads stored route cycles, ahead of MiMo's edge", () => {
     const v = buildVerdict(
       summary({ faults: { ok: 200, edge: 40, route: 30 } }),
       summary(),

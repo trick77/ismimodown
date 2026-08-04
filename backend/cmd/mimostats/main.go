@@ -145,7 +145,6 @@ func run() error {
 		Models:         cfg.Models,
 		BaseURL:        cfg.BaseURL,
 		RefSGPHost:     cfg.RefSGPHost,
-		RefEUHost:      cfg.RefEUHost,
 		ProbeUserAgent: cfg.ProbeUserAgent,
 	})
 
@@ -166,7 +165,6 @@ func run() error {
 		Models:     cfg.Models,
 		MimoHost:   cfg.MimoHost,
 		RefSGPHost: cfg.RefSGPHost,
-		RefEUHost:  cfg.RefEUHost,
 		OnCycle: func(cycleID int64) {
 			// Drop the cached responses first, THEN notify: a client that reacts
 			// to the event by refetching must not be served the pre-cycle
