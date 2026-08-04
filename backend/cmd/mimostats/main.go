@@ -10,11 +10,16 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
 	"github.com/trick77/mimostats/internal/config"
 	"github.com/trick77/mimostats/internal/httpapi"
+	"github.com/trick77/mimostats/internal/probe"
+	"github.com/trick77/mimostats/internal/retention"
+	"github.com/trick77/mimostats/internal/samples"
+	"github.com/trick77/mimostats/internal/scheduler"
 	"github.com/trick77/mimostats/internal/store"
 	"github.com/trick77/mimostats/internal/version"
 	"github.com/trick77/mimostats/web"
@@ -65,6 +70,29 @@ func run() error {
 		return err
 	}
 
+	sampleStore := samples.New(db)
+	sched := scheduler.New(scheduler.Deps{
+		Store: sampleStore,
+		Prober: probe.NewClient(probe.Config{
+			BaseURL:       cfg.BaseURL,
+			APIKey:        cfg.APIKey,
+			UserAgent:     cfg.ProbeUserAgent,
+			SystemPrompt:  cfg.ProbeSystemPrompt,
+			DialTimeout:   cfg.DialTimeout,
+			HeaderTimeout: cfg.HeaderTimeout,
+			TTFTTimeout:   cfg.TTFTTimeout,
+			IdleTimeout:   cfg.IdleTimeout,
+			Timeout:       cfg.ProbeTimeout,
+		}),
+		Pinger:     probe.NewPinger(cfg.PingTimeout),
+		Origin:     cfg.Origin,
+		Models:     cfg.Models,
+		MimoHost:   cfg.MimoHost,
+		RefSGPHost: cfg.RefSGPHost,
+		RefEUHost:  cfg.RefEUHost,
+	})
+	sweeper := retention.New(sampleStore, cfg.Retention)
+
 	handler := httpapi.New(httpapi.Deps{
 		Version: version.Version,
 		DB:      db,
@@ -84,6 +112,15 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	// The probe loop and the sweeper share the signal context, so SIGTERM stops
+	// them at the same moment it stops accepting requests. Waited on below via
+	// the WaitGroup: a cycle mid-flight must finish its write or abandon it
+	// cleanly, never be killed between the INSERT and the COMMIT.
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() { defer wg.Done(); sched.Run(ctx) }()
+	go func() { defer wg.Done(); sweeper.Run(ctx) }()
+
 	errCh := make(chan error, 1)
 	go func() {
 		slog.Info("listening", "addr", cfg.Addr)
@@ -101,7 +138,9 @@ func run() error {
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	return srv.Shutdown(shutdownCtx)
+	err = srv.Shutdown(shutdownCtx)
+	wg.Wait()
+	return err
 }
 
 func setupLogging(level string) {

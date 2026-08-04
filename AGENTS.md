@@ -30,6 +30,11 @@ TLS edge; Xiaomi runs no European GPUs, so edge-to-compute backhaul sits inside 
 **A timeout is a recorded sample, never a dropped one** — `ok=0`, an `error_class`, and
 however far it got.
 
+**`itl_p50_ms` is a chunk-level gap, not inter-token latency.** MiMo batches tokens into
+chunks and delivers them in bursts — a real run measured itl_p50=0.0075ms against 70 tok/s.
+Do not lead a chart with it; `output_tps` over the decode window is the robust one. Both are
+stored.
+
 **`probe` is always a filter, never an aggregation.** Mixing `infer` (40 tok) and `wide`
 (4 k tok) into one series destroys the prefill signal, which IS the gap between them.
 
