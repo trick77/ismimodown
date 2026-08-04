@@ -5,8 +5,9 @@ tidy:
 
 test:
 	cd backend && go test ./...
+	cd ui && npm run test -- --run
 
-coverage: backend-coverage
+coverage: backend-coverage fe-coverage
 
 backend-coverage:
 	mkdir -p coverage
@@ -14,18 +15,17 @@ backend-coverage:
 	cd backend && go run github.com/boumenot/gocover-cobertura@v1.5.0 < ../coverage/backend.out > ../coverage/backend.xml
 	./hack/coverage-gate.sh backend
 
-# The UI lands in phase 5; these targets are wired now so the Makefile surface
-# matches peeq's and CI does not need reshaping later.
 fe-test:
-	@echo "no ui/ yet — lands in phase 5"
+	cd ui && npm run test -- --run
 
 fe-coverage:
-	@echo "no ui/ yet — lands in phase 5"
+	cd ui && npm run test:coverage
+	./hack/coverage-gate.sh ui
 
 fe-build:
-	@echo "no ui/ yet — lands in phase 5"
+	cd ui && npm ci && npm run build
 
-build:
+build: fe-build
 	cd backend && CGO_ENABLED=0 go build -ldflags="-s -w -X github.com/trick77/mimostats/internal/version.Version=$$(git rev-parse --short HEAD 2>/dev/null || echo dev)" -o ../bin/mimostats ./cmd/mimostats
 
 run:

@@ -1,0 +1,174 @@
+@import "tailwindcss";
+
+/* Self-hosted Anthropic variable fonts, copied from music. */
+@font-face {
+  font-family: "Anthropic Sans";
+  src: url("./fonts/SansWebVariable-TextRegular.woff2") format("woff2");
+  font-weight: 300 800;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Anthropic Serif";
+  src: url("./fonts/SerifWebVariable-TextRegular.woff2") format("woff2");
+  font-weight: 300 800;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Anthropic Serif";
+  src: url("./fonts/SerifWebVariable-TextRegularItalic.woff2") format("woff2");
+  font-weight: 300 800;
+  font-style: italic;
+  font-display: swap;
+}
+
+/* Warm Editorial, dark — music's @theme block, plus the two data-series slots
+   and the fault colours this dashboard needs. */
+@theme {
+  --color-void: #131312;
+  --color-bg: #1a1a19;
+  --color-panel: #1f1f1e;
+  --color-panel-hi: #242422;
+  --color-border: #2e2e2b;
+  --color-border-soft: #262624;
+  --color-ink: #faf9f5;
+  --color-ink-dim: #e4e1d8;
+  --color-muted: #9c9a92;
+  --color-faint: #6b6963;
+  --color-ghost: #4a4844;
+  --color-accent: #c6613f;
+  --color-accent-strong: #d97757;
+  --color-accent-fill: #c25f34;
+  --color-accent-dim: #5a3527;
+  --color-online: #5aa06a;
+  --color-danger: #c14638;
+
+  /* Data palette. Two series, revalidated against the #1f1f1e surface: CVD
+     separation ΔE 26.8, normal-vision ΔE 31.8. Colour follows the MODEL, never
+     its rank, so a model keeps its hue when the ordering changes. */
+  --color-s1: #3987e5;
+  --color-s2: #d95926;
+  /* The network is drawn in neutral ink because it is not a model. Giving it a
+     series hue is how it ends up read as one. */
+  --color-wire: #9c9a92;
+
+  /* Fault colours, matching the attribution table. Distinct from the series
+     palette so a failure can never be mistaken for a measurement. */
+  --color-fault-edge: #c98500;
+  --color-fault-route: #9085e9;
+  --color-fault-uplink: #c14638;
+
+  --font-sans:
+    "Anthropic Sans", system-ui, "Segoe UI", Roboto, Helvetica, Arial,
+    sans-serif;
+  --font-serif: "Anthropic Serif", Georgia, "Times New Roman", Times, serif;
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+
+  --radius-ui: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
+
+  --text-display: 1.75rem;
+  --text-title: 1.25rem;
+  --text-body: 1rem;
+  --text-ui: 0.9375rem;
+  --text-label: 0.8125rem;
+  --text-micro: 0.6875rem;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+}
+
+html {
+  color-scheme: dark;
+  scrollbar-gutter: stable;
+}
+
+body {
+  margin: 0;
+  background: var(--color-void);
+  color: var(--color-ink-dim);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Text inputs follow the UI step of the type scale — except on a touch screen,
+   where iOS Safari zooms the page in whenever an input renders under 16px and
+   never zooms back out. Copied verbatim from music, including the reason. */
+:root {
+  --text-input: var(--text-ui);
+}
+@media (pointer: coarse) {
+  :root {
+    --text-input: 16px;
+  }
+}
+
+/* A fixed atmospheric wash behind the fold: two offset radial gradients. Fixed
+   rather than scrolled so it reads as light in the room rather than as a
+   texture on the page. */
+.aura {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background:
+    radial-gradient(
+      1100px 520px at 10% -8%,
+      color-mix(in srgb, var(--color-accent) 15%, transparent),
+      transparent 62%
+    ),
+    radial-gradient(
+      820px 460px at 94% 2%,
+      color-mix(in srgb, var(--color-s1) 8%, transparent),
+      transparent 60%
+    );
+}
+
+/* Filter pills use peeq's canonical style: a soft accent tint on a transparent
+   surface, never a solid fill. peeq's own note records that an inverted fill
+   "read as too loud"; that judgement carries over. */
+.pill {
+  font-family: var(--font-mono);
+  font-size: var(--text-label);
+  color: var(--color-muted);
+  border: 1px solid var(--color-border);
+  background: color-mix(in srgb, var(--color-panel) 60%, transparent);
+  padding: 5px 13px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition:
+    color 120ms ease,
+    border-color 120ms ease,
+    background-color 120ms ease;
+}
+.pill:hover {
+  color: var(--color-ink);
+  border-color: var(--color-accent-dim);
+}
+.pill[aria-pressed="true"] {
+  color: var(--color-accent-strong);
+  border-color: var(--color-accent-dim);
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+}
+
+.card {
+  background: linear-gradient(180deg, var(--color-panel) 0%, #1c1c1b 100%);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xl);
+  box-shadow:
+    0 24px 60px -34px rgba(0, 0, 0, 0.85),
+    inset 0 1px 0 rgba(255, 253, 247, 0.03);
+}
+
+/* Numbers are mono with tabular figures everywhere, so a changing value does
+   not reflow the row it sits in. */
+.num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
