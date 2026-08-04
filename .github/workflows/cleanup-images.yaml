@@ -1,0 +1,56 @@
+name: Cleanup images
+
+on:
+  schedule:
+    # Weekly, Sundays at 04:00 UTC
+    - cron: "0 4 * * 0"
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: "Preview deletions without removing anything"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: cleanup-images
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      # container-retention-policy panics rather than no-op'ing when the package
+      # does not exist. llmstats has not cut its first release yet, so this guard
+      # is load-bearing here rather than merely defensive.
+      - id: package-check
+        name: Check whether the llmstats package exists
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh api "users/${{ github.repository_owner }}/packages/container/llmstats" --silent 2>/dev/null; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "No llmstats container package yet — nothing to clean." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      # Keeps the 10 most recent tagged versions per image and removes the rest,
+      # including orphaned untagged versions. v3.1.0+ automatically protects
+      # multi-arch / attestation child manifests of the kept images, so the
+      # provenance manifests produced by the release build are never broken.
+      - if: steps.package-check.outputs.exists == 'true'
+        uses: snok/container-retention-policy@v3.1.0
+        with:
+          account: user
+          token: ${{ secrets.GITHUB_TOKEN }}
+          image-names: "llmstats"
+          tag-selection: both
+          keep-n-most-recent: 10
+          # Protect anything pushed in the last hour so a fresh release is never
+          # caught by a concurrently scheduled cleanup.
+          cut-off: 1h
+          dry-run: ${{ github.event.inputs.dry-run || 'false' }}

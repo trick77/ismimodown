@@ -1,0 +1,77 @@
+name: CI
+
+# Tests run on pull requests (feature branches). Master does not run tests — it
+# builds and pushes the image (see release.yaml). No image build happens here.
+on:
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend (build + test)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      # fetch-depth: 0 — hack/patch-coverage.sh diffs the branch against the PR
+      # base, which needs real history. The default shallow checkout leaves the
+      # base ref unresolvable and the gate exits 2.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: pip install diff-cover==10.3.0
+      # No CGO_ENABLED here: this step asserts the pure-Go build invariant that
+      # lets the runtime image stay distroless.
+      - run: go build ./...
+      - run: go vet ./...
+      # gofmt is not covered by `go vet`, and editors cannot be trusted to have
+      # run it.
+      - name: gofmt
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "::error::These files are not gofmt'd. Run: gofmt -w ."
+            echo "$unformatted"
+            exit 1
+          fi
+      - run: mkdir -p ../coverage
+      # The race detector needs cgo; this is independent of the app's
+      # CGO_ENABLED=0 build invariant enforced by the `go build` step above.
+      #
+      # -coverpkg=./... attributes coverage across package boundaries: code
+      # exercised only by another package's tests (the httpapi tests drive
+      # store) is otherwise reported as uncovered.
+      - run: go test -race -covermode=atomic -coverpkg=./... -coverprofile=../coverage/backend.out ./...
+        env:
+          CGO_ENABLED: "1"
+      # Go exposes no line metric — `go tool cover` reports statements only — so
+      # the line percentage comes from a Cobertura conversion of the profile.
+      # That also merges the duplicate blocks -coverpkg emits, one set per test
+      # binary, which a naive sum over the raw profile gets badly wrong.
+      - run: go run github.com/boumenot/gocover-cobertura@v1.5.0 < ../coverage/backend.out > ../coverage/backend.xml
+      # Both gates resolve paths from the repo root, not backend/.
+      #
+      # The floor gate runs first: when a PR drops the project below 75% the
+      # absolute number is the more actionable failure, and reporting it before
+      # patch coverage keeps the log readable.
+      - run: ./hack/coverage-gate.sh backend
+        working-directory: .
+      - name: Backend patch coverage
+        run: ./hack/patch-coverage.sh "origin/${{ github.base_ref || 'master' }}"
+        working-directory: .
+
+  # The UI job lands in phase 5 alongside ui/. Adding it now would fail every
+  # PR against a directory that does not exist.
