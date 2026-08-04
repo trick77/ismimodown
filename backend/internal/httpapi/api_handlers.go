@@ -52,31 +52,34 @@ func (s *server) sendJSON(w http.ResponseWriter, body []byte) {
 // are different weight classes — latency between them is comparable, quality is
 // not.
 func (s *server) handleModels(w http.ResponseWriter, r *http.Request) {
-	type model struct {
-		ID   string `json:"id"`
-		Note string `json:"note"`
-	}
-	notes := map[string]string{
-		"mimo-v2.5":     "omnimodal model",
-		"mimo-v2.5-pro": "1T/42B-active text flagship",
-	}
-	out := struct {
-		Models  []model  `json:"models"`
-		Probes  []string `json:"probes"`
-		Windows []string `json:"windows"`
-		Caveat  string   `json:"caveat"`
-	}{
-		Probes: []string{probe.ProbeInfer, probe.ProbeWide},
-		Caveat: "Different weight classes: latency is comparable between them, quality is not.",
-	}
-	for _, id := range s.deps.Models {
-		out.Models = append(out.Models, model{ID: id, Note: notes[id]})
-	}
-	for _, wd := range samples.Windows {
-		out.Windows = append(out.Windows, wd.Key)
-	}
-
-	s.writeJSON(w, r, "models", func() (any, error) { return out, nil })
+	// Built inside the closure, so a cache hit costs a map lookup rather than
+	// rebuilding the payload on every request.
+	s.writeJSON(w, r, "models", func() (any, error) {
+		type model struct {
+			ID   string `json:"id"`
+			Note string `json:"note"`
+		}
+		notes := map[string]string{
+			"mimo-v2.5":     "omnimodal model",
+			"mimo-v2.5-pro": "1T/42B-active text flagship",
+		}
+		out := struct {
+			Models  []model  `json:"models"`
+			Probes  []string `json:"probes"`
+			Windows []string `json:"windows"`
+			Caveat  string   `json:"caveat"`
+		}{
+			Probes: []string{probe.ProbeInfer, probe.ProbeWide},
+			Caveat: "Different weight classes: latency is comparable between them, quality is not.",
+		}
+		for _, id := range s.deps.Models {
+			out.Models = append(out.Models, model{ID: id, Note: notes[id]})
+		}
+		for _, wd := range samples.Windows {
+			out.Windows = append(out.Windows, wd.Key)
+		}
+		return out, nil
+	})
 }
 
 func (s *server) handleSummary(w http.ResponseWriter, r *http.Request) {
@@ -123,6 +126,11 @@ func (s *server) handleSeries(w http.ResponseWriter, r *http.Request) {
 				if err != nil {
 					return nil, err
 				}
+				// An empty series must marshal as [] rather than null: a client
+				// mapping over it would throw on a fresh or swept database.
+				if pts == nil {
+					pts = []samples.Point{}
+				}
 				out[target] = pts
 			}
 			return map[string]any{
@@ -146,6 +154,11 @@ func (s *server) handleSeries(w http.ResponseWriter, r *http.Request) {
 			pts, err := s.deps.Samples.Series(r.Context(), column, model, probeKind, window, s.now())
 			if err != nil {
 				return nil, err
+			}
+			// Same as the network branch: [] not null, so the client can map
+			// over a model with no data yet.
+			if pts == nil {
+				pts = []samples.Point{}
 			}
 			out[model] = pts
 		}
@@ -194,6 +207,13 @@ func (s *server) handleSamples(w http.ResponseWriter, r *http.Request) {
 		}
 		limit = n
 	}
+	// Clamped BEFORE the cache key is built, not just inside the samples
+	// package: the key would otherwise be caller-controlled, and every distinct
+	// limit an arbitrary scraper invents would mint a permanent cache entry —
+	// the response cache is a plain map with no eviction on read.
+	if limit > samples.MaxSampleLimit {
+		limit = samples.MaxSampleLimit
+	}
 
 	key := "samples|" + model + "|" + probeKind + "|" + strconv.Itoa(limit)
 	s.writeJSON(w, r, key, func() (any, error) {
@@ -215,50 +235,53 @@ func (s *server) handleSamples(w http.ResponseWriter, r *http.Request) {
 // insists on lives here in machine-readable form, so the UI cannot quietly drop
 // one during a redesign.
 func (s *server) handleMethodology(w http.ResponseWriter, r *http.Request) {
-	out := map[string]any{
-		"scope": "A MiMo latency monitor, not a cross-vendor benchmark. Two models, one vendor.",
-		"origin": map[string]any{
-			"id":   s.deps.Origin,
-			"note": "Single egress. All figures are from this vantage point only.",
-		},
-		"endpoint": s.deps.BaseURL,
-		"cadence":  "One aligned cycle every 5 minutes, jittered symmetrically by up to 30s.",
-		"layers": map[string]any{
-			"network": "A bare TCP handshake to port 443 (SYN -> SYN-ACK). No TLS, no HTTP, no auth, no tokens. TCP rather than ICMP because ICMP is dropped or deprioritised as routine policy, so a timeout would carry no information.",
-			"infer":   "One short streamed completion per model per cycle, ~34 prompt tokens.",
-			"wide":    "One ~3800-token prompt hourly, to expose prefill scaling and sustained decode that the short probe structurally cannot see.",
-		},
-		"residual_naming": map[string]any{
-			"term": "server-side time",
-			"why":  "The TCP handshake terminates at the TLS edge. Xiaomi runs no European GPUs, so whatever backhaul exists between that edge and the actual compute sits INSIDE the residual, along with queueing, prefill and scheduling. Calling it 'model time' would be a claim the measurement cannot support.",
-		},
-		"references": map[string]any{
-			"sgp": map[string]any{
-				"host":  s.deps.RefSGPHost,
-				"why":   "Answers whether ANY path from this egress to Singapore is healthy, so a route problem is not blamed on MiMo.",
-				"limit": "Not the same carrier as the probe host, so an operator-specific backbone fault on MiMo's path may not show here. Green here with MiMo red narrows the fault to MiMo's specific path OR its edge; separating those would need a traceroute.",
+	// Built inside the closure: this map is large and entirely static, so a
+	// cache hit should not pay to reconstruct it.
+	s.writeJSON(w, r, "methodology", func() (any, error) {
+		return map[string]any{
+			"scope": "A MiMo latency monitor, not a cross-vendor benchmark. Two models, one vendor.",
+			"origin": map[string]any{
+				"id":   s.deps.Origin,
+				"note": "Single egress. All figures are from this vantage point only.",
 			},
-			"eu": map[string]any{
-				"host": s.deps.RefEUHost,
-				"why":  "Answers whether our own uplink is up at all, so a local outage is never published as a provider outage.",
+			"endpoint": s.deps.BaseURL,
+			"cadence":  "One aligned cycle every 5 minutes, jittered symmetrically by up to 30s.",
+			"layers": map[string]any{
+				"network": "A bare TCP handshake to port 443 (SYN -> SYN-ACK). No TLS, no HTTP, no auth, no tokens. TCP rather than ICMP because ICMP is dropped or deprioritised as routine policy, so a timeout would carry no information.",
+				"infer":   "One short streamed completion per model per cycle, ~34 prompt tokens.",
+				"wide":    "One ~3800-token prompt hourly, to expose prefill scaling and sustained decode that the short probe structurally cannot see.",
 			},
-		},
-		"user_agent": map[string]any{
-			"value": s.deps.ProbeUserAgent,
-			"why":   "The endpoint is an opencode-facing product, so probing it with a neutral agent would not measure what production traffic experiences. Disclosed verbatim rather than hidden.",
-		},
-		"reasoning":    "Disabled on every request via both {\"thinking\":{\"type\":\"disabled\"}} and enable_thinking:false. reasoning_tokens is recorded on every sample and must be 0; a non-zero value invalidates the latency figures for that window.",
-		"cache_defeat": "The wide prompt carries a random 8-character nonce BEFORE the document, because caches key on the leading prefix. cached_tokens is recorded every run and must stay near zero. The short probe needs no nonce, but does need an explicit system message: without one the endpoint injects its own (~250 tokens, most of it cache-served), which would inflate the token budget and turn measured prefill into a cache lookup.",
-		"exclusions": map[string]any{
-			"percentiles": "Failed runs are excluded from every latency percentile and counted in availability instead. Otherwise a 240 000 ms timeout lands in the P50 and an outage reads as catastrophic latency.",
-			"suppression": "Fewer than " + strconv.Itoa(samples.MinSamplesForPercentile) + " successful samples in a window returns insufficient_data rather than a number.",
-			"uplink_down": "Cycles where our own uplink was down are attributed 'uplink' and must be excluded from any provider availability figure.",
-		},
-		"throughput_caveat": "itl_p50_ms is the median gap between STREAM CHUNKS, not between tokens. The endpoint batches tokens into chunks and delivers them in bursts, so on a healthy run the median can collapse toward zero (measured 0.0075 ms against 70 tok/s). output_tps over the decode window is the robust figure; both are published.",
-		"retention":         "Raw samples are kept for 3 months and swept nightly. No rollups, so no window longer than that is offered.",
-		"error_detail":      "Provider error bodies are recorded for operators but never served publicly, because they can echo request fragments.",
-	}
-	s.writeJSON(w, r, "methodology", func() (any, error) { return out, nil })
+			"residual_naming": map[string]any{
+				"term": "server-side time",
+				"why":  "The TCP handshake terminates at the TLS edge. Xiaomi runs no European GPUs, so whatever backhaul exists between that edge and the actual compute sits INSIDE the residual, along with queueing, prefill and scheduling. Calling it 'model time' would be a claim the measurement cannot support.",
+			},
+			"references": map[string]any{
+				"sgp": map[string]any{
+					"host":  s.deps.RefSGPHost,
+					"why":   "Answers whether ANY path from this egress to Singapore is healthy, so a route problem is not blamed on MiMo.",
+					"limit": "Not the same carrier as the probe host, so an operator-specific backbone fault on MiMo's path may not show here. Green here with MiMo red narrows the fault to MiMo's specific path OR its edge; separating those would need a traceroute.",
+				},
+				"eu": map[string]any{
+					"host": s.deps.RefEUHost,
+					"why":  "Answers whether our own uplink is up at all, so a local outage is never published as a provider outage.",
+				},
+			},
+			"user_agent": map[string]any{
+				"value": s.deps.ProbeUserAgent,
+				"why":   "The endpoint is an opencode-facing product, so probing it with a neutral agent would not measure what production traffic experiences. Disclosed verbatim rather than hidden.",
+			},
+			"reasoning":    "Disabled on every request via both {\"thinking\":{\"type\":\"disabled\"}} and enable_thinking:false. reasoning_tokens is recorded on every sample and must be 0; a non-zero value invalidates the latency figures for that window.",
+			"cache_defeat": "The wide prompt carries a random 8-character nonce BEFORE the document, because caches key on the leading prefix. cached_tokens is recorded every run and must stay near zero. The short probe needs no nonce, but does need an explicit system message: without one the endpoint injects its own (~250 tokens, most of it cache-served), which would inflate the token budget and turn measured prefill into a cache lookup.",
+			"exclusions": map[string]any{
+				"percentiles": "Failed runs are excluded from every latency percentile and counted in availability instead. Otherwise a 240 000 ms timeout lands in the P50 and an outage reads as catastrophic latency.",
+				"suppression": "Fewer than " + strconv.Itoa(samples.MinSamplesForPercentile) + " successful samples in a window returns insufficient_data rather than a number.",
+				"uplink_down": "Cycles where our own uplink was down are attributed 'uplink' and must be excluded from any provider availability figure.",
+			},
+			"throughput_caveat": "itl_p50_ms is the median gap between STREAM CHUNKS, not between tokens. The endpoint batches tokens into chunks and delivers them in bursts, so on a healthy run the median can collapse toward zero (measured 0.0075 ms against 70 tok/s). output_tps over the decode window is the robust figure; both are published.",
+			"retention":         "Raw samples are kept for 3 months and swept nightly. No rollups, so no window longer than that is offered.",
+			"error_detail":      "Provider error bodies are recorded for operators but never served publicly, because they can echo request fragments.",
+		}, nil
+	})
 }
 
 // window resolves and validates the window parameter.

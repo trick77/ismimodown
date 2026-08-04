@@ -47,6 +47,21 @@ type Deps struct {
 	Broker Broker
 	// Limiter bounds /api/* per caller. Optional in tests.
 	Limiter *ratelimit.Limiter
+	// Shutdown is closed when the process begins shutting down. Only the SSE
+	// handler watches it, and that is the point.
+	//
+	// http.Server.Shutdown waits for active connections but never cancels their
+	// request contexts, so an /api/events handler blocked on r.Context() keeps a
+	// connection alive until the shutdown timeout expires — one open dashboard
+	// turns every restart into a 15s hang and a non-zero exit.
+	//
+	// The obvious fix is srv.BaseContext returning the signal context, but that
+	// cancels EVERY in-flight request: a mid-flight /api/summary loses its DB
+	// query and returns 500 on what should be a graceful restart. Signalling
+	// only the long-lived stream fixes the hang, lets ordinary requests drain,
+	// and — unlike BaseContext, which can only live in main() — sits where it
+	// can be tested.
+	Shutdown <-chan struct{}
 
 	// Published on /api/methodology, so the page states what was actually
 	// measured rather than what the code once intended to measure.

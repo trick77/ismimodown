@@ -99,8 +99,13 @@ func (l *Limiter) Len() int {
 func (l *Limiter) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !l.Allow(ClientIP(r)) {
+			// Set explicitly rather than via http.Error, which would label a
+			// JSON body as text/plain and break a client that parses every
+			// /api/* response as JSON.
+			w.Header().Set("Content-Type", "application/json")
 			w.Header().Set("Retry-After", "1")
-			http.Error(w, `{"error":"rate limited"}`, http.StatusTooManyRequests)
+			w.WriteHeader(http.StatusTooManyRequests)
+			_, _ = w.Write([]byte(`{"error":"rate limited"}` + "\n"))
 			return
 		}
 		next.ServeHTTP(w, r)

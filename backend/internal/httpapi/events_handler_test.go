@@ -153,3 +153,77 @@ func contextWithImmediateCancel() (context.Context, context.CancelFunc) {
 	cancel()
 	return ctx, cancel
 }
+
+// On shutdown the stream must return promptly. http.Server.Shutdown waits for
+// active connections but never cancels their request contexts, so a handler
+// blocked on r.Context() alone would hold the connection until the shutdown
+// timeout expired — one open dashboard turning every restart into a hang and a
+// non-zero exit.
+func TestEventsReturnsWhenShutdownIsSignalled(t *testing.T) {
+	db := openTestDB(t)
+	broker := sse.New()
+	shutdown := make(chan struct{})
+	h := NewServer(Deps{
+		DB: db, Samples: samples.New(db), Broker: broker, Shutdown: shutdown,
+	})
+
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/api/events")
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer resp.Body.Close()
+
+	// Wait until the handler is actually subscribed and streaming.
+	deadline := time.Now().Add(3 * time.Second)
+	for broker.Count() == 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("handler never subscribed")
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+
+	close(shutdown)
+
+	// The body must reach EOF quickly, without the client cancelling.
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		buf := make([]byte, 4096)
+		for {
+			if _, err := resp.Body.Read(buf); err != nil {
+				return
+			}
+		}
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("stream did not close on shutdown; Shutdown would hang until its timeout")
+	}
+}
+
+// With no shutdown channel wired, the handler must still work — a nil channel
+// blocks forever in a select, which is the correct behaviour here.
+func TestEventsWorksWithoutAShutdownChannel(t *testing.T) {
+	db := openTestDB(t)
+	broker := sse.New()
+	h := NewServer(Deps{DB: db, Samples: samples.New(db), Broker: broker})
+
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+
+	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/api/events", nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	resp, err := http.DefaultClient.Do(req.WithContext(ctx))
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("status = %d, want 200", resp.StatusCode)
+	}
+}

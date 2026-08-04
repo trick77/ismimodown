@@ -68,7 +68,9 @@ type Stats struct {
 	// N is the number of SUCCESSFUL samples behind the figures.
 	N int `json:"n"`
 	// Sufficient reports whether N cleared MinSamplesForPercentile. When false,
-	// P50/P95 are zero and must be rendered as insufficient_data, never as 0 ms.
+	// P50/P95 are nil — an explicit JSON null, so a client can tell "suppressed"
+	// apart from "not sent" — and must be rendered as insufficient_data, never
+	// as 0 ms.
 	Sufficient bool     `json:"sufficient"`
 	P50        *float64 `json:"p50_ms"`
 	P95        *float64 `json:"p95_ms"`
@@ -336,18 +338,24 @@ type Point struct {
 	// T is the bucket's start, as Unix seconds.
 	T int64 `json:"t"`
 	N int   `json:"n"`
-	// Values are nil when the bucket holds too few successful samples. A null
+	// Values are nil when the bucket produced no percentile at all. A null
 	// renders as a gap; a zero would render as a floor, which is a lie.
+	//
+	// Note that no minimum-sample threshold is applied per bucket: a bucket
+	// exists only because at least one successful sample landed in it, so N is
+	// always >= 1 here. Suppression is a headline-figure rule (see
+	// MinSamplesForPercentile), deliberately not a chart rule.
 	P50 *float64 `json:"p50"`
 	P95 *float64 `json:"p95"`
 }
 
 // Series returns bucketed percentiles for one metric.
 //
-// MinSamplesPerBucket is deliberately lower than MinSamplesForPercentile: a
-// 5-minute bucket holds at most one sample per model, so requiring 20 would
-// blank every short-window chart. The headline figures keep the strict
-// threshold; a chart point is a shape, not a published number.
+// Buckets deliberately carry NO minimum-sample threshold, unlike the headline
+// figures: a 5-minute bucket holds at most one sample per model, so applying
+// MinSamplesForPercentile here would blank every short-window chart. The
+// headline figures keep the strict threshold; a chart point is a shape, not a
+// published number. Each point carries its own N so a client can weight it.
 func (s *Store) Series(ctx context.Context, column, modelID, probeKind string, w Window, now time.Time) ([]Point, error) {
 	if err := checkSeriesColumn(column); err != nil {
 		return nil, err

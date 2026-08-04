@@ -53,13 +53,21 @@ func (s *server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	flusher.Flush()
 
+	// A nil channel blocks forever in a select, which is exactly the right
+	// behaviour when no shutdown signal was wired.
+	shutdown := s.deps.Shutdown
+
 	ticker := time.NewTicker(sseHeartbeat)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-r.Context().Done():
-			// Client went away, or the server is shutting down.
+			// Client went away.
+			return
+		case <-shutdown:
+			// The process is stopping. Return now, so http.Server.Shutdown is
+			// not left waiting on a connection that will never close by itself.
 			return
 		case msg, open := <-ch:
 			if !open {

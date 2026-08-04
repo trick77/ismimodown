@@ -81,6 +81,10 @@ func run() error {
 	// scraper cannot pin the process.
 	limiter := ratelimit.New(2, 20)
 
+	// Closed when shutdown begins, so long-lived SSE handlers return instead of
+	// holding http.Server.Shutdown open until its timeout expires.
+	shutdownCh := make(chan struct{})
+
 	apiServer := httpapi.NewServer(httpapi.Deps{
 		Version:        version.Version,
 		DB:             db,
@@ -88,6 +92,7 @@ func run() error {
 		Static:         static,
 		Broker:         broker,
 		Limiter:        limiter,
+		Shutdown:       shutdownCh,
 		Origin:         cfg.Origin,
 		Models:         cfg.Models,
 		BaseURL:        cfg.BaseURL,
@@ -171,6 +176,10 @@ func run() error {
 	case <-ctx.Done():
 		slog.Info("shutting down")
 	}
+
+	// Signal the streams BEFORE Shutdown starts waiting on them; ordinary
+	// requests are left to drain normally.
+	close(shutdownCh)
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
