@@ -9,8 +9,8 @@ const LABELS: Record<string, string> = {
   [TARGET_REF_SGP]: "Reference (Singapore)",
 };
 
-// Reference lines are faint; MiMo's own edge is the one being read. All three
-// are drawn in neutral ink rather than series colours, because none of them is
+// The reference line is faint; MiMo's own edge is the one being read. Both are
+// drawn in neutral ink rather than series colours, because neither of them is
 // a model.
 const COLORS: Record<string, string> = {
   [TARGET_MIMO]: "#faf9f5",
@@ -32,7 +32,7 @@ export function NetworkPanel({ series }: { series: NetSeries | null }) {
   return (
     <Card
       title="The wire itself"
-      subtitle="Time to complete the TCP handshake on port 443 — no TLS, no HTTP, no auth, no tokens. The two reference hosts are what keep a route problem, or an outage of our own, from being published as a MiMo outage."
+      subtitle="Time to complete the TCP handshake on port 443 — no TLS, no HTTP, no auth, no tokens. The reference host is what keeps a route problem, or an outage of our own, from being published as a MiMo outage."
     >
       {order.length > 0 ? (
         <EChart
@@ -45,7 +45,7 @@ export function NetworkPanel({ series }: { series: NetSeries | null }) {
             },
             unit: "ms",
           })}
-          ariaLabel="TCP handshake time to MiMo's edge and the two reference hosts"
+          ariaLabel="TCP handshake time to MiMo's edge and the reference host"
         />
       ) : (
         <p className="font-serif italic text-faint">
