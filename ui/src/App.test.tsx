@@ -233,8 +233,9 @@ describe("App", () => {
       render(<App />);
 
       const loads = () =>
-        fetchMock.mock.calls.filter((c) => String(c[0]).includes("/api/summary"))
-          .length;
+        fetchMock.mock.calls.filter((c) =>
+          String(c[0]).includes("/api/summary"),
+        ).length;
 
       await waitFor(() => expect(loads()).toBeGreaterThan(0));
       const before = loads();
