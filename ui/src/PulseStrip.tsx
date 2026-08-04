@@ -70,7 +70,7 @@ export function PulseStrip({ cycles }: { cycles: Cycle[] }) {
               // own the cell shrink-wraps its bar, and the bar's percentage
               // height then has nothing to resolve against.
               className={`flex h-full min-w-px flex-1 items-end ${
-                cheap ? "bg-accent/12" : ""
+                cheap ? "bg-online/16" : ""
               }`}
               title={`${formatTime(s.at)} · ${
                 failed ? (s.error_class ?? "failed") : formatMs(s.ttft_ms)
@@ -106,7 +106,7 @@ export function PulseStrip({ cycles }: { cycles: Cycle[] }) {
           {offPeak.map((cheap, i) => (
             <span
               key={i}
-              className={`h-[2px] min-w-px flex-1 ${cheap ? "bg-accent-fill" : ""}`}
+              className={`h-[2px] min-w-px flex-1 ${cheap ? "bg-online" : ""}`}
             />
           ))}
         </div>

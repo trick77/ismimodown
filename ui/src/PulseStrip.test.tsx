@@ -68,8 +68,8 @@ describe("PulseStrip", () => {
     );
     const cells = screen.getByTestId("pulse-strip").children;
     // Oldest first, so the 12:00 cycle leads.
-    expect((cells[0] as HTMLElement).className).not.toContain("bg-accent");
-    expect((cells[1] as HTMLElement).className).toContain("bg-accent");
+    expect((cells[0] as HTMLElement).className).not.toContain("bg-online");
+    expect((cells[1] as HTMLElement).className).toContain("bg-online");
   });
 
   // The strip has no time axis — a missed cycle closes up rather than leaving a
@@ -87,7 +87,7 @@ describe("PulseStrip", () => {
       />,
     );
     const cells = [...screen.getByTestId("pulse-strip").children];
-    expect(cells.map((c) => c.className.includes("bg-accent"))).toEqual([
+    expect(cells.map((c) => c.className.includes("bg-online"))).toEqual([
       false,
       false,
       true,
