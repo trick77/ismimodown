@@ -145,7 +145,7 @@ func TestSeriesIsBucketedAndPerModel(t *testing.T) {
 	h, store := newAPIServer(t)
 	seed(t, store, 40, 900)
 
-	rec := get(t, h, "/api/series?metric=ttft&window=1h&probe=infer")
+	rec := get(t, h, "/api/series?metric=ttft&window=24h&probe=infer")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
 	}
@@ -161,8 +161,8 @@ func TestSeriesIsBucketedAndPerModel(t *testing.T) {
 	}
 	// The bucket is derived server-side so a caller cannot ask for 100 000
 	// points.
-	if out.BucketS != 300 {
-		t.Errorf("bucket_s = %d, want 300 for a 1h window", out.BucketS)
+	if out.BucketS != 900 {
+		t.Errorf("bucket_s = %d, want 900 for a 24h window", out.BucketS)
 	}
 	if _, ok := out.Models["mimo-v2.5"]; !ok {
 		t.Errorf("series is missing mimo-v2.5: %v", out.Models)
@@ -178,7 +178,7 @@ func TestNetworkSeriesIsSeparateFromModels(t *testing.T) {
 	h, store := newAPIServer(t)
 	seed(t, store, 25, 900)
 
-	rec := get(t, h, "/api/series?metric=network&window=1h")
+	rec := get(t, h, "/api/series?metric=network&window=24h")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
 	}
@@ -225,7 +225,7 @@ func TestNoPublicEndpointEmitsErrorDetail(t *testing.T) {
 	dataPaths := []string{
 		"/api/models",
 		"/api/summary?window=24h",
-		"/api/summary?window=1h&probe=wide",
+		"/api/summary?window=48h&probe=wide",
 		"/api/series?metric=ttft&window=24h",
 		"/api/series?metric=network&window=24h",
 		"/api/samples?model=mimo-v2.5&limit=100",

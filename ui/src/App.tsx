@@ -16,7 +16,13 @@ import { SamplesTable } from "./SamplesTable";
 import { MethodologyPanel } from "./MethodologyPanel";
 import { buildVerdict } from "./verdict";
 
-const WINDOWS = ["1h", "24h", "48h", "7d", "30d", "3mo"] as const;
+// Mirrors samples.Windows on the daemon. 1h is absent for the reason documented
+// there: at a 5-minute cadence it cannot hold enough samples to clear the
+// percentile threshold, so every card on it read insufficient_data forever.
+//
+// A stale ?window=1h link is not a broken link — readWindow rejects any value
+// not in this list and falls back to the default.
+const WINDOWS = ["24h", "48h", "7d", "30d", "3mo"] as const;
 const DEFAULT_WINDOW = "24h";
 
 // One probe cycle. Nothing new can exist between two of them, so this is both

@@ -156,12 +156,15 @@ func deref(f *float64) any {
 // because retention deletes at 3 months: offering a longer window would return
 // an empty chart that looks like an outage.
 func TestWindowAllowList(t *testing.T) {
-	for _, key := range []string{"1h", "24h", "48h", "7d", "30d", "3mo"} {
+	for _, key := range []string{"24h", "48h", "7d", "30d", "3mo"} {
 		if _, ok := LookupWindow(key); !ok {
 			t.Errorf("window %q must be allowed", key)
 		}
 	}
-	for _, key := range []string{"6mo", "1y", "", "24H", "'; DROP TABLE cycles--"} {
+	// 1h is in the rejected set on purpose: at a 5-minute cadence it cannot hold
+	// MinSamplesForPercentile samples, so it could never answer. A stale link
+	// carrying it must fall back rather than render a permanently empty card.
+	for _, key := range []string{"1h", "6mo", "1y", "", "24H", "'; DROP TABLE cycles--"} {
 		if _, ok := LookupWindow(key); ok {
 			t.Errorf("window %q must be rejected", key)
 		}
@@ -208,7 +211,7 @@ func TestSeriesBucketsByWindow(t *testing.T) {
 	now := time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC)
 	seedCycles(t, s, "mimo-v2.5", now, 60, 900)
 
-	w, _ := LookupWindow("1h") // 5-minute buckets
+	w, _ := LookupWindow("24h") // 15-minute buckets
 	pts, err := s.Series(context.Background(), "ttft_ms", "mimo-v2.5", probe.ProbeInfer, w, now)
 	if err != nil {
 		t.Fatalf("Series: %v", err)
@@ -216,9 +219,9 @@ func TestSeriesBucketsByWindow(t *testing.T) {
 	if len(pts) == 0 {
 		t.Fatal("no points")
 	}
-	// 60 one-minute cycles into 5-minute buckets: at most 13 buckets.
-	if len(pts) > 13 {
-		t.Errorf("%d buckets for a 1h window; the server-side bucket size is not being applied", len(pts))
+	// 60 one-minute cycles into 15-minute buckets: at most 5 buckets.
+	if len(pts) > 5 {
+		t.Errorf("%d buckets for a 24h window; the server-side bucket size is not being applied", len(pts))
 	}
 	// Buckets must be ordered and aligned to the bucket size.
 	bucketSecs := int64(w.Bucket / time.Second)
@@ -394,7 +397,7 @@ func TestWindowBoundsAreRespected(t *testing.T) {
 	now := time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC)
 	ctx := context.Background()
 
-	// One sample inside a 1h window, one well outside it.
+	// One sample inside the window, one well outside it.
 	if _, err := s.Save(ctx, Cycle{
 		StartedAt: now.Add(-30 * time.Minute), Net: okNet(),
 		Infer: []probe.InferResult{okInfer("mimo-v2.5", 900)},
@@ -402,19 +405,19 @@ func TestWindowBoundsAreRespected(t *testing.T) {
 		t.Fatalf("Save: %v", err)
 	}
 	if _, err := s.Save(ctx, Cycle{
-		StartedAt: now.Add(-5 * time.Hour), Net: okNet(),
+		StartedAt: now.Add(-30 * time.Hour), Net: okNet(),
 		Infer: []probe.InferResult{okInfer("mimo-v2.5", 5000)},
 	}); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
 
-	w, _ := LookupWindow("1h")
+	w, _ := LookupWindow("24h")
 	st, err := s.stats(ctx, "ttft_ms", "mimo-v2.5", probe.ProbeInfer, now.Add(-w.Duration))
 	if err != nil {
 		t.Fatalf("stats: %v", err)
 	}
 	if st.N != 1 {
-		t.Errorf("n = %d, want 1; the older sample must be outside the 1h window", st.N)
+		t.Errorf("n = %d, want 1; the older sample must be outside the window", st.N)
 	}
 }
 
