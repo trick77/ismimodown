@@ -277,6 +277,20 @@ describe("off-peak bands", () => {
     pt(AUG4 + 9 * H + i * H, 900),
   );
 
+  // The band is on every chart that measures TOKEN work — TTFT, prefill,
+  // throughput — and off the network panel, which measures the wire and
+  // explicitly no tokens at all. A billing rate has nothing to say about a TCP
+  // handshake.
+  it("is opt-in, so the wire panel can leave it off", () => {
+    const opt = buildLineOption({
+      series: { a: day },
+      order: ["a"],
+      colorOf: () => "#fff",
+      unit: "ms",
+    });
+    expect(opt.offPeakSpans).toEqual([]);
+  });
+
   it("draws nothing unless the panel asks for it", () => {
     const opt = buildLineOption({
       series: { a: day },

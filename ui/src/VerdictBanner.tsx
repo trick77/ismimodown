@@ -19,7 +19,10 @@ export function VerdictBanner({
 
   return (
     <div
-      className={`mb-6 rounded-xl border px-5 py-4 ${tone}`}
+      // mb-10, against the masthead's tighter pb above: the banner reads as a
+      // verdict on the page, not as a label for the strip it happens to sit on
+      // top of, and it needs the larger gap on the side it is NOT about.
+      className={`mb-10 rounded-xl border px-5 py-4 ${tone}`}
       role="status"
       aria-live="polite"
       data-testid="verdict"

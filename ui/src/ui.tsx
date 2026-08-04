@@ -61,7 +61,7 @@ export function CensoredNote({ bands }: { bands: number }) {
   );
 }
 
-// OffPeakNote names the accent bands, and gives the hours in the LOCAL clock.
+// OffPeakNote names the green bands, and gives the hours in the LOCAL clock.
 //
 // Same reasoning as CensoredNote: a shaded rectangle nobody can name is not a
 // signal. The hours are quoted off the drawn band's own DAY rather than from a
@@ -80,19 +80,22 @@ export function OffPeakNote({ spans }: { spans: [number, number][] }) {
   return (
     <p className="mt-3 flex items-start gap-2 text-label text-muted">
       <span
-        className="mt-[5px] inline-block h-3 w-4 shrink-0 rounded-sm bg-accent/25"
+        className="mt-[5px] inline-block h-3 w-4 shrink-0 rounded-sm bg-online/30"
         aria-hidden="true"
       />
       <span>
         {/* Not "Shaded:", which is how CensoredNote opens — the two notes sit
             one above the other whenever both apply, and a reader would have
             only the swatch to tell which sentence belonged to which band. */}
-        Off-peak: MiMo bills these hours at {OFFPEAK_COEFFICIENT}× — 20% fewer
-        credits. That is 00:00–08:00 in Beijing, which lands at{" "}
+        {/* Kept to two sentences: the band is on every token chart, so this
+            sits on the page three times over, permanently — unlike CensoredNote
+            above, which only appears when something was actually cut off. */}
+        Off-peak: MiMo bills{" "}
         <span className="num">{formatTime(new Date(opens))}</span>–
-        <span className="num">{formatTime(new Date(closes))}</span> here. It is
-        a price, not a forecast: nothing is published about when the platform is
-        busy.
+        <span className="num">{formatTime(new Date(closes))}</span> here —
+        00:00–08:00 in Beijing — at {OFFPEAK_COEFFICIENT}×, or 20% fewer
+        credits. A price, not a forecast: nothing is published about when the
+        platform is busy.
       </span>
     </p>
   );
@@ -110,8 +113,10 @@ export function OffPeakChip({ now = Date.now() }: { now?: number }) {
   return (
     <span
       className={`num rounded-full border px-2 py-[2px] text-micro uppercase tracking-wider ${
+        // Green, matching the band it refers to. The word beside it is what
+        // separates this from a health chip wearing the same colour.
         active
-          ? "border-accent/50 bg-accent/15 text-accent-strong"
+          ? "border-online/50 bg-online/15 text-online"
           : "border-border text-faint"
       }`}
     >

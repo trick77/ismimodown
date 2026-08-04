@@ -67,13 +67,22 @@ function allValues(series: Record<string, Point[]>): (number | null)[] {
 // measurements were cut off is not a measurement.
 const CENSORED = "#c98500";
 
-// The off-peak band colour: the page accent, which encodes emphasis rather than
-// identity — the same reason SERVER_COLOR borrows it. It is close in hue to
-// SERIES_COLORS[1], but they never read as the same thing on a plot: this
-// arrives as a dark unsaturated wash beneath the data, that one as a bright
-// saturated stroke on top of it. Not the fault amber, which is spent on
-// censoring, and not the online green, which means "up" everywhere else here.
-const OFFPEAK = "#c6613f";
+// The off-peak band colour. Green, because cheap reads as green before it reads
+// as anything else — chosen deliberately over the warm accent and over neutral
+// ink, both of which were mocked against it.
+//
+// The same hex as the online green, and that overlap is the known cost: green
+// means "up" elsewhere on this page, and on the pulse strip the healthy bars are
+// this exact colour, so the band there sits behind marks of its own hue. What
+// keeps the two apart is weight, not colour — the band is a low-alpha wash on
+// the surface and the bars are near-solid strokes on top of it — plus the note
+// under every chart that says in words what the shading is. Colour was never
+// the only signal here; it is carrying less of the load than it looks.
+//
+// If this ever does get misread as "these hours were healthy", the fix is the
+// neutral: same structure, swap this constant and the four Tailwind classes
+// that shadow it.
+const OFFPEAK = "#5aa06a";
 
 // SPAN_HHMM_MS is where the axis stops being able to go without a date.
 //
@@ -348,14 +357,13 @@ export function buildLineOption({
                   ...offPeakSpans.map(([from, to]) => [
                     {
                       xAxis: from,
-                      // Much quieter than the censoring band below. That one is
+                      // Kept well under the censoring stripe's 0.3. That one is
                       // a caution about the data itself; this is standing
-                      // context about the clock, and at equal weight it would
-                      // shout down the series it sits behind. Checked on the
-                      // rendered plot: the band is eight hours wide, so it
-                      // carries at a far lower alpha than the narrow censoring
-                      // stripe needs.
-                      itemStyle: { color: OFFPEAK, opacity: 0.1 },
+                      // context about the clock, and it shares a hue with the
+                      // healthy pulse bar — the further it stays from that
+                      // colour's normal weight, the less it can be mistaken for
+                      // a reading rather than a backdrop.
+                      itemStyle: { color: OFFPEAK, opacity: 0.13 },
                     },
                     { xAxis: to },
                   ]),
