@@ -4,7 +4,8 @@
 // logic — axis type, gap handling, series colour — and they are testable as
 // plain functions, where the canvas-backed renderer is not reachable from jsdom.
 import type { Point } from "../api/types";
-import { shouldUseLogScale } from "../format";
+import { formatDateTime, formatTime, shouldUseLogScale } from "../format";
+import { offPeakBands } from "../offpeak";
 
 // Series colour follows the MODEL, never its rank, so a model keeps its hue
 // when the ordering changes. Validated against the #1f1f1e surface: CVD
@@ -60,6 +61,21 @@ function allValues(series: Record<string, Point[]>): (number | null)[] {
 // The censoring band colour. The fault amber, not a series hue: a stretch where
 // measurements were cut off is not a measurement.
 const CENSORED = "#c98500";
+
+// The off-peak band colour: the page accent, which encodes emphasis rather than
+// identity — the same reason SERVER_COLOR borrows it. It is close in hue to
+// SERIES_COLORS[1], but they never read as the same thing on a plot: this
+// arrives as a dark unsaturated wash beneath the data, that one as a bright
+// saturated stroke on top of it. Not the fault amber, which is spent on
+// censoring, and not the online green, which means "up" everywhere else here.
+const OFFPEAK = "#c6613f";
+
+// SPAN_HHMM_MS is where the axis stops being able to go without a date.
+//
+// Below it every tick falls on the same day or the one before, and HH:mm is
+// unambiguous; above it a bare time repeats itself across the plot. 48h is the
+// longest window whose ticks are still hours.
+const SPAN_HHMM_MS = 48 * 3_600_000;
 
 // censoredBuckets collects the bucket starts, in ms, where any series had a
 // sample cut off by the timeout ladder.
@@ -127,6 +143,47 @@ type LineOpts = {
   // right edge. Without it no bands are drawn — a band of unknown width is worse
   // than none, because it would misstate how much of the window was affected.
   bucketMs?: number;
+  // offPeak draws MiMo's reduced-rate billing hours behind the series. Off by
+  // default and passed only by the panel that is about token cost: the rate does
+  // not apply to the network panel, which measures the wire.
+  offPeak?: boolean;
+};
+
+// timeExtent is the first and last timestamp, in ms, across every series.
+//
+// Used for two things that both need the real data range rather than whatever
+// ECharts settles on: how far the off-peak bands have to be generated, and
+// whether the axis can label ticks without a date.
+function timeExtent(series: Record<string, Point[]>): [number, number] | null {
+  let min = Infinity;
+  let max = -Infinity;
+  for (const points of Object.values(series)) {
+    for (const p of points) {
+      const t = p.t * 1000;
+      if (t < min) min = t;
+      if (t > max) max = t;
+    }
+  }
+  return Number.isFinite(min) && Number.isFinite(max) ? [min, max] : null;
+}
+
+// escapeHTML guards the tooltip, which is rendered as HTML by ECharts.
+//
+// Series names reach it from the API response — today they are model IDs, but a
+// tooltip that interpolates a server-supplied string into markup is a hole
+// whether or not anything currently fits through it.
+function escapeHTML(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+type AxisTooltipParam = {
+  marker?: string;
+  seriesName?: string;
+  value?: unknown;
 };
 
 // buildLineOption is the shared shape for every time series on the page.
@@ -139,6 +196,7 @@ export function buildLineOption({
   dashed,
   muted,
   bucketMs,
+  offPeak = false,
 }: LineOpts) {
   // The y-axis switches to log automatically when the window's dynamic range
   // exceeds 20x, because a linear axis collapses either the normal reading or
@@ -155,6 +213,20 @@ export function buildLineOption({
   const bands = bucketMs ? censoredBands(series, bucketMs) : [];
   const names = order.filter((name) => series[name] !== undefined);
 
+  const extent = timeExtent(series);
+  // A bare HH:mm repeats itself once the plot spans more than two days, and a
+  // reader cannot tell the Tuesday spike from the Thursday one.
+  const spansDays = extent !== null && extent[1] - extent[0] > SPAN_HHMM_MS;
+  const stamp = spansDays ? formatDateTime : formatTime;
+
+  // Past 48 hours the bands become one thin stripe per day — seven of them on
+  // the 7d window, ninety on 3mo — which reads as a hatch pattern rather than as
+  // a nightly window, and buries the data under it.
+  const offPeakSpans =
+    offPeak && extent !== null && !spansDays
+      ? offPeakBands(extent[0], extent[1])
+      : [];
+
   return {
     animation: false,
     grid: { left: 52, right: 16, top: 16, bottom: 28 },
@@ -163,13 +235,50 @@ export function buildLineOption({
       backgroundColor: "#242422",
       borderColor: GRID,
       textStyle: { color: INK, fontSize: 12 },
-      valueFormatter: (v: number | null) =>
-        v === null || v === undefined ? "no data" : `${round(v)} ${unit}`,
+      // Written out rather than left to valueFormatter, because the HEADER is
+      // the part that was wrong: ECharts stamps a time-axis tooltip in the
+      // BROWSER's zone, so a reader outside Switzerland got one clock here and
+      // another in the samples table below. Everything the old valueFormatter
+      // did is carried over — in particular null rendering as "no data" and
+      // never as a number, which is what keeps a gap from reading as a zero.
+      formatter: (raw: AxisTooltipParam | AxisTooltipParam[]) => {
+        const rows = Array.isArray(raw) ? raw : [raw];
+        const first = rows[0]?.value;
+        const t = Array.isArray(first) ? first[0] : undefined;
+        const head =
+          typeof t === "number"
+            ? // A Date, not the raw number: formatTime/formatDateTime read a
+              // bare number as epoch SECONDS, and the axis deals in ms.
+              `<div style="color:${AXIS};font-size:11px">${formatDateTime(new Date(t))}</div>`
+            : "";
+        const body = rows
+          .map((r) => {
+            const pair = r.value;
+            const v = Array.isArray(pair) ? pair[1] : undefined;
+            const text =
+              typeof v === "number" && Number.isFinite(v)
+                ? `${round(v)} ${unit}`
+                : "no data";
+            return `${r.marker ?? ""}${escapeHTML(r.seriesName ?? "")} <b>${text}</b>`;
+          })
+          .join("<br/>");
+        return head + body;
+      },
     },
     xAxis: {
       type: "time",
       axisLine: { lineStyle: { color: GRID } },
-      axisLabel: { color: AXIS, fontSize: 10 },
+      axisLabel: {
+        color: AXIS,
+        fontSize: 10,
+        // Every tick is stamped in Europe/Zurich, the zone the probe host runs
+        // in and the one the samples table already uses. ECharts has no
+        // per-axis timezone — only a global useUTC — so the label is formatted
+        // here instead. Without this the axis silently followed the viewer's
+        // machine, which put the off-peak band under a tick reading noon.
+        // A Date, not the raw number — see the tooltip header.
+        formatter: (value: number) => stamp(new Date(value)),
+      },
       splitLine: { show: false },
     },
     yAxis: {
@@ -210,20 +319,46 @@ export function buildLineOption({
         // it to each would paint the same rectangles once per model and darken
         // the band into something that reads as a severity it does not carry.
         // silent, so it never takes over the tooltip from the data.
+        //
+        // Both band kinds share this ONE markArea because ECharts allows only
+        // one per series, so they carry their styling per item instead. The
+        // off-peak spans go first and the censoring bands after, so that where
+        // the two overlap the censoring amber is the one on top: a stretch with
+        // cut-off measurements has to stay legible as such no matter what it
+        // was billed at.
         markArea:
-          i === 0 && bands.length > 0
+          i === 0 && (bands.length > 0 || offPeakSpans.length > 0)
             ? {
                 silent: true,
-                // ECharts paints markArea BENEATH the series, so this fill is
-                // read through the line's own area fill and loses much of its
-                // chroma on the way. Checked on the rendered plot: below ~0.3 it
-                // arrives as a grey shadow, which reads as a rendering artefact
-                // rather than as the caution the legend swatch promises.
-                itemStyle: { color: CENSORED, opacity: 0.3 },
-                data: bands.map(([from, to]) => [
-                  { xAxis: from },
-                  { xAxis: to },
-                ]),
+                data: [
+                  ...offPeakSpans.map(([from, to]) => [
+                    {
+                      xAxis: from,
+                      // Much quieter than the censoring band below. That one is
+                      // a caution about the data itself; this is standing
+                      // context about the clock, and at equal weight it would
+                      // shout down the series it sits behind. Checked on the
+                      // rendered plot: the band is eight hours wide, so it
+                      // carries at a far lower alpha than the narrow censoring
+                      // stripe needs.
+                      itemStyle: { color: OFFPEAK, opacity: 0.1 },
+                    },
+                    { xAxis: to },
+                  ]),
+                  ...bands.map(([from, to]) => [
+                    {
+                      xAxis: from,
+                      // ECharts paints markArea BENEATH the series, so this fill
+                      // is read through the line's own area fill and loses much
+                      // of its chroma on the way. Checked on the rendered plot:
+                      // below ~0.3 it arrives as a grey shadow, which reads as a
+                      // rendering artefact rather than as the caution the legend
+                      // swatch promises.
+                      itemStyle: { color: CENSORED, opacity: 0.3 },
+                    },
+                    { xAxis: to },
+                  ]),
+                ],
               }
             : undefined,
       };
@@ -232,7 +367,15 @@ export function buildLineOption({
     // Surfaced so the panel can announce the bands in words. A colour-only
     // signal is not a signal here: the whole point is a reader who would
     // otherwise take the plot at face value.
+    //
+    // Counts the CENSORING bands only, never the off-peak spans sharing the
+    // markArea with them: CensoredNote renders off this, and it must not start
+    // claiming measurements were cut off merely because it got dark in Beijing.
     censoredBands: bands.length,
+    // The off-peak spans as drawn, so the panel can name them in words and
+    // quote the local hours off the same edges the band was painted from —
+    // which is what makes the DST case come out right without a second rule.
+    offPeakSpans,
   };
 }
 

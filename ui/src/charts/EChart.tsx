@@ -10,6 +10,7 @@ import { BarChart, LineChart } from "echarts/charts";
 import {
   GridComponent,
   LegendComponent,
+  MarkAreaComponent,
   TooltipComponent,
 } from "echarts/components";
 import { CanvasRenderer } from "echarts/renderers";
@@ -21,12 +22,20 @@ import { CanvasRenderer } from "echarts/renderers";
 // that draws lines and one stacked bar. Registering explicitly brings that down
 // by roughly two thirds. It also means adding a new chart type is a deliberate
 // act rather than something that silently arrives in the bundle.
+//
+// MarkAreaComponent is what draws the shaded bands — censoring and off-peak
+// both. It was missing while options.ts was already emitting markArea, and an
+// unregistered component is not an error in ECharts: the option key is simply
+// ignored, so the censoring bands were never painted and the CensoredNote below
+// each chart pointed at a colour that was not there. Registration is the whole
+// fix; nothing about the option changed.
 echarts.use([
   LineChart,
   BarChart,
   GridComponent,
   TooltipComponent,
   LegendComponent,
+  MarkAreaComponent,
   CanvasRenderer,
 ]);
 

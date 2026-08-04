@@ -1,5 +1,7 @@
 import type { ReactNode } from "react";
 import type { State } from "./verdict";
+import { formatTime } from "./format";
+import { currentOffPeak, OFFPEAK_COEFFICIENT } from "./offpeak";
 
 // Shared primitives. Colour is NEVER the only signal — every state chip carries
 // its word, and every delta its sign — so the dashboard stays readable to a
@@ -52,6 +54,63 @@ export function CensoredNote({ bands }: { bands: number }) {
         slowest ones are missing from it.
       </span>
     </p>
+  );
+}
+
+// OffPeakNote names the accent bands, and gives the hours in the LOCAL clock.
+//
+// Same reasoning as CensoredNote: a shaded rectangle nobody can name is not a
+// signal. The hours are quoted off the drawn band's own edges rather than from a
+// constant, so a window straddling the DST changeover reports what it actually
+// painted instead of a rule that was true on one side of it.
+//
+// It says billing and only billing. MiMo publishes no load figures, and a note
+// here implying these are the quiet hours would be inventing a claim the rest of
+// this page exists to avoid.
+export function OffPeakNote({ spans }: { spans: [number, number][] }) {
+  const first = spans[0];
+  if (first === undefined) return null;
+  return (
+    <p className="mt-3 flex items-start gap-2 text-label text-muted">
+      <span
+        className="mt-[5px] inline-block h-3 w-4 shrink-0 rounded-sm bg-accent/25"
+        aria-hidden="true"
+      />
+      <span>
+        {/* Not "Shaded:", which is how CensoredNote opens — the two notes sit
+            one above the other whenever both apply, and a reader would have
+            only the swatch to tell which sentence belonged to which band. */}
+        Off-peak: MiMo bills these hours at {OFFPEAK_COEFFICIENT}× — 20% fewer
+        credits. That is 00:00–08:00 in Beijing, which lands at{" "}
+        <span className="num">{formatTime(new Date(first[0]))}</span>–
+        <span className="num">{formatTime(new Date(first[1]))}</span> here. It
+        is a price, not a forecast: nothing is published about when the platform
+        is busy.
+      </span>
+    </p>
+  );
+}
+
+// OffPeakChip says whether the reduced rate is live right now, in the header.
+//
+// It names the BOUNDARY and never counts down to it. The page re-renders on the
+// 5-minute probe cycle, so "in 3h 10m" would be a number that is wrong for most
+// of the time it is on screen; "until 02:00" is simply true until it is not. The
+// same cycle means the state itself can lag the boundary by one probe, which is
+// nothing against an eight-hour window.
+export function OffPeakChip({ now = Date.now() }: { now?: number }) {
+  const { active, boundaryMs } = currentOffPeak(now);
+  return (
+    <span
+      className={`num rounded-full border px-2 py-[2px] text-micro uppercase tracking-wider ${
+        active
+          ? "border-accent/50 bg-accent/15 text-accent-strong"
+          : "border-border text-faint"
+      }`}
+    >
+      {OFFPEAK_COEFFICIENT}× {active ? "until" : "from"}{" "}
+      {formatTime(new Date(boundaryMs))}
+    </span>
   );
 }
 
