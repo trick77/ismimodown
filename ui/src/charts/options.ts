@@ -56,6 +56,16 @@ type LineOpts = {
   // hue and the gap between them, which is the entire point of that panel,
   // cannot be read.
   dashed?: (name: string) => boolean;
+  // muted marks series that are the GROUND rather than the figure: present
+  // because another series is unreadable without them, not because they are
+  // what the panel is about.
+  //
+  // The prefill panel is the case. It replots the short probe's TTFT — the same
+  // data as the chart directly above it — because the gap to the wide probe is
+  // the measurement, and a lone wide line says nothing. Drawn at equal weight,
+  // the panel reads as the previous chart repeated, and the gap disappears into
+  // it. Muting the baseline is what makes the gap the thing you see.
+  muted?: (name: string) => boolean;
 };
 
 // buildLineOption is the shared shape for every time series on the page.
@@ -66,6 +76,7 @@ export function buildLineOption({
   unit,
   forceLinear = false,
   dashed,
+  muted,
 }: LineOpts) {
   // The y-axis switches to log automatically when the window's dynamic range
   // exceeds 20x, because a linear axis collapses either the normal reading or
@@ -101,25 +112,33 @@ export function buildLineOption({
     },
     series: order
       .filter((name) => series[name] !== undefined)
-      .map((name) => ({
-        name,
-        type: "line",
-        showSymbol: false,
-        // Gaps are gaps: never connect across a bucket with no data.
-        connectNulls: false,
-        lineStyle: {
-          width: 2,
-          color: colorOf(name),
-          type: dashed?.(name) ? "dashed" : "solid",
-        },
-        itemStyle: { color: colorOf(name) },
-        // No area fill under a dashed series: two filled areas in the same hue
-        // stack into a solid block and hide the gap between the lines.
-        areaStyle: dashed?.(name)
-          ? undefined
-          : { opacity: 0.12, color: colorOf(name) },
-        data: toPairs(series[name]!),
-      })),
+      .map((name) => {
+        // Ground, not figure — see `muted` on LineOpts. Thinner and dimmer, and
+        // with the area fill pulled most of the way out: at 0.12 the fill is
+        // what carries the eye, so leaving it while thinning the stroke would
+        // mute the wrong half of the series.
+        const isMuted = muted?.(name) ?? false;
+        return {
+          name,
+          type: "line",
+          showSymbol: false,
+          // Gaps are gaps: never connect across a bucket with no data.
+          connectNulls: false,
+          lineStyle: {
+            width: isMuted ? 1 : 2,
+            opacity: isMuted ? 0.5 : 1,
+            color: colorOf(name),
+            type: dashed?.(name) ? "dashed" : "solid",
+          },
+          itemStyle: { color: colorOf(name) },
+          // No area fill under a dashed series: two filled areas in the same hue
+          // stack into a solid block and hide the gap between the lines.
+          areaStyle: dashed?.(name)
+            ? undefined
+            : { opacity: isMuted ? 0.04 : 0.12, color: colorOf(name) },
+          data: toPairs(series[name]!),
+        };
+      }),
     logScale: log,
   };
 }

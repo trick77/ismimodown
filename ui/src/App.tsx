@@ -30,6 +30,20 @@ const DEFAULT_WINDOW = "24h";
 // the daemon's cadence — if that moves, this moves with it.
 const CYCLE_MS = 5 * 60 * 1000;
 
+// The rolling reference every higher-is-worse metric is scored against.
+//
+// Rolling rather than absolute, so the page keeps working if MiMo gets
+// permanently faster or slower — a fixed threshold would either cry wolf
+// forever or stop firing at all.
+//
+// The decision lives here because the client is the only thing that acts on
+// it: the daemon serves whatever window it is asked for and has no opinion
+// about which one is the baseline. It used to also carry a BaselineWindow
+// constant, which nothing read — so changing it did nothing, and this line
+// silently won. A constant whose value cannot affect behaviour is a trap, not
+// documentation.
+const BASELINE_WINDOW = "7d";
+
 // The window lives in the query string rather than in component state, so a
 // view can be linked and reloaded. There is no router: one shell, one
 // parameter.
@@ -63,7 +77,7 @@ export default function App() {
     try {
       const [s, b, t, w, p, n] = await Promise.all([
         getSummary(key, "infer", signal),
-        getSummary("7d", "infer", signal),
+        getSummary(BASELINE_WINDOW, "infer", signal),
         getSeries("ttft", key, "infer", signal),
         getSeries("ttft", key, "wide", signal),
         getSeries("tps", key, "infer", signal),
