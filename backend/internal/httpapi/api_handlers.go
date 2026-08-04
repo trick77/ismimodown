@@ -272,7 +272,7 @@ func (s *server) handleMethodology(w http.ResponseWriter, r *http.Request) {
 			"exclusions": map[string]any{
 				"percentiles": "Failed runs are excluded from every latency percentile and counted in availability instead. Otherwise a 240 000 ms timeout lands in the P50 and an outage reads as catastrophic latency.",
 				"suppression": "Fewer than " + strconv.Itoa(samples.MinSamplesForPercentile) + " successful samples in a window returns insufficient_data rather than a number.",
-				"uplink_down": "Cycles where neither MiMo nor the reference host answered are attributed 'uplink' and must be excluded from any provider availability figure. The cause may be our uplink or the route; with one reference host the two are indistinguishable, and neither is MiMo's to answer for.",
+				"uplink_down": "Cycles where neither MiMo nor the reference host answered are attributed 'uplink' — historically split into 'uplink' and 'route' while a second reference host existed — and failures on them are excluded from any provider availability figure. The cause may be our uplink or the route; with one reference host the two are indistinguishable, and neither is MiMo's to answer for. A run that succeeded anyway is still counted: it is evidence MiMo answered.",
 			},
 			"throughput_caveat": "itl_p50_ms is the median gap between STREAM CHUNKS, not between tokens. The endpoint batches tokens into chunks and delivers them in bursts, so on a healthy run the median can collapse toward zero (measured 0.0075 ms against 70 tok/s). output_tps over the decode window is the robust figure; both are published.",
 			"retention":         "Raw samples are kept for 3 months and swept nightly. No rollups, so no window longer than that is offered.",

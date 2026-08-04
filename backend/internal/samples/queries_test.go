@@ -417,3 +417,230 @@ func TestWindowBoundsAreRespected(t *testing.T) {
 		t.Errorf("n = %d, want 1; the older sample must be outside the 1h window", st.N)
 	}
 }
+
+// deadNet is a cycle where nothing in Singapore answered: MiMo and the
+// reference both failed, which AttributeFault resolves to 'uplink'.
+func deadNet() []probe.NetResult {
+	return []probe.NetResult{
+		{Target: probe.TargetMimoSGP, OK: false, ErrorClass: probe.ErrClassConnectTimeout},
+		{Target: probe.TargetRefSGP, OK: false, ErrorClass: probe.ErrClassConnectTimeout},
+	}
+}
+
+// The promise /api/methodology and the availability strip have both always
+// made, finally enforced: a cycle nobody could attribute must not appear in
+// MiMo's availability.
+//
+// When our own connectivity dies, the inference probe fails too — on connect,
+// before it ever reaches MiMo. Counting that as a failed attempt manufactures
+// provider downtime out of our own outage, which is the single failure this
+// project exists not to commit.
+func TestUplinkCyclesAreExcludedFromModelAvailability(t *testing.T) {
+	s := New(openTestDB(t))
+	now := time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC)
+	ctx := context.Background()
+
+	// 10 good cycles, then 10 where nothing was reachable.
+	seedCycles(t, s, "mimo-v2.5", now, 10, 900)
+	for i := 0; i < 10; i++ {
+		if _, err := s.Save(ctx, Cycle{
+			StartedAt: now.Add(-time.Duration(i+1) * time.Hour),
+			Net:       deadNet(),
+			Infer: []probe.InferResult{{
+				ModelID: "mimo-v2.5", Probe: probe.ProbeInfer,
+				OK: false, ErrorClass: probe.ErrClassConnectTimeout,
+			}},
+		}); err != nil {
+			t.Fatalf("Save: %v", err)
+		}
+	}
+
+	w, _ := LookupWindow("24h")
+	sum, err := s.Summarize(ctx, w, []string{"mimo-v2.5"}, probe.ProbeInfer, now)
+	if err != nil {
+		t.Fatalf("Summarize: %v", err)
+	}
+	ms := sum.Models[0]
+
+	if ms.Attempts != 10 || ms.Succeeded != 10 {
+		t.Fatalf("attempts = %d, succeeded = %d, want 10 and 10 — the unreachable cycles must not be counted",
+			ms.Attempts, ms.Succeeded)
+	}
+	if ms.Available != 100 {
+		t.Errorf("availability = %v%%, want 100%% — MiMo answered every cycle we could actually reach it", ms.Available)
+	}
+	// The cycles are still VISIBLE, just not charged to MiMo: the strip renders
+	// them, and hiding them would be its own dishonesty.
+	if sum.Faults[probe.FaultUplink] != 10 {
+		t.Errorf("uplink faults = %d, want 10 — excluded from availability, not from the record",
+			sum.Faults[probe.FaultUplink])
+	}
+}
+
+// A window with nothing attributable in it must report no data rather than a
+// number. 0 attempts is what every client already reads as "no data"; a 0%
+// would read as a total provider outage, which is the opposite of the truth.
+func TestAWindowOfNothingButUplinkReportsNoAttempts(t *testing.T) {
+	s := New(openTestDB(t))
+	now := time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC)
+	ctx := context.Background()
+
+	for i := 0; i < 5; i++ {
+		if _, err := s.Save(ctx, Cycle{
+			StartedAt: now.Add(-time.Duration(i+1) * time.Minute),
+			Net:       deadNet(),
+			Infer: []probe.InferResult{{
+				ModelID: "mimo-v2.5", Probe: probe.ProbeInfer,
+				OK: false, ErrorClass: probe.ErrClassConnectTimeout,
+			}},
+		}); err != nil {
+			t.Fatalf("Save: %v", err)
+		}
+	}
+
+	w, _ := LookupWindow("24h")
+	sum, err := s.Summarize(ctx, w, []string{"mimo-v2.5"}, probe.ProbeInfer, now)
+	if err != nil {
+		t.Fatalf("Summarize: %v", err)
+	}
+	if got := sum.Models[0].Attempts; got != 0 {
+		t.Errorf("attempts = %d, want 0", got)
+	}
+	if got := sum.Models[0].Available; got != 0 {
+		t.Errorf("available_pct = %v; with no attempts the field must stay at its zero value and be read via attempts", got)
+	}
+}
+
+// The exclusion is asymmetric on purpose. MiMo's edge is a provider figure and
+// gets the protection; the reference host is the instrument, and its raw
+// reachability is a diagnostic about our own deployment that must not be
+// flattered.
+func TestUplinkExclusionAppliesToMimoButNotTheReference(t *testing.T) {
+	s := New(openTestDB(t))
+	now := time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC)
+	ctx := context.Background()
+
+	seedCycles(t, s, "mimo-v2.5", now, 10, 900)
+	for i := 0; i < 10; i++ {
+		if _, err := s.Save(ctx, Cycle{
+			StartedAt: now.Add(-time.Duration(i+1) * time.Hour),
+			Net:       deadNet(),
+		}); err != nil {
+			t.Fatalf("Save: %v", err)
+		}
+	}
+
+	w, _ := LookupWindow("24h")
+	sum, err := s.Summarize(ctx, w, []string{"mimo-v2.5"}, probe.ProbeInfer, now)
+	if err != nil {
+		t.Fatalf("Summarize: %v", err)
+	}
+
+	byTarget := map[string]NetSummary{}
+	for _, n := range sum.Net {
+		byTarget[n.Target] = n
+	}
+	if got := byTarget[probe.TargetMimoSGP]; got.Attempts != 10 || got.Available != 100 {
+		t.Errorf("mimo: attempts = %d, available = %v%%; want 10 and 100%% — unattributable cycles are not MiMo's",
+			got.Attempts, got.Available)
+	}
+	if got := byTarget[probe.TargetRefSGP]; got.Attempts != 20 || got.Available != 50 {
+		t.Errorf("reference: attempts = %d, available = %v%%; want 20 and 50%% — the instrument reports its own raw reachability",
+			got.Attempts, got.Available)
+	}
+}
+
+// A run that SUCCEEDED on an unattributable cycle is still MiMo answering.
+//
+// The fault is attributed from TCP handshakes taken at the top of the cycle, so
+// a handshake that timed out while the completion went through is entirely
+// possible. Dropping that row would not just under-count attempts: it would
+// take the answer grade and the reasoning-token gate with it, and the gate is
+// the one figure that invalidates every latency number in the window.
+func TestSuccessfulRunsOnUplinkCyclesStillCount(t *testing.T) {
+	s := New(openTestDB(t))
+	now := time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC)
+	ctx := context.Background()
+
+	seedCycles(t, s, "mimo-v2.5", now, 10, 900)
+
+	in := okInfer("mimo-v2.5", 950)
+	in.Usage.CompletionTokenDetails.ReasoningTokens = 512
+	if _, err := s.Save(ctx, Cycle{
+		StartedAt: now.Add(-30 * time.Minute),
+		Net:       deadNet(),
+		Infer:     []probe.InferResult{in},
+	}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	w, _ := LookupWindow("24h")
+	sum, err := s.Summarize(ctx, w, []string{"mimo-v2.5"}, probe.ProbeInfer, now)
+	if err != nil {
+		t.Fatalf("Summarize: %v", err)
+	}
+	ms := sum.Models[0]
+
+	if ms.Attempts != 11 || ms.Succeeded != 11 {
+		t.Errorf("attempts = %d, succeeded = %d, want 11 and 11 — a run that succeeded is evidence MiMo answered",
+			ms.Attempts, ms.Succeeded)
+	}
+	if ms.MaxReasoningTokens != 512 {
+		t.Errorf("max_reasoning_tokens = %d, want 512 — the hard gate must not be filtered away by fault attribution",
+			ms.MaxReasoningTokens)
+	}
+	if ms.Answered != 11 {
+		t.Errorf("answered = %d, want 11 — a graded answer is not unattributable", ms.Answered)
+	}
+	// The invariant the exclusion must never break: a sample cannot be in the
+	// percentiles without being in the denominator it is drawn from.
+	if ms.TTFT.N > ms.Attempts {
+		t.Errorf("ttft.n = %d > attempts = %d — latency counted from a run whose attempt was not",
+			ms.TTFT.N, ms.Attempts)
+	}
+}
+
+// 'route' is the historical half of the same verdict and must be excluded on
+// the same terms.
+//
+// It was produced while a European reference host still separated "our uplink
+// is down" from "the route to Singapore is degraded". In BOTH, MiMo and the
+// Singapore reference were unreachable, so the inference probe failed on
+// connect. Stored cycles carry it, and excluding only 'uplink' would leave the
+// manufactured downtime in every window reaching back that far.
+func TestRouteCyclesAreExcludedLikeUplink(t *testing.T) {
+	s := New(openTestDB(t))
+	now := time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC)
+	ctx := context.Background()
+
+	seedCycles(t, s, "mimo-v2.5", now, 10, 900)
+	for i := 0; i < 10; i++ {
+		id, err := s.Save(ctx, Cycle{
+			StartedAt: now.Add(-time.Duration(i+1) * time.Hour),
+			Net:       deadNet(),
+			Infer: []probe.InferResult{{
+				ModelID: "mimo-v2.5", Probe: probe.ProbeInfer,
+				OK: false, ErrorClass: probe.ErrClassConnectTimeout,
+			}},
+		})
+		if err != nil {
+			t.Fatalf("Save: %v", err)
+		}
+		// Nothing produces 'route' any more, so it is written directly — the
+		// point is precisely that historical rows must still read correctly.
+		if _, err := s.db.ExecContext(ctx,
+			`UPDATE cycle_fault SET fault = ? WHERE cycle_id = ?`, probe.FaultRoute, id); err != nil {
+			t.Fatalf("update fault: %v", err)
+		}
+	}
+
+	w, _ := LookupWindow("24h")
+	sum, err := s.Summarize(ctx, w, []string{"mimo-v2.5"}, probe.ProbeInfer, now)
+	if err != nil {
+		t.Fatalf("Summarize: %v", err)
+	}
+	if ms := sum.Models[0]; ms.Attempts != 10 || ms.Available != 100 {
+		t.Errorf("attempts = %d, available = %v%%, want 10 and 100%% — 'route' is as unattributable as 'uplink'",
+			ms.Attempts, ms.Available)
+	}
+}
