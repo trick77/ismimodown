@@ -1,0 +1,21 @@
+# The build context is the repo root (see release.yaml). Keep out anything the
+# image does not need — and, more importantly, anything that must never end up
+# in a layer.
+.git
+.github
+docs
+hack
+bin
+coverage
+data
+node_modules
+*.md
+LICENSE
+Makefile
+compose.yaml
+compose.dev.yaml
+# Never. The MiMo token-plan key is a live billable credential.
+.env
+.env.*
+!.env.example
+.claude

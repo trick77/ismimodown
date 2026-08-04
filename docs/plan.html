@@ -228,10 +228,31 @@
     <thead><tr><th>Target</th><th>What it answers</th><th class="r">≈ RTT</th></tr></thead>
     <tbody>
       <tr><td><code>token-plan-sgp.xiaomimimo.com</code></td><td>is MiMo's edge reachable</td><td class="r">165 ms</td></tr>
-      <tr><td><strong>reference · Singapore</strong> — an OVH SGP endpoint (<code>ap-southeast-sgp</code>)</td><td>is <em>any</em> Roubaix→Singapore path healthy</td><td class="r">~160 ms</td></tr>
+      <tr><td><strong>reference · Singapore</strong> — <code>sgp1.digitaloceanspaces.com</code> <em>(amended — see below)</em></td><td>is <em>any</em> Roubaix→Singapore path healthy</td><td class="r">~160 ms</td></tr>
       <tr><td><strong>reference · Europe</strong> — a public anycast address answering from a nearby PoP</td><td>is our uplink up at all</td><td class="r">~9 ms</td></tr>
     </tbody>
   </table></div>
+
+  <div class="note warn">
+    <h4>Amended — the OVH Singapore reference does not exist</h4>
+    <p>The plan named an OVH SGP endpoint (<code>ap-southeast-sgp</code>) so that the reference
+      path would be same-carrier end to end: the probe box is OVH Roubaix, which makes "the route
+      is fine" a stronger claim. No such public hostname exists.
+      <code>s3.ap-southeast-sgp.io.cloud.ovh.net</code> is NXDOMAIN, and <code>sgp.ovh</code>
+      resolves to <code>188.114.96.12</code> — Cloudflare anycast answering from Europe at ~18 ms.
+      Using it would have put a <em>European</em> host in the Singapore slot, which is precisely
+      the failure this reference exists to detect.</p>
+    <p><code>sgp1.digitaloceanspaces.com</code> is a genuine Singapore target (268 ms measured
+      from Zurich) and is used instead. <strong>The cost is the same-carrier argument:</strong> an
+      OVH backbone problem no longer necessarily shows in the reference, so a green reference
+      against a red MiMo narrows the fault slightly less tightly than the plan assumed. The
+      methodology page must disclose this alongside the existing traceroute caveat.</p>
+    <p><em>Still unverified:</em> every RTT above was measured from Zurich, not from the Roubaix
+      probe host, and the European anycast candidates could not be tested at all from that machine
+      (<code>1.1.1.1:53</code> connects in 6.9 ms while <code>1.1.1.1:443</code> times out — local
+      port filtering). Confirm both reference hosts from Roubaix before the attribution logic ships
+      in phase 3.</p>
+  </div>
 
   <div class="note warn">
     <h4>Neither reference is localhost</h4>
@@ -275,7 +296,23 @@
     40-token request would never trigger.</p>
 
   <h4>Cache defeat — needed for <code>wide</code> only</h4>
-  <p><code>infer</code> needs none: nothing caches below ~1 000 tokens. <code>wide</code> is
+  <div class="note warn"><h4>Amended after the pre-implementation curls — the original claim was wrong</h4>
+    <p>The plan asserted "nothing caches below ~1 000 tokens", and that is what
+    justified <code>infer</code> needing no cache defeat. Measured: a request carrying <em>no
+    system message</em> returns <code>prompt_tokens: 250</code> with
+    <code>cached_tokens: 192</code> — MiMo injects a ~250-token system prompt of its own and
+    caches most of it. That breaks <code>infer</code> twice over: a "~40 token" request actually
+    costs ~263 tokens (~6.5× the cost model), and most of the prefill it exists to time is a
+    cache lookup rather than computation.
+    <br><br>
+    <strong>The fix is an explicit system message, not a nonce.</strong> Measured with one:
+    <code>prompt_tokens</code> drops to <code>20</code> and <code>cached_tokens</code> comes
+    back <code>null</code> — the injection is suppressed and caching disappears entirely. So
+    <code>infer</code> still needs no nonce, but for a different reason than the plan gave, and
+    the system message is load-bearing rather than cosmetic. It is pinned by a config test and
+    rejected at boot when empty, because losing it fails silently: the probe keeps succeeding
+    and only the numbers become wrong.</p></div>
+  <p><code>infer</code> needs no nonce, given the system message above. <code>wide</code> is
     squarely in cacheable territory, and a prefix cache hit skips prefill — silently destroying the
     one measurement <code>wide</code> exists to take. So it prepends a nonce <em>before</em> the
     document:</p>
