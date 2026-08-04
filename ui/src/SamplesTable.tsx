@@ -2,10 +2,15 @@ import type { Sample } from "./api/types";
 import { Card } from "./ui";
 import { formatMs, formatTime, formatTps } from "./format";
 
-// How many cycles the table renders. The caller fetches a whole day of samples
-// because PulseStrip needs every one of them, but a 288-row table is a wall of
-// numbers nobody reads — the table's job is "what happened just now", and ten
-// rows answer that. The strip above still covers the day.
+// How many cycles the table renders.
+//
+// The card's job is "what happened just now", and a wall of numbers nobody
+// scrolls to the end of does not answer it better than ten rows do — the pulse
+// strip above is what covers the whole day.
+//
+// App asks the server for exactly this many, so the slice below is normally a
+// no-op. It stays because the cap is the table's own rule: whatever it is
+// handed, this is what it draws.
 const ROWS = 10;
 
 // Raw cycles, nothing aggregated away. Also the accessible alternative to every

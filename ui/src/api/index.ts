@@ -3,6 +3,7 @@ import type {
   ModelSeries,
   ModelsResponse,
   NetSeries,
+  PulseResponse,
   SamplesResponse,
   Summary,
 } from "./types";
@@ -45,6 +46,19 @@ export const getSamples = (
 ) =>
   api.get<SamplesResponse>(
     `/api/samples?model=${encodeURIComponent(model)}&probe=${encodeURIComponent(probe)}&limit=${limit}`,
+    signal,
+  );
+
+// The strip's own feed: same cycles as getSamples, without the columns it does
+// not draw. A day at this shape costs less than a hundred rows at the other.
+export const getPulse = (
+  model: string,
+  probe: string,
+  limit: number,
+  signal?: AbortSignal,
+) =>
+  api.get<PulseResponse>(
+    `/api/pulse?model=${encodeURIComponent(model)}&probe=${encodeURIComponent(probe)}&limit=${limit}`,
     signal,
   );
 
