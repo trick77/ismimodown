@@ -35,11 +35,12 @@ func (s *server) handleEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Keyed by client IP, exactly as the request limiter is, so one caller
-	// cannot take every stream slot and hand the 503 to everyone else. This
-	// route sits outside that limiter — a request bucket says nothing about a
-	// connection held for hours — so the cap in the broker is the only bound
-	// there is.
+	// Keyed by caller identity, exactly as the request limiter is — an IPv4
+	// address, or an IPv6 /64, since a per-address key bounds nobody over v6.
+	// So one caller cannot take every stream slot and hand the 503 to everyone
+	// else. This route sits outside that limiter — a request bucket says
+	// nothing about a connection held for hours — so the cap in the broker is
+	// the only bound there is.
 	ch, cancel, ok := s.deps.Broker.Subscribe(ratelimit.ClientIP(r))
 	if !ok {
 		// A cap is reached, global or per-caller. 503 rather than holding a

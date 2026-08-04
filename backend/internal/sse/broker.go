@@ -46,10 +46,12 @@ func New() *Broker {
 	return &Broker{subs: map[int]subscriber{}, perKey: map[string]int{}}
 }
 
-// Subscribe registers a listener from key, which identifies the caller (the
-// client IP). The second return is false when either the global cap or the
-// per-caller cap is reached; the caller must then answer 503 rather than
-// holding a connection it will never feed.
+// Subscribe registers a listener from key, which identifies the caller —
+// ratelimit.ClientIP, so an IPv4 address or an IPv6 /64.
+//
+// The second return is false when either the global cap or the per-caller cap
+// is reached; the caller must then answer 503 rather than holding a connection
+// it will never feed.
 //
 // The returned cancel function must be called exactly once, by the handler,
 // when the client goes away — it is what releases both slots.
@@ -85,9 +87,9 @@ func (b *Broker) Subscribe(key string) (<-chan []byte, func(), bool) {
 			delete(b.subs, id)
 			close(s.ch)
 			// Deleting at zero rather than leaving a 0 entry: perKey is keyed
-			// by client IP, so a counter left behind per address seen would be
-			// the same unbounded caller-controlled map the request limiter
-			// needs a sweeper for.
+			// by caller, so a counter left behind for every one ever seen
+			// would be the same unbounded caller-controlled map the request
+			// limiter needs a sweeper for.
 			if b.perKey[s.key]--; b.perKey[s.key] <= 0 {
 				delete(b.perKey, s.key)
 			}
