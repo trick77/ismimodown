@@ -20,6 +20,9 @@ COPY backend/ ./
 # builds straight to ../backend/web/dist (not the Vite-default ui/dist), so from
 # the ui stage's WORKDIR that lands at /app/backend/web/dist.
 COPY --from=ui /app/backend/web/dist ./web/dist
+# An empty directory to hand the runtime stage, so /data can be created with the
+# right ownership. distroless has no shell, so mkdir/chown cannot be run there.
+RUN mkdir -p /out/data
 RUN CGO_ENABLED=0 go build -ldflags="-s -w -X github.com/trick77/mimostats/internal/version.Version=${BACKEND_VERSION}" -o /out/mimostats ./cmd/mimostats
 
 # --- Stage 3: minimal runtime ---
@@ -31,5 +34,23 @@ RUN CGO_ENABLED=0 go build -ldflags="-s -w -X github.com/trick77/mimostats/inter
 # every inference probe is an outbound TLS call.
 FROM gcr.io/distroless/static-debian12:nonroot AS runtime
 COPY --from=build /out/mimostats /usr/local/bin/mimostats
+
+# /data exists in the image, owned by the UID the container runs as.
+#
+# Without this, a fresh named volume mounted at /data inherits root:root — Docker
+# seeds a new volume from the image path, and an absent path seeds nothing — so
+# the non-root process cannot create the database and the container dies with
+# "unable to open database file: permission denied". Verified by reproducing it
+# both ways before this line existed.
+#
+# A BIND mount still takes its ownership from the host directory, which is why
+# DEPLOY.md has the operator create and chown ./data before the first start.
+COPY --from=build --chown=1000:1000 /out/data /data
+
+# Matches `user:` in compose.yaml and the /data ownership above, so the image is
+# self-consistent even when run without compose. The base image's own nonroot
+# user is 65532; this deliberately overrides it to the 1000 convention shared
+# across these deployments.
+USER 1000:1000
 EXPOSE 8080
 ENTRYPOINT ["/usr/local/bin/mimostats"]
