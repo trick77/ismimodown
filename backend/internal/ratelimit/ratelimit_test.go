@@ -154,3 +154,49 @@ func TestClientIPFallsBackToRemoteAddr(t *testing.T) {
 		t.Errorf("ClientIP = %q, want 192.0.2.5", got)
 	}
 }
+
+// A per-address bucket bounds nobody over IPv6: the smallest allocation anyone
+// gets is a /64, so rotating the low 64 bits is free and mints an unlimited
+// supply of identities — for the request limiter and for the SSE stream cap,
+// which keys on the same function.
+func TestClientIPCollapsesIPv6ToItsPrefix(t *testing.T) {
+	cases := []struct {
+		name, remote, xff, want string
+	}{
+		{"ipv4 is untouched", "203.0.113.9:443", "", "203.0.113.9"},
+		{"ipv4 via xff is untouched", "10.0.0.1:443", "1.2.3.4, 203.0.113.9", "203.0.113.9"},
+		{"ipv6 is masked to /64", "[2001:db8:1:2:3:4:5:6]:443", "", "2001:db8:1:2::/64"},
+		{"ipv6 via xff is masked to /64", "10.0.0.1:443", "2001:db8:1:2:aaaa:bbbb:cccc:dddd", "2001:db8:1:2::/64"},
+		{"an unparseable value is kept as the key", "not-an-address", "", "not-an-address"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/api/summary", nil)
+			req.RemoteAddr = tc.remote
+			if tc.xff != "" {
+				req.Header.Set("X-Forwarded-For", tc.xff)
+			}
+			if got := ClientIP(req); got != tc.want {
+				t.Errorf("ClientIP = %q, want %q", got, tc.want)
+			}
+		})
+	}
+
+	// The point of the mask: two addresses in one allocation must share a bucket.
+	a := httptest.NewRequest(http.MethodGet, "/", nil)
+	a.RemoteAddr = "[2001:db8:1:2::1]:443"
+	b := httptest.NewRequest(http.MethodGet, "/", nil)
+	b.RemoteAddr = "[2001:db8:1:2:ffff:ffff:ffff:ffff]:443"
+	if ClientIP(a) != ClientIP(b) {
+		t.Error("two addresses in the same /64 must land in one bucket, or the limit is free to evade")
+	}
+
+	// ...and a different /64 must not, or one caller's burst would throttle
+	// unrelated visitors.
+	c := httptest.NewRequest(http.MethodGet, "/", nil)
+	c.RemoteAddr = "[2001:db8:1:3::1]:443"
+	if ClientIP(a) == ClientIP(c) {
+		t.Error("different /64s must be different buckets")
+	}
+}

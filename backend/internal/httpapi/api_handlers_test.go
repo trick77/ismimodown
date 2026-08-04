@@ -504,3 +504,48 @@ func TestEmptyDatabaseStillServesEveryEndpoint(t *testing.T) {
 		})
 	}
 }
+
+// The base URL is the one configured value echoed to the public. config.Load
+// refuses a credential in it at boot; this is the second gate, so a Deps built
+// by any other caller still cannot turn that field into an exfiltration path.
+func TestMethodologyStripsCredentialsFromTheEndpoint(t *testing.T) {
+	db := openTestDB(t)
+	h := NewServer(Deps{
+		Version: "test", DB: db, Samples: samples.New(db),
+		Models:  []string{"mimo-v2.5"},
+		BaseURL: "https://probe:tp-livekey123@token-plan-sgp.example/v1?api_key=tp-livekey456",
+		Now:     func() time.Time { return testNow },
+	})
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/methodology", nil))
+
+	body := rec.Body.String()
+	for _, secret := range []string{"tp-livekey123", "tp-livekey456", "probe:"} {
+		if strings.Contains(body, secret) {
+			t.Errorf("/api/methodology leaked %q:\n%s", secret, body)
+		}
+	}
+	// The host must survive: the endpoint exists to disclose what was probed.
+	if !strings.Contains(body, "token-plan-sgp.example/v1") {
+		t.Errorf("the endpoint host must still be published:\n%s", body)
+	}
+}
+
+func TestPublicBaseURL(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"https://token-plan-sgp.example/v1", "https://token-plan-sgp.example/v1"},
+		{"https://user:pass@host.example/v1", "https://host.example/v1"},
+		{"https://host.example/v1?api_key=tp-secret", "https://host.example/v1"},
+		{"https://host.example/v1#tp-secret", "https://host.example/v1"},
+		// Unparseable input is returned as-is: it cannot hold a credential in a
+		// form this could strip, and blanking it would hide a misconfiguration
+		// on the endpoint whose whole job is disclosure.
+		{"://not a url", "://not a url"},
+	}
+	for _, tc := range cases {
+		if got := publicBaseURL(tc.in); got != tc.want {
+			t.Errorf("publicBaseURL(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}

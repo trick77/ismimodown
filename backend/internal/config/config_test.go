@@ -131,6 +131,12 @@ func TestLoadRejectsBadValues(t *testing.T) {
 		{"empty system prompt", "BACKEND_PROBE_SYSTEM_PROMPT", " ", "BACKEND_PROBE_SYSTEM_PROMPT"},
 		{"ping host with port", "BACKEND_PING_MIMO_HOST", "example.com:443", "BACKEND_PING_MIMO_HOST"},
 		{"ping host with scheme", "BACKEND_PING_REF_SGP_HOST", "https://example.com", "BACKEND_PING_REF_SGP_HOST"},
+		// The base URL is PUBLISHED verbatim as the "endpoint" field of
+		// /api/methodology, so a credential embedded in it would be served to
+		// every anonymous visitor. Both of these otherwise pass every check.
+		{"base url with userinfo", "BACKEND_MIMO_BASE_URL", "https://user:tp-livekey@example.com/v1", "BACKEND_MIMO_BASE_URL"},
+		{"base url with a password-only userinfo", "BACKEND_MIMO_BASE_URL", "https://:tp-livekey@example.com/v1", "BACKEND_MIMO_BASE_URL"},
+		{"base url with query string", "BACKEND_MIMO_BASE_URL", "https://example.com/v1?api_key=tp-livekey", "BACKEND_MIMO_BASE_URL"},
 	}
 
 	for _, tc := range cases {

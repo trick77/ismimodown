@@ -48,6 +48,20 @@ docker compose logs -f mimostats        # "cycle complete" every ~5 minutes
 curl -s https://mimostats.trick77.com/healthz
 ```
 
+Response headers, after a Traefik reload picks up the new labels:
+
+```sh
+curl -sSI https://mimostats.trick77.com/ | \
+  grep -Ei 'content-security-policy|x-content-type|x-frame|referrer|strict-transport'
+```
+
+CSP, `nosniff`, `X-Frame-Options` and `Referrer-Policy` come from the binary and
+are present with or without Traefik. `Strict-Transport-Security` comes from the
+`mimostats-hsts` middleware in `compose.yaml` and is the one that disappears if
+those labels are dropped. Each header must appear exactly ONCE: a duplicate
+means Traefik is setting its own copy too, and two conflicting CSPs are enforced
+as their intersection, which breaks the page rather than hardening it.
+
 The first cycle runs immediately at startup rather than after a full interval,
 so there is data within seconds of a deploy. Percentiles stay suppressed until
 20 successful samples exist — roughly 100 minutes — and the dashboard says

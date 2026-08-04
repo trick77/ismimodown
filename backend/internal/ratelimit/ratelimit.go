@@ -119,17 +119,46 @@ func (l *Limiter) Middleware(next http.Handler) http.Handler {
 // spoofed, so keying the bucket on it would let one scraper mint unlimited
 // identities and defeat the limit entirely. The last entry is the one the
 // nearest trusted proxy appended.
+// An IPv6 caller is keyed by its /64 rather than its full address. A single
+// residential or hosting allocation is a /64 at minimum and usually far larger,
+// so a per-address bucket bounds nobody over v6: rotating the low 64 bits is
+// free and mints a fresh identity per request. /64 is the smallest unit that
+// is not free to rotate. It is also the smallest unit routinely assigned to
+// one subscriber, so it does not merge unrelated callers the way a /48 would.
 func ClientIP(r *http.Request) string {
 	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
 		parts := splitAndTrim(xff)
 		if len(parts) > 0 {
-			return parts[len(parts)-1]
+			return normaliseIP(parts[len(parts)-1])
 		}
 	}
 	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
-		return host
+		return normaliseIP(host)
 	}
-	return r.RemoteAddr
+	return normaliseIP(r.RemoteAddr)
+}
+
+// normaliseIP collapses an IPv6 address to its /64 prefix and leaves everything
+// else alone.
+//
+// IPv4 is returned as-is: addresses there are scarce enough that one is a real
+// identity, and masking would merge a whole /24 of unrelated callers into one
+// bucket — punishing a shared office network for one bad neighbour.
+//
+// An unparseable value is returned unchanged. It cannot be a spoofed prefix
+// (nothing parses it as an address downstream either) and keying on the literal
+// string still bounds whoever keeps sending it.
+func normaliseIP(raw string) string {
+	ip := net.ParseIP(raw)
+	if ip == nil {
+		return raw
+	}
+	if v4 := ip.To4(); v4 != nil {
+		return v4.String()
+	}
+	// The /64 prefix, rendered with the host bits zeroed so the key is stable
+	// regardless of which address in the block arrived.
+	return ip.Mask(net.CIDRMask(64, 128)).String() + "/64"
 }
 
 func splitAndTrim(s string) []string {

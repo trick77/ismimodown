@@ -21,8 +21,12 @@ import (
 const cacheTTL = 30 * time.Second
 
 // Broker is the SSE fan-out seam. *sse.Broker satisfies it.
+//
+// Subscribe takes the caller's identity (the client IP) because the stream is
+// capped per caller as well as globally: without the key, one scraper takes
+// every slot and the 503 lands on real visitors instead.
 type Broker interface {
-	Subscribe() (<-chan []byte, func(), bool)
+	Subscribe(key string) (<-chan []byte, func(), bool)
 }
 
 // Deps are the dependencies needed to build the server.
@@ -107,7 +111,12 @@ func NewServer(deps Deps) *Server {
 	s.routes()
 	// recovery outermost: a panic inside logging must still become a 500
 	// rather than killing the process.
-	return &Server{Handler: recovery(logging(s.mux)), cache: s.cache}
+	//
+	// securityHeaders inside logging but outside the mux, so the headers are on
+	// EVERY response — the SPA, the JSON API, a 404, a 429 from the limiter and
+	// the 500 that recovery writes alike. Placed outermost-but-one it would
+	// miss nothing; placed inside the mux it would miss the limiter's rejection.
+	return &Server{Handler: recovery(logging(securityHeaders(s.mux))), cache: s.cache}
 }
 
 // OnCycle drops the cached responses so a new measurement is visible

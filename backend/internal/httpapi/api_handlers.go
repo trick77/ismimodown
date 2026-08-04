@@ -3,6 +3,7 @@ package httpapi
 import (
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -246,8 +247,13 @@ func (s *server) handleMethodology(w http.ResponseWriter, r *http.Request) {
 			// figure here — but it is prose, not a labelled identifier. There is
 			// one probe host and no second one planned, so a machine-readable id
 			// bought nothing and named the site.
-			"vantage":  "Single egress. All figures are from one probe host, over one network path.",
-			"endpoint": s.deps.BaseURL,
+			"vantage": "Single egress. All figures are from one probe host, over one network path.",
+			// Sanitised, never s.deps.BaseURL raw: this is the one place a
+			// configured value is echoed to the public, and a base URL is
+			// exactly the kind of string an operator pastes a credential into.
+			// config.Load already refuses such a value at boot; this is the
+			// second gate, in the same spirit as the metric allow-lists.
+			"endpoint": publicBaseURL(s.deps.BaseURL),
 			"cadence":  "One aligned cycle every 5 minutes, jittered symmetrically by up to 30s.",
 			"layers": map[string]any{
 				"network": "A bare TCP handshake to port 443 (SYN -> SYN-ACK). No TLS, no HTTP, no auth, no tokens. TCP rather than ICMP because ICMP is dropped or deprioritised as routine policy, so a timeout would carry no information.",
@@ -279,6 +285,30 @@ func (s *server) handleMethodology(w http.ResponseWriter, r *http.Request) {
 			"error_detail":      "Provider error bodies are recorded for operators and never served publicly. The error class is served, and it is the part that names the failure.",
 		}, nil
 	})
+}
+
+// publicBaseURL renders the configured endpoint for publication, without
+// userinfo and without a query string.
+//
+// Both are places a credential lands when someone pastes a full URL, and this
+// value is served to anonymous callers on /api/methodology. config.Load rejects
+// either at boot, so in a correctly configured deployment this function changes
+// nothing — it exists so that a Deps built by some other caller (a test, a
+// future embedding) cannot turn the one echoed config value into an exfiltration
+// path.
+//
+// An unparseable URL is returned as-is: it cannot contain a credential in a form
+// this could safely strip, and blanking the field would hide a misconfiguration
+// on the endpoint whose job is disclosure.
+func publicBaseURL(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return raw
+	}
+	u.User = nil
+	u.RawQuery = ""
+	u.Fragment = ""
+	return u.String()
 }
 
 // window resolves and validates the window parameter.

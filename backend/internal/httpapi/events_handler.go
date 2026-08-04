@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"net/http"
 	"time"
+
+	"github.com/trick77/mimostats/internal/ratelimit"
 )
 
 // sseHeartbeat keeps idle connections alive.
@@ -33,11 +35,17 @@ func (s *server) handleEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ch, cancel, ok := s.deps.Broker.Subscribe()
+	// Keyed by caller identity, exactly as the request limiter is — an IPv4
+	// address, or an IPv6 /64, since a per-address key bounds nobody over v6.
+	// So one caller cannot take every stream slot and hand the 503 to everyone
+	// else. This route sits outside that limiter — a request bucket says
+	// nothing about a connection held for hours — so the cap in the broker is
+	// the only bound there is.
+	ch, cancel, ok := s.deps.Broker.Subscribe(ratelimit.ClientIP(r))
 	if !ok {
-		// The cap is reached. 503 rather than holding a connection that will
-		// never be fed — a silent, permanently-idle stream is worse than a
-		// refusal the client can retry.
+		// A cap is reached, global or per-caller. 503 rather than holding a
+		// connection that will never be fed — a silent, permanently-idle stream
+		// is worse than a refusal the client can retry.
 		w.Header().Set("Retry-After", "30")
 		writeJSONError(w, http.StatusServiceUnavailable, "too many subscribers")
 		return

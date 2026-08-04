@@ -8,6 +8,10 @@ Continuous latency monitor for Xiaomi MiMo. Go backend + React dashboard, public
 Key lives in `.env` only. `.gitignore` covers `.env` and `.env.*`. Never put a real key in
 `.env.example`, a test fixture, a commit message or a log line.
 
+`BACKEND_MIMO_BASE_URL` is published verbatim on `/api/methodology`. No userinfo, no query
+string — `config.Load` refuses both. Any NEW config value echoed by a public endpoint gets
+the same treatment.
+
 ## Git
 
 Feature branch per phase, never commit to master. Conventional commits.

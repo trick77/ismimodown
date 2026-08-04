@@ -3,6 +3,7 @@ package httpapi
 import (
 	"bufio"
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -87,8 +88,10 @@ func TestEventsRefusesPastTheSubscriberCap(t *testing.T) {
 			c()
 		}
 	}()
+	// A distinct key per slot, so this fills the global cap rather than
+	// tripping the per-client one after four.
 	for i := 0; i < sse.MaxSubscribers; i++ {
-		_, cancel, ok := broker.Subscribe()
+		_, cancel, ok := broker.Subscribe(fmt.Sprintf("10.0.0.%d", i))
 		if !ok {
 			t.Fatalf("failed to fill slot %d", i)
 		}
@@ -226,4 +229,34 @@ func TestEventsWorksWithoutAShutdownChannel(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("status = %d, want 200", resp.StatusCode)
 	}
+}
+
+// The per-client stream cap is only a bound if the handler actually tells the
+// broker WHO is asking. Keyed on the same ClientIP the request limiter uses, so
+// the two agree on identity behind Traefik.
+func TestEventsSubscribesWithTheClientIP(t *testing.T) {
+	db := openTestDB(t)
+	fake := &keyRecordingBroker{}
+	h := NewServer(Deps{DB: db, Samples: samples.New(db), Broker: fake})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/events", nil)
+	req.RemoteAddr = "203.0.113.9:51234"
+	// Traefik appends the observed peer last; the first entry is caller-supplied
+	// and must not become the identity, or one scraper mints unlimited ones.
+	req.Header.Set("X-Forwarded-For", "1.2.3.4, 198.51.100.7")
+	ctx, cancel := contextWithImmediateCancel()
+	h.ServeHTTP(httptest.NewRecorder(), req.WithContext(ctx))
+	cancel()
+
+	if fake.key != "198.51.100.7" {
+		t.Errorf("subscribed with key %q, want the last X-Forwarded-For entry", fake.key)
+	}
+}
+
+type keyRecordingBroker struct{ key string }
+
+func (b *keyRecordingBroker) Subscribe(key string) (<-chan []byte, func(), bool) {
+	b.key = key
+	ch := make(chan []byte)
+	return ch, func() {}, true
 }

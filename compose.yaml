@@ -86,6 +86,20 @@ services:
       traefik.http.routers.mimostats.entrypoints: websecure
       traefik.http.routers.mimostats.tls: "true"
       traefik.http.services.mimostats.loadbalancer.server.port: "8080"
+      # HSTS is set HERE and not in the Go handler, because only the TLS
+      # terminator knows the site is reachable over TLS at all: the container
+      # serves plain HTTP, and a Strict-Transport-Security header emitted on an
+      # http:// origin is ignored at best and wrong on a dev server. Every other
+      # security header (CSP, nosniff, frame-ancestors, Referrer-Policy) comes
+      # from the binary instead, so it travels with the app — see
+      # httpapi.securityHeaders.
+      #
+      # No `preload`: that submits the parent domain to the browser preload
+      # list, which is effectively irreversible and is not this service's call
+      # to make for trick77.com.
+      traefik.http.middlewares.mimostats-hsts.headers.stsSeconds: "31536000"
+      traefik.http.middlewares.mimostats-hsts.headers.stsIncludeSubdomains: "true"
+      traefik.http.routers.mimostats.middlewares: mimostats-hsts@docker
 
 networks:
   traefik:
