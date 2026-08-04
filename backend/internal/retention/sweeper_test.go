@@ -31,7 +31,6 @@ func saveCycleAt(t *testing.T, s *samples.Store, at time.Time) {
 		Net: []probe.NetResult{
 			{Target: probe.TargetMimoSGP, OK: true},
 			{Target: probe.TargetRefSGP, OK: true},
-			{Target: probe.TargetRefEU, OK: true},
 		},
 	}); err != nil {
 		t.Fatalf("Save: %v", err)

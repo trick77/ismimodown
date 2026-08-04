@@ -122,7 +122,6 @@ func seedWideProbe(t *testing.T, db *sql.DB, at time.Time) {
 		Net: []probe.NetResult{
 			{Target: probe.TargetMimoSGP, OK: true, ConnectMs: 170},
 			{Target: probe.TargetRefSGP, OK: true, ConnectMs: 265},
-			{Target: probe.TargetRefEU, OK: true, ConnectMs: 16},
 		},
 		Infer: []probe.InferResult{{
 			ModelID: "mimo-v2.5", Probe: probe.ProbeWide, TTFTMs: 1200, OK: true,
@@ -149,15 +148,15 @@ func TestRunCycleProbesEveryTargetAndModel(t *testing.T) {
 
 	s.RunCycle(context.Background())
 
-	// All three network targets, every cycle — the subtraction needs them.
-	if len(pinger.calls) != 3 {
-		t.Errorf("pinged %d targets, want 3: %v", len(pinger.calls), pinger.calls)
+	// Both network targets, every cycle — the subtraction needs them.
+	if len(pinger.calls) != 2 {
+		t.Errorf("pinged %d targets, want 2: %v", len(pinger.calls), pinger.calls)
 	}
 	var nNet, nInfer int
 	db.QueryRow(`SELECT count(*) FROM net_probes`).Scan(&nNet)
 	db.QueryRow(`SELECT count(*) FROM infer_probes`).Scan(&nInfer)
-	if nNet != 3 {
-		t.Errorf("net_probes = %d, want 3", nNet)
+	if nNet != 2 {
+		t.Errorf("net_probes = %d, want 2", nNet)
 	}
 	// The first cycle carries wide because no wide sample exists yet — a fresh
 	// deploy should not show an empty prefill panel for an hour. 2 models x

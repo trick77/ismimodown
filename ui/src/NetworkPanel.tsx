@@ -1,5 +1,5 @@
 import type { NetSeries } from "./api/types";
-import { TARGET_MIMO, TARGET_REF_EU, TARGET_REF_SGP } from "./api/types";
+import { TARGET_MIMO, TARGET_REF_SGP } from "./api/types";
 import { Card } from "./ui";
 import { EChart } from "./charts/EChart";
 import { buildLineOption, WIRE_COLOR } from "./charts/options";
@@ -7,7 +7,6 @@ import { buildLineOption, WIRE_COLOR } from "./charts/options";
 const LABELS: Record<string, string> = {
   [TARGET_MIMO]: "MiMo edge (Singapore)",
   [TARGET_REF_SGP]: "Reference (Singapore)",
-  [TARGET_REF_EU]: "Reference (Europe)",
 };
 
 // Reference lines are faint; MiMo's own edge is the one being read. All three
@@ -16,14 +15,13 @@ const LABELS: Record<string, string> = {
 const COLORS: Record<string, string> = {
   [TARGET_MIMO]: "#faf9f5",
   [TARGET_REF_SGP]: WIRE_COLOR,
-  [TARGET_REF_EU]: "#4a4844",
 };
 
 export function NetworkPanel({ series }: { series: NetSeries | null }) {
   const targets = series?.targets ?? {};
   const relabelled: Record<string, (typeof targets)[string]> = {};
   const order: string[] = [];
-  for (const key of [TARGET_MIMO, TARGET_REF_SGP, TARGET_REF_EU]) {
+  for (const key of [TARGET_MIMO, TARGET_REF_SGP]) {
     const points = targets[key];
     if (points && points.length) {
       relabelled[LABELS[key]!] = points;

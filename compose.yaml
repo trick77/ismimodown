@@ -35,11 +35,10 @@ services:
       BACKEND_MIMO_API_KEY: "${BACKEND_MIMO_API_KEY:?BACKEND_MIMO_API_KEY is required}"
       # 3 months of raw samples, swept nightly.
       BACKEND_RETENTION: "${BACKEND_RETENTION:-2160h}"
-      # Ping targets. Overridable because the right reference hosts depend on
+      # Ping targets. Overridable because the right reference host depends on
       # where this is deployed — see the methodology page for what each answers.
       BACKEND_PING_MIMO_HOST: "${BACKEND_PING_MIMO_HOST:-token-plan-sgp.xiaomimimo.com}"
       BACKEND_PING_REF_SGP_HOST: "${BACKEND_PING_REF_SGP_HOST:-sgp1.digitaloceanspaces.com}"
-      BACKEND_PING_REF_EU_HOST: "${BACKEND_PING_REF_EU_HOST:-cloudflare.com}"
 
     healthcheck:
       # The binary probes itself: the runtime is distroless and carries no curl

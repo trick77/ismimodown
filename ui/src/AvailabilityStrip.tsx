@@ -7,8 +7,9 @@ import { formatInt, formatPct } from "./format";
 const FAULT_LABELS: Record<string, string> = {
   [FAULT_OK]: "fine",
   [FAULT_EDGE]: "MiMo's edge unreachable",
+  // Historical: produced only while a second reference host existed.
   [FAULT_ROUTE]: "route to Singapore degraded",
-  [FAULT_UPLINK]: "our own uplink down",
+  [FAULT_UPLINK]: "nothing in Singapore reachable",
 };
 
 // The attribution table, rendered. "MiMo is down" and "the path to MiMo is bad"
@@ -21,7 +22,7 @@ export function AvailabilityStrip({ summary }: { summary: Summary | null }) {
   return (
     <Card
       title="What broke, and whose fault it was"
-      subtitle="Every cycle is attributed from three independent TCP probes, with no heuristics: if a second Singapore host answers while MiMo does not, the route is fine and the fault is MiMo's."
+      subtitle="Every cycle is attributed from two independent TCP probes, with no heuristics: if an unrelated Singapore host answers while MiMo does not, the path is fine and the fault is MiMo's."
       right={
         summary && summary.skipped_runs > 0 ? (
           <span
@@ -75,9 +76,11 @@ export function AvailabilityStrip({ summary }: { summary: Summary | null }) {
           </ul>
           {faults[FAULT_UPLINK] ? (
             <p className="mt-4 text-label text-muted">
-              Cycles where our own uplink was down are excluded from every
-              model's availability — publishing them as provider outages would
-              be reporting our fault as theirs.
+              Cycles where neither MiMo nor the reference host answered are
+              excluded from every model's availability. From one vantage point
+              those are indistinguishable from our own connection being down,
+              and publishing them as provider outages would risk reporting our
+              fault as theirs.
             </p>
           ) : null}
         </>

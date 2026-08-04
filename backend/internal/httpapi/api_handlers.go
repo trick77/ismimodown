@@ -119,7 +119,7 @@ func (s *server) handleSeries(w http.ResponseWriter, r *http.Request) {
 		key := "series|network|" + window.Key
 		s.writeJSON(w, r, key, func() (any, error) {
 			out := map[string][]samples.Point{}
-			for _, target := range []string{probe.TargetMimoSGP, probe.TargetRefSGP, probe.TargetRefEU} {
+			for _, target := range []string{probe.TargetMimoSGP, probe.TargetRefSGP} {
 				pts, err := s.deps.Samples.NetSeries(r.Context(), target, window, s.now())
 				if err != nil {
 					return nil, err
@@ -264,10 +264,7 @@ func (s *server) handleMethodology(w http.ResponseWriter, r *http.Request) {
 					"why":   "Answers whether ANY path from this egress to Singapore is healthy, so a route problem is not blamed on MiMo.",
 					"limit": "Not the same carrier as the probe host, so an operator-specific backbone fault on MiMo's path may not show here. Green here with MiMo red narrows the fault to MiMo's specific path OR its edge; separating those would need a traceroute.",
 				},
-				"eu": map[string]any{
-					"host": s.deps.RefEUHost,
-					"why":  "Answers whether our own uplink is up at all, so a local outage is never published as a provider outage.",
-				},
+				"only_one": "There is a single reference host, so when neither it nor MiMo answers, this measurement cannot say whether the cause was our own connection or the route to Singapore. Those cycles are attributed 'uplink' and excluded from availability rather than guessed at: declining to attribute is the only reading the data supports, and the alternative would publish our own outage as MiMo's.",
 			},
 			"client_identity": "Requests present as a real coding agent rather than a neutral client, because the endpoint is a coding-agent product and neutral traffic would not measure what production traffic experiences.",
 			"reasoning":       "Thinking is disabled on every request, through both of the switches the API offers for it. The check that matters is published on every sample: reasoning_tokens must be 0, and a non-zero value invalidates every latency figure for that window.",
@@ -275,7 +272,7 @@ func (s *server) handleMethodology(w http.ResponseWriter, r *http.Request) {
 			"exclusions": map[string]any{
 				"percentiles": "Failed runs are excluded from every latency percentile and counted in availability instead. Otherwise a 240 000 ms timeout lands in the P50 and an outage reads as catastrophic latency.",
 				"suppression": "Fewer than " + strconv.Itoa(samples.MinSamplesForPercentile) + " successful samples in a window returns insufficient_data rather than a number.",
-				"uplink_down": "Cycles where our own uplink was down are attributed 'uplink' and must be excluded from any provider availability figure.",
+				"uplink_down": "Cycles where neither MiMo nor the reference host answered are attributed 'uplink' and must be excluded from any provider availability figure. The cause may be our uplink or the route; with one reference host the two are indistinguishable, and neither is MiMo's to answer for.",
 			},
 			"throughput_caveat": "itl_p50_ms is the median gap between STREAM CHUNKS, not between tokens. The endpoint batches tokens into chunks and delivers them in bursts, so on a healthy run the median can collapse toward zero (measured 0.0075 ms against 70 tok/s). output_tps over the decode window is the robust figure; both are published.",
 			"retention":         "Raw samples are kept for 3 months and swept nightly. No rollups, so no window longer than that is offered.",

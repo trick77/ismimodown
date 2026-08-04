@@ -338,7 +338,6 @@ func TestSummarizeReportsFaultsAndSkips(t *testing.T) {
 		Net: []probe.NetResult{
 			{Target: probe.TargetMimoSGP, OK: false},
 			{Target: probe.TargetRefSGP, OK: true},
-			{Target: probe.TargetRefEU, OK: true},
 		},
 	}); err != nil {
 		t.Fatalf("Save: %v", err)
@@ -366,8 +365,8 @@ func TestSummarizeReportsFaultsAndSkips(t *testing.T) {
 	}
 	// The network layer is summarised per target, so the attribution is
 	// readable rather than inferred.
-	if len(sum.Net) != 3 {
-		t.Fatalf("net summaries = %d, want 3", len(sum.Net))
+	if len(sum.Net) != 2 {
+		t.Fatalf("net summaries = %d, want 2", len(sum.Net))
 	}
 }
 

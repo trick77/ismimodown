@@ -28,7 +28,6 @@ func okNet() []probe.NetResult {
 	return []probe.NetResult{
 		{Target: probe.TargetMimoSGP, DNSMs: 3, ConnectMs: 166, OK: true},
 		{Target: probe.TargetRefSGP, DNSMs: 4, ConnectMs: 265, OK: true},
-		{Target: probe.TargetRefEU, DNSMs: 2, ConnectMs: 16, OK: true},
 	}
 }
 
@@ -66,8 +65,8 @@ func TestSaveWritesTheWholeCycle(t *testing.T) {
 	db.QueryRow(`SELECT count(*) FROM infer_probes WHERE cycle_id = ?`, id).Scan(&nInfer)
 	db.QueryRow(`SELECT count(*) FROM cycle_fault WHERE cycle_id = ?`, id).Scan(&nFault)
 
-	if nNet != 3 {
-		t.Errorf("net_probes = %d, want 3", nNet)
+	if nNet != 2 {
+		t.Errorf("net_probes = %d, want 2", nNet)
 	}
 	if nInfer != 1 {
 		t.Errorf("infer_probes = %d, want 1", nInfer)
@@ -234,14 +233,14 @@ func TestTimeoutDoesNotPoisonThePercentile(t *testing.T) {
 // cannot drift apart. One case per row of the table.
 func TestCycleFaultIsStoredFromTheNetworkReadings(t *testing.T) {
 	cases := []struct {
-		name                string
-		mimo, refSGP, refEU bool
-		want                string
+		name         string
+		mimo, refSGP bool
+		want         string
 	}{
-		{"all up", true, true, true, probe.FaultOK},
-		{"mimo edge down", false, true, true, probe.FaultEdge},
-		{"route degraded", false, false, true, probe.FaultRoute},
-		{"our uplink down", false, false, false, probe.FaultUplink},
+		{"all up", true, true, probe.FaultOK},
+		{"mimo edge down", false, true, probe.FaultEdge},
+		// Unattributable with one reference: excluded rather than blamed on MiMo.
+		{"nothing reachable", false, false, probe.FaultUplink},
 	}
 
 	for _, tc := range cases {
@@ -254,7 +253,6 @@ func TestCycleFaultIsStoredFromTheNetworkReadings(t *testing.T) {
 				Net: []probe.NetResult{
 					{Target: probe.TargetMimoSGP, OK: tc.mimo},
 					{Target: probe.TargetRefSGP, OK: tc.refSGP},
-					{Target: probe.TargetRefEU, OK: tc.refEU},
 				},
 			})
 			if err != nil {
