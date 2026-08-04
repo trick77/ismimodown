@@ -39,10 +39,12 @@ const WideInterval = time.Hour
 // misses, the next one is a full interval later, and "hourly" quietly becomes
 // every 65 minutes — drifting further every time it happens.
 //
-// Half a cycle is the largest value that cannot double-fire: the next cycle
-// after a wide run is one full interval away, which always exceeds
-// WideInterval-WideSlack when the slack is under interval/2. Widening this past
-// that reintroduces exactly the bug it was added to fix.
+// The slack can never double-fire as long as it stays below
+// WideInterval-CycleInterval: the cycle after a wide run is only one
+// CycleInterval past it, which is nowhere near the WideInterval-WideSlack
+// threshold. Half a cycle sits far inside that bound and is deliberately
+// conservative — it is sized to cover the jitter around the hour mark, not to
+// use up the available room.
 const WideSlack = CycleInterval / 2
 
 // Prober is the inference client seam. *probe.Client satisfies it.
@@ -88,6 +90,19 @@ type Scheduler struct {
 	// rotation, where starting over just repeats a question, and wrong for a
 	// billed hourly probe, where it re-fires on every restart. See wideIsDue.
 	cycleCount atomic.Int64
+
+	// lastWideNano is an in-memory FLOOR on the wide cadence: the cycle time of
+	// the most recent wide probe this process actually dispatched, whether or
+	// not it was ever persisted.
+	//
+	// The database stays the source of truth across restarts — that is the whole
+	// point of wideIsDue — but it only knows about probes that were written. A
+	// daemon whose writes fail (full disk, read-only volume, a cycle abandoned
+	// mid-shutdown) keeps reading a stale timestamp, and once that is an hour
+	// old EVERY five-minute cycle fires the ~3800-token probe for every model.
+	// wideIsDue already refuses to spend on a database it cannot read; this
+	// closes the same hole on the write side.
+	lastWideNano atomic.Int64
 
 	// inFlight is the overrun guard, keyed by model+probe.
 	//
@@ -218,10 +233,29 @@ func (s *Scheduler) wideIsDue(ctx context.Context, now time.Time) bool {
 		}
 		return false
 	}
+	// A dispatch this process made but could not store still counts against the
+	// hour. See lastWideNano.
+	if nano := s.lastWideNano.Load(); nano != 0 {
+		if t := time.Unix(0, nano).UTC(); !ok || t.After(last) {
+			last, ok = t, true
+		}
+	}
 	if !ok {
 		return true
 	}
 	return now.Sub(last) >= WideInterval-WideSlack
+}
+
+// noteWideDispatch records that a wide probe was actually sent at `at`,
+// monotonically so concurrent cycles cannot walk the floor backwards.
+func (s *Scheduler) noteWideDispatch(at time.Time) {
+	v := at.UnixNano()
+	for {
+		cur := s.lastWideNano.Load()
+		if v <= cur || s.lastWideNano.CompareAndSwap(cur, v) {
+			return
+		}
+	}
 }
 
 // RunCycle executes exactly one cycle: three pings, then one inference run per
@@ -303,6 +337,14 @@ func (s *Scheduler) runProbe(
 		return probe.InferResult{}, false
 	}
 	defer s.release(key)
+
+	// Recorded on DISPATCH, not on the decision and not on the write: an
+	// overrun-skipped wide never left the process and must still be retried
+	// next cycle, while one that was sent has been billed whether or not the
+	// cycle it belonged to survived to be persisted.
+	if kind == probe.ProbeWide {
+		s.noteWideDispatch(started)
+	}
 
 	req := probe.Request{ModelID: model, Probe: kind}
 	if kind == probe.ProbeWide {

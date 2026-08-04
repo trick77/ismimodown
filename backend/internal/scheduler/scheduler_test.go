@@ -255,6 +255,43 @@ func TestWideAcceptsACycleThatLandsJustShortOfTheHour(t *testing.T) {
 	}
 }
 
+// A wide probe that was SENT counts against the hour even if nothing about it
+// reached the database. Reads that keep succeeding while writes fail — a full
+// disk, a read-only volume, a cycle abandoned mid-shutdown — would otherwise
+// leave the cadence reading a stale timestamp and fire the expensive probe
+// every five minutes, indefinitely.
+func TestWideDoesNotRefireWhenTheDispatchWasNeverPersisted(t *testing.T) {
+	db := openTestDB(t)
+	now := time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC)
+	prober := &fakeProber{}
+	s := newSchedulerOn(db, prober, &fakePinger{}, &now)
+
+	s.RunCycle(context.Background())
+	if got := wideRuns(prober); got != 2 {
+		t.Fatalf("wide runs = %d on the first cycle, want 2", got)
+	}
+
+	// Everything the cycle wrote is gone, exactly as if the write had failed.
+	if _, err := db.Exec(`DELETE FROM infer_probes`); err != nil {
+		t.Fatalf("clear infer_probes: %v", err)
+	}
+
+	for i := 0; i < 3; i++ {
+		now = now.Add(CycleInterval)
+		s.RunCycle(context.Background())
+	}
+	if got := wideRuns(prober); got != 2 {
+		t.Errorf("wide runs = %d within the hour, want 2 — an unpersisted dispatch still counts", got)
+	}
+
+	// The hour still arrives on schedule.
+	now = now.Add(WideInterval)
+	s.RunCycle(context.Background())
+	if got := wideRuns(prober); got != 4 {
+		t.Errorf("wide runs = %d an hour later, want 4", got)
+	}
+}
+
 // The two probes must never be aggregated: the gap between their TTFTs IS the
 // prefill signal, so wide has to carry the bigger cap and no question id.
 func TestWideAndInferRequestsDifferAsTheMeasurementRequires(t *testing.T) {
