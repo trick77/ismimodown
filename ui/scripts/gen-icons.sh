@@ -32,9 +32,13 @@ FAVICON="$SRC/icon-favicon.svg" # the master with a filled frame; ships as-is
 DARK='#1a1a19'                  # app surface and the tile ground (index.css --color-bg)
 TAB='#2e2e2b'                   # the tab icon's ground — lighter than DARK, see icon-favicon.svg
 
-for tool in rsvg-convert magick; do
+# bc is in the list because the safe-circle check below compares a float. Without
+# it the command substitution is empty, `(( ))` errors, the `if` reads false and
+# the assertion passes silently — the one failure mode this script exists to
+# prevent.
+for tool in rsvg-convert magick bc; do
 	if ! command -v "$tool" >/dev/null 2>&1; then
-		echo "gen-icons: $tool not found — brew install librsvg imagemagick" >&2
+		echo "gen-icons: $tool not found — brew install librsvg imagemagick bc" >&2
 		exit 1
 	fi
 done

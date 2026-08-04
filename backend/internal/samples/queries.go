@@ -510,7 +510,7 @@ func (s *Store) RecentSamples(ctx context.Context, modelID, probeKind string, li
 
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT c.started_at, i.model_id, i.probe, i.ttft_ms, i.total_ms,
-		       i.itl_p50_ms, i.output_tps, i.ok, i.answer_ok, i.question_id, i.error_class
+		       i.itl_p50_ms, i.output_tps, i.ok, i.answer_ok, i.error_class
 		FROM infer_probes i
 		JOIN cycles c ON c.id = i.cycle_id
 		WHERE i.model_id = ? AND i.probe = ?
@@ -528,9 +528,11 @@ func (s *Store) RecentSamples(ctx context.Context, modelID, probeKind string, li
 		var okInt int
 		var answerOK sql.NullInt64
 		var ttft, total, itl, tps sql.NullFloat64
-		var qid, class sql.NullString
+		// question_id is recorded but never selected here: it names what is
+		// being asked, and this row is served publicly.
+		var class sql.NullString
 		if err := rows.Scan(&at, &s.ModelID, &s.Probe, &ttft, &total, &itl, &tps,
-			&okInt, &answerOK, &qid, &class); err != nil {
+			&okInt, &answerOK, &class); err != nil {
 			return nil, err
 		}
 		s.At, _ = time.Parse(time.RFC3339Nano, at)

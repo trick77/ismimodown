@@ -98,7 +98,6 @@ export type ModelsResponse = {
   models: ModelInfo[];
   probes: string[];
   windows: string[];
-  caveat: string;
 };
 
 export const TARGET_MIMO = "mimo_sgp";

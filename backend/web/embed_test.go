@@ -1,6 +1,7 @@
 package web
 
 import (
+	"mime"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -95,6 +96,19 @@ func TestHandlerDoesNotFallBackForAssets(t *testing.T) {
 // developer looks. Go's mime table has no .webmanifest entry, so the
 // registration in embed.go is the only thing standing between the manifest and
 // that default.
+//
+// This one asserts the registration directly, and so runs everywhere. The
+// serving test below needs a real build embedded, and backend/web/dist is
+// gitignored apart from index.html — on a fresh checkout and in CI it skips,
+// which would leave the registration with no cover that gates a merge.
+func TestWebmanifestExtensionIsRegistered(t *testing.T) {
+	if got := mime.TypeByExtension(".webmanifest"); !strings.HasPrefix(got, "application/manifest+json") {
+		t.Errorf("mime.TypeByExtension(\".webmanifest\") = %q, want application/manifest+json", got)
+	}
+}
+
+// The other half: that the registration actually reaches the FileServer, rather
+// than being shadowed by the system mime table it merges into.
 func TestManifestIsServedWithItsOwnType(t *testing.T) {
 	h, err := Handler()
 	if err != nil {

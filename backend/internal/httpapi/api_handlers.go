@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/trick77/mimostats/internal/probe"
@@ -236,7 +237,11 @@ func (s *server) handleMethodology(w http.ResponseWriter, r *http.Request) {
 	// cache hit should not pay to reconstruct it.
 	s.writeJSON(w, r, "methodology", func() (any, error) {
 		return map[string]any{
-			"scope": "Latency of mimo-v2.5 and mimo-v2.5-pro, measured from one host, every five minutes. Each model is its own series.",
+			// The model names come from the configured set rather than a
+			// literal, because BACKEND_MODELS can change them. A hardcoded
+			// pair would let this endpoint — the one the site's credibility
+			// rests on — name models nothing is actually probing.
+			"scope": "Latency of " + strings.Join(s.deps.Models, " and ") + ", measured from one host, every five minutes. Each model is its own series.",
 			// The vantage point is still disclosed — it is a real limit on every
 			// figure here — but it is prose, not a labelled identifier. There is
 			// one probe host and no second one planned, so a machine-readable id

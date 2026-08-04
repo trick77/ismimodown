@@ -75,6 +75,12 @@ function mockFetch(overrides: Record<string, unknown> = {}) {
       if (overrides.eventsStatus) {
         return new Response("", { status: Number(overrides.eventsStatus) });
       }
+      // A 200 whose body is already finished: the stream RESOLVES rather than
+      // throwing, which is what a draining daemon or a proxy answering 200 with
+      // no body looks like from here.
+      if (overrides.eventsCloseImmediately) {
+        return new Response("", { status: 200 });
+      }
       // Never resolves during a test; the component aborts it on unmount.
       return new Promise<Response>(() => {});
     }
@@ -223,6 +229,31 @@ describe("App", () => {
       await vi.advanceTimersByTimeAsync(1000);
       expect(opens()).toBe(2);
       await vi.advanceTimersByTimeAsync(2000);
+      expect(opens()).toBe(3);
+    });
+
+    // A stream that ends the instant it opens must not reset the backoff. It
+    // resolves rather than throws, so treating "resolved" as "worked" pins the
+    // client at one reconnect per second for as long as the tab is open —
+    // invisible on screen, obvious in the server's access log.
+    it("backs off even when the stream closes cleanly on open", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      const fetchMock = mockFetch({ eventsCloseImmediately: true });
+      vi.stubGlobal("fetch", fetchMock);
+      render(<App />);
+
+      const opens = () =>
+        fetchMock.mock.calls.filter((c) => String(c[0]).includes("/api/events"))
+          .length;
+
+      await waitFor(() => expect(opens()).toBe(1));
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(opens()).toBe(2);
+      // The doubling has to survive a resolving stream too: a second 1s wait
+      // must NOT produce a third open.
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(opens()).toBe(2);
+      await vi.advanceTimersByTimeAsync(1000);
       expect(opens()).toBe(3);
     });
 

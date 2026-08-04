@@ -373,6 +373,28 @@ func TestMethodologyPublishesTheUnflatteringParts(t *testing.T) {
 	}
 }
 
+// The scope line names the models, and BACKEND_MODELS can change them. Spelling
+// them out as a literal makes the one endpoint the site's credibility rests on
+// state what the code once intended to probe rather than what it probes.
+func TestMethodologyScopeNamesTheConfiguredModels(t *testing.T) {
+	db := openTestDB(t)
+	h := NewServer(Deps{
+		DB: db, Samples: samples.New(db),
+		Models: []string{"mimo-v9-tiny", "mimo-v9-huge"},
+		Now:    func() time.Time { return testNow },
+	})
+
+	body := get(t, h, "/api/methodology").Body.String()
+	for _, id := range []string{"mimo-v9-tiny", "mimo-v9-huge"} {
+		if !strings.Contains(body, id) {
+			t.Errorf("scope omits the configured model %q: %s", id, body)
+		}
+	}
+	if strings.Contains(body, "mimo-v2.5") {
+		t.Errorf("scope names a model that is not configured: %s", body)
+	}
+}
+
 // Without a rate limit one scraper pins a public, unauthenticated API.
 func TestRateLimitReturns429PastTheBurst(t *testing.T) {
 	db := openTestDB(t)

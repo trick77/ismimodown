@@ -113,6 +113,7 @@ export default function App() {
     void (async () => {
       let backoffMs = 1000;
       while (!controller.signal.aborted) {
+        const openedAt = Date.now();
         try {
           await streamSSE(
             "/api/events",
@@ -121,7 +122,14 @@ export default function App() {
             },
             controller.signal,
           );
-          backoffMs = 1000; // the stream worked; the next drop starts over
+          // Reset only if the stream actually STAYED open. Resolving is not
+          // proof it worked: a draining daemon, or a proxy answering 200 with
+          // an immediately-closed body, resolves in milliseconds — and
+          // resetting on that pins the client at one reconnect per second
+          // forever, with nothing on screen to say so.
+          if (Date.now() - openedAt >= backoffMs) {
+            backoffMs = 1000;
+          }
         } catch {
           // A dropped stream is not an error worth showing — the interval keeps
           // the page current either way.
