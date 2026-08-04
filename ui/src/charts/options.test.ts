@@ -373,7 +373,10 @@ describe("the time axis", () => {
     );
   });
 
-  it("adds the date once a bare time would repeat across the plot", () => {
+  // Date OR time, never both: on 3mo the full "04 Aug, 07:00" stamp overlapped
+  // its neighbours into a smear. Above the threshold the ticks are days apart,
+  // so the date alone identifies them and the tooltip carries the time.
+  it("switches to a bare date once a bare time would repeat across the plot", () => {
     const week = Array.from({ length: 8 }, (_, i) =>
       pt(Date.UTC(2026, 7, 4) / 1000 + i * 86_400, 900),
     );
@@ -383,8 +386,8 @@ describe("the time axis", () => {
       colorOf: () => "#fff",
       unit: "ms",
     });
-    expect(opt.xAxis.axisLabel.formatter(Date.UTC(2026, 7, 4, 16))).toContain(
-      "Aug",
+    expect(opt.xAxis.axisLabel.formatter(Date.UTC(2026, 7, 4, 16))).toBe(
+      "04 Aug",
     );
   });
 });

@@ -4,7 +4,12 @@
 // logic — axis type, gap handling, series colour — and they are testable as
 // plain functions, where the canvas-backed renderer is not reachable from jsdom.
 import type { Point } from "../api/types";
-import { formatDateTime, formatTime, shouldUseLogScale } from "../format";
+import {
+  formatDate,
+  formatDateTime,
+  formatTime,
+  shouldUseLogScale,
+} from "../format";
 import { offPeakBands } from "../offpeak";
 
 // Series colour follows the MODEL, never its rank, so a model keeps its hue
@@ -217,7 +222,11 @@ export function buildLineOption({
   // A bare HH:mm repeats itself once the plot spans more than two days, and a
   // reader cannot tell the Tuesday spike from the Thursday one.
   const spansDays = extent !== null && extent[1] - extent[0] > SPAN_HHMM_MS;
-  const stamp = spansDays ? formatDateTime : formatTime;
+  // Date OR time, never both. ECharts picks its own tick spacing, and the full
+  // "04 Aug, 07:00" stamp is wide enough that on 3mo the labels overlapped into
+  // an unreadable smear. Above the threshold the ticks are days apart, so the
+  // date alone identifies them; the tooltip still carries the exact time.
+  const stamp = spansDays ? formatDate : formatTime;
 
   // Past 48 hours the bands become one thin stripe per day — seven of them on
   // the 7d window, ninety on 3mo — which reads as a hatch pattern rather than as
@@ -278,6 +287,11 @@ export function buildLineOption({
         // machine, which put the off-peak band under a tick reading noon.
         // A Date, not the raw number — see the tooltip header.
         formatter: (value: number) => stamp(new Date(value)),
+        // ECharts adds a tick at each month boundary on top of its regular
+        // spacing, which on 3mo lands one right beside another and prints the
+        // two labels over each other. A dropped label costs nothing here; an
+        // unreadable one costs the whole axis.
+        hideOverlap: true,
       },
       splitLine: { show: false },
     },

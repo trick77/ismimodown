@@ -42,7 +42,10 @@ export function SeriesPanel({
       subtitle={subtitle}
       right={
         <div className="flex items-center gap-2">
-          {offPeak && <OffPeakChip />}
+          {/* Tied to the band actually being drawn, not to the prop. On 7d and
+              wider the band is dropped, and a chip promising a rate the plot
+              does not show is worse than no chip. */}
+          {option.offPeakSpans.length > 0 && <OffPeakChip />}
           {/* A log axis read as a linear one is worse than no chart, so the
               switch is always announced on the plot. */}
           {option.logScale && (
