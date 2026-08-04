@@ -2,15 +2,23 @@ import type { Sample } from "./api/types";
 import { Card } from "./ui";
 import { formatMs, formatTime, formatTps } from "./format";
 
+// How many cycles the table renders. The caller fetches a whole day of samples
+// because PulseStrip needs every one of them, but a 288-row table is a wall of
+// numbers nobody reads — the table's job is "what happened just now", and ten
+// rows answer that. The strip above still covers the day.
+const ROWS = 10;
+
 // Raw cycles, nothing aggregated away. Also the accessible alternative to every
 // chart above: a screen reader gets the numbers, not a canvas.
 export function SamplesTable({ samples }: { samples: Sample[] }) {
+  // Samples arrive newest-first from the API, so the head is the recent end.
+  const rows = samples.slice(0, ROWS);
   return (
     <Card
       title="Raw cycles"
-      subtitle="The most recent runs, unaggregated. Failed runs show their error class."
+      subtitle={`The last ${ROWS} runs, unaggregated. Failed runs show their error class.`}
     >
-      {samples.length > 0 ? (
+      {rows.length > 0 ? (
         <div className="overflow-x-auto">
           <table className="w-full min-w-[560px] text-label">
             <thead>
@@ -24,7 +32,7 @@ export function SamplesTable({ samples }: { samples: Sample[] }) {
               </tr>
             </thead>
             <tbody>
-              {samples.map((s, i) => (
+              {rows.map((s, i) => (
                 <tr
                   key={`${s.at}-${i}`}
                   className="border-t border-border-soft text-muted"
@@ -50,7 +58,13 @@ export function SamplesTable({ samples }: { samples: Sample[] }) {
                   </td>
                   <td className="py-2">
                     {s.ok ? (
-                      <span className="text-online">ok</span>
+                      // A tick reads faster than the word down a column of
+                      // rows, but a bare glyph is not a word to a screen
+                      // reader — so it keeps saying "ok".
+                      <span className="text-online">
+                        <span aria-hidden="true">✓</span>
+                        <span className="sr-only">ok</span>
+                      </span>
                     ) : (
                       <span className="num text-danger">
                         {s.error_class ?? "failed"}

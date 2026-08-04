@@ -93,6 +93,10 @@ export default function App() {
 
       const first = s.models[0]?.model_id;
       if (first) {
+        // A day's worth: 288 cycles at five minutes apart. PulseStrip draws
+        // every one of them — SamplesTable takes only the recent handful off
+        // the front, so this number is the strip's requirement, not the
+        // table's.
         const raw = await getSamples(first, "infer", 288, signal);
         setSamples(raw.samples);
       }
