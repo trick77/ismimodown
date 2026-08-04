@@ -149,6 +149,55 @@ describe("buildDecompositionOption", () => {
   });
 });
 
+describe("muted series", () => {
+  // The prefill panel replots the short probe's TTFT — the same data as the
+  // chart above it — because the gap to the wide probe is the measurement. At
+  // equal weight the panel reads as that chart repeated, which is how it was
+  // actually read. The baseline has to recede for the gap to be the figure.
+  it("thins and fades the marked series, leaving the subject alone", () => {
+    const opt = buildLineOption({
+      series: { "m · 34 tok": [pt(1, 1)], "m · 3800 tok": [pt(1, 2)] },
+      order: ["m · 34 tok", "m · 3800 tok"],
+      colorOf: () => "#3987e5",
+      unit: "ms",
+      dashed: (name) => name.includes("3800"),
+      muted: (name) => !name.includes("3800"),
+    });
+    const baseline = opt.series[0]!;
+    const subject = opt.series[1]!;
+
+    expect(baseline.lineStyle.width).toBeLessThan(subject.lineStyle.width);
+    expect(baseline.lineStyle.opacity).toBeLessThan(1);
+    expect(subject.lineStyle.opacity).toBe(1);
+  });
+
+  // The fill is what carries the eye at 0.12; thinning the stroke while leaving
+  // it would mute the wrong half of the series.
+  it("pulls the area fill back on a muted series", () => {
+    const opt = buildLineOption({
+      series: { a: [pt(1, 1)], b: [pt(1, 2)] },
+      order: ["a", "b"],
+      colorOf: () => "#3987e5",
+      unit: "ms",
+      muted: (name) => name === "a",
+    });
+    expect(opt.series[0]!.areaStyle!.opacity).toBeLessThan(
+      opt.series[1]!.areaStyle!.opacity,
+    );
+  });
+
+  it("leaves every series at full weight when no predicate is given", () => {
+    const opt = buildLineOption({
+      series: { a: [pt(1, 1)] },
+      order: ["a"],
+      colorOf: () => "#fff",
+      unit: "ms",
+    });
+    expect(opt.series[0]!.lineStyle.width).toBe(2);
+    expect(opt.series[0]!.lineStyle.opacity).toBe(1);
+  });
+});
+
 describe("dashed series", () => {
   // The prefill panel plots two probes PER MODEL and colour follows the model,
   // so both lines share a hue. Without a second visual channel the gap between

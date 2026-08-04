@@ -49,6 +49,12 @@ export function PrefillPanel({
             // Colour follows the model, so the two probes of one model share a
             // hue; the wide series is dashed so they stay distinguishable.
             dashed: (name) => name.includes("3800"),
+            // The short probe is the BASELINE here, not the subject. It is the
+            // same series the "Time to first token" chart plots directly above,
+            // and at equal weight this panel reads as that chart repeated —
+            // which is exactly how it was read. Muted, the wide line and the
+            // gap beneath it become the figure.
+            muted: (name) => !name.includes("3800"),
             unit: "ms",
           })}
           ariaLabel="Time to first token for the short and wide probes, per model"
@@ -74,7 +80,10 @@ export function PrefillPanel({
             className="inline-block h-0 w-4 border-t-2 border-dashed border-muted"
             aria-hidden="true"
           />
-          <span>dashed = wide probe (~3800 tok)</span>
+          <span>
+            dashed = wide probe (~3800 tok); faint = the short probe it is
+            measured against
+          </span>
         </li>
       </ul>
       {!hasWide && (

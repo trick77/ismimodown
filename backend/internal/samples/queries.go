@@ -65,11 +65,6 @@ func LookupWindow(key string) (Window, bool) {
 	return Window{}, false
 }
 
-// BaselineWindow is the rolling reference that higher-is-worse metrics are
-// scored against. Rolling rather than absolute so the page keeps working if
-// MiMo gets permanently faster or slower.
-const BaselineWindow = 7 * 24 * time.Hour
-
 // Stats is a latency distribution over some window.
 type Stats struct {
 	// N is the number of SUCCESSFUL samples behind the figures.
