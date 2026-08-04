@@ -66,7 +66,7 @@ function mockFetch(overrides: Record<string, unknown> = {}) {
             : url.includes("/api/methodology")
               ? {
                   scope:
-                    "A MiMo latency monitor, not a cross-vendor benchmark.",
+                    "Latency of mimo-v2.5 and mimo-v2.5-pro, measured from one host.",
                 }
               : {};
     if (url.includes("/api/events")) {
@@ -99,13 +99,14 @@ describe("App", () => {
     expect(screen.getByText("916 ms")).toBeInTheDocument();
   });
 
-  // The scope caveat is not decoration: the name does not say it, and anyone
-  // screenshotting a number should see both limits without scrolling.
-  it("states the scope in the masthead", () => {
+  // The scope is published, not implied: it comes from the daemon via
+  // /api/methodology, so the page cannot claim a scope the backend is not
+  // actually measuring. Async because it is fetched, not hardcoded.
+  it("publishes the scope on the methodology panel", async () => {
     vi.stubGlobal("fetch", mockFetch());
     render(<App />);
     expect(
-      screen.getByText(/not a cross-vendor benchmark/i),
+      await screen.findByText(/measured from one host/i),
     ).toBeInTheDocument();
   });
 

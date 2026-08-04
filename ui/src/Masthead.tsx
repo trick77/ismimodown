@@ -1,7 +1,6 @@
-// The header states the scope honestly, because the name does not.
-//
-// Two models from one vendor, measured from one place. Anyone screenshotting a
-// number off this page should be able to see both limits without scrolling.
+// The header says what the page measures. The scope shows itself — two model
+// cards, one endpoint on the methodology panel — so it is not also spelled out
+// in prose here.
 export function Masthead() {
   return (
     <header className="py-10 sm:py-16">
@@ -16,11 +15,6 @@ export function Masthead() {
         <em className="text-accent-strong">Xiaomi MiMo</em>, separating how long
         it takes to <em>reach</em> the endpoint from what happens once you are
         there.
-      </p>
-      <p className="mt-3 max-w-[62ch] text-label text-muted">
-        Two models, one vendor — this is a MiMo monitor, not a cross-vendor
-        benchmark. mimo-v2.5 and mimo-v2.5-pro are different weight classes, so
-        latency between them is comparable and quality is not.
       </p>
     </header>
   );

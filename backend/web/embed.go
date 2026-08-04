@@ -4,9 +4,19 @@ package web
 import (
 	"embed"
 	"io/fs"
+	"mime"
 	"net/http"
 	"path"
 )
+
+// Go's built-in table has no entry for .webmanifest, so http.FileServer would
+// sniff manifest.webmanifest and serve it as text/plain — which Chrome rejects,
+// silently dropping the PWA icons and theme colour. Registered here rather than
+// special-cased in the handler, so the FileServer keeps doing the content-type
+// work.
+func init() {
+	_ = mime.AddExtensionType(".webmanifest", "application/manifest+json")
+}
 
 // dist holds the Vite build output. The repo carries a placeholder index.html
 // so `go build` works on a fresh checkout without running the UI build first;

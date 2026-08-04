@@ -26,7 +26,7 @@ func newAPIServer(t *testing.T) (http.Handler, *samples.Store) {
 		BaseURL:        "https://token-plan-sgp.example/v1",
 		RefSGPHost:     "sgp1.example.com",
 		RefEUHost:      "eu.example.com",
-		ProbeUserAgent: "opencode/test",
+		ProbeUserAgent: testUserAgent,
 		Now:            func() time.Time { return testNow },
 	})
 	return h, store
@@ -267,6 +267,55 @@ func TestNoPublicEndpointEmitsErrorDetail(t *testing.T) {
 	})
 }
 
+const testUserAgent = "someagent/9.9.9 probe-fixture/1.0"
+
+// The request shape is operator-only. Anything that lets the endpoint recognise
+// this probe by its payload lets it serve the probe differently, and every
+// figure on the site would then measure the special case instead of production.
+//
+// Two things in particular: the client string the probe presents, and the id of
+// the rotating question. Both are recorded and both stay unserved.
+func TestRequestShapeIsNotServed(t *testing.T) {
+	h, store := newAPIServer(t)
+
+	if _, err := store.Save(context.Background(), samples.Cycle{
+		StartedAt: testNow.Add(-time.Minute),
+		Net: []probe.NetResult{
+			{Target: probe.TargetMimoSGP, OK: true, ConnectMs: 170},
+			{Target: probe.TargetRefSGP, OK: true, ConnectMs: 265},
+			{Target: probe.TargetRefEU, OK: true, ConnectMs: 16},
+		},
+		Infer: []probe.InferResult{{
+			ModelID: "mimo-v2.5", Probe: probe.ProbeInfer, TTFTMs: 900,
+			OK: true, QuestionID: "capital-france",
+		}},
+	}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	for _, p := range []string{
+		"/api/models",
+		"/api/methodology",
+		"/api/summary?window=24h",
+		"/api/samples?model=mimo-v2.5&limit=100",
+	} {
+		t.Run(p, func(t *testing.T) {
+			body := get(t, h, p).Body.String()
+			// The configured agent string, and the field that would carry it.
+			if strings.Contains(body, testUserAgent) {
+				t.Errorf("endpoint served the probe's client string: %s", body)
+			}
+			if strings.Contains(body, "user_agent") {
+				t.Errorf("endpoint exposes a user_agent field: %s", body)
+			}
+			// The question rotation names what is actually being asked.
+			if strings.Contains(body, "question_id") || strings.Contains(body, "capital-france") {
+				t.Errorf("endpoint exposes the question rotation: %s", body)
+			}
+		})
+	}
+}
+
 // The error CLASS is public — it is the whole failure vocabulary the dashboard
 // renders — so suppressing detail must not suppress that too.
 func TestErrorClassIsServedEvenThoughDetailIsNot(t *testing.T) {
@@ -307,7 +356,8 @@ func TestMethodologyPublishesTheUnflatteringParts(t *testing.T) {
 	for _, must := range []string{
 		"server-side time",     // never "model time"
 		"no European GPUs",     // why the residual is not model time
-		"opencode",             // the UA is disclosed verbatim, not hidden
+		"client_identity",      // that the probe does not present as neutral
+		"reasoning_tokens",     // the check that keeps thinking out of the timings
 		"Not the same carrier", // the SGP reference limitation
 		"insufficient_data",    // percentile suppression
 		"never served publicly",

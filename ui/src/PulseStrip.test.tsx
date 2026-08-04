@@ -13,7 +13,6 @@ const sample = (over: Partial<Sample> = {}): Sample => ({
   output_tps: 41,
   ok: true,
   answer_ok: true,
-  question_id: "capital-france",
   error_class: null,
   ...over,
 });

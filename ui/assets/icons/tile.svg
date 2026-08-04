@@ -1,0 +1,90 @@
+<!--
+  mimostats' icon: lucide's "chart-no-axes-column-increasing" held inside
+  lucide's "square-play" frame. This is the master — the shape the other three
+  sources here are copies of, and what the two PWA rasters are rendered from. It
+  does not itself ship; icon-favicon.svg beside it is the file that reaches a
+  browser.
+
+  Three rising bars rather than a line chart. Both were rendered at 16px: a
+  polyline at this scale paints at about one pixel and reads as a scratch, while
+  the bars keep three separate marks. The site's own charts are lines; the icon
+  does not have to repeat them to say "measurements".
+
+  The paths are lucide's (ISC), copied rather than imported — nothing loads a
+  glyph library to draw a static asset. Nothing is filled: lucide draws every
+  glyph as an outline and both of these stay outlines.
+
+  THE INK IS A GRADIENT, #e08a68 down to #c25f34 at roughly 145°. This is
+  music's treatment, and it costs nothing to inherit because mimostats already
+  ships the same palette: #c25f34 IS color-accent-fill in index.css, and
+  #e08a68 is color-accent-strong (#d97757) lifted, so the midpoint of the ramp
+  is the accent the app is drawn in.
+
+  The gradient is in objectBoundingBox units, so the frame and the bars each ramp
+  across their OWN box rather than sharing one light source — the bars get their
+  own top-left highlight instead of sampling one flat slice of a canvas-wide
+  ramp.
+
+  THE THREE BARS ARE ONE PATH, and must stay one path. Written as three separate
+  <path> elements — which is how lucide ships them — each is a straight vertical
+  line, so each has a ZERO-WIDTH bounding box, and SVG says an element with a
+  degenerate bbox referencing an objectBoundingBox gradient is not rendered at
+  all. The frame drew, the bars silently did not, and it looked like a rendering
+  bug rather than a spec rule. As one path the subpaths share a 12x16 bbox and
+  the gradient resolves. Splitting them again brings the bug straight back.
+
+  Two glyphs, two jobs. The frame is the holder: a mark with no outline has
+  nothing to hold it at 16px. The bars are the mark. Stroke is 2, lucide's own
+  weight, and the inner group deliberately carries NO stroke-width of its own —
+  it inherits, so thinning the frame thins the bars in step and the two keep
+  their ratio.
+
+  Sized off the frame's TRUE bbox — x[3,21] y[3,21] grown by half the stroke to
+  20 square, centred on (12,12) — not the nominal 24x24 box the paths only partly
+  fill. Scaling by the nominal box is what makes a glyph read as a dot at favicon
+  sizes.
+
+  TRANSPARENT, because the only things still rendered from it are icon-192 and
+  icon-512, which go to a launcher that composites them itself. The three
+  consumers that flatten alpha — Safari's light favourites plate, iOS onto black,
+  Android onto the launcher's own fill — are served by the opaque sources beside
+  this file, and gen-icons.sh asserts every ground in both directions.
+
+  THE TRANSFORMS ARE DERIVED, not typed:
+
+    outer: scale = 64*C/(18+stroke), translate = 32 - 12*scale
+    inner: scale = 10.24/18,         translate = 12*(1 - scale)
+
+  where C is the file's coverage of the canvas: 1.0 here and in
+  icon-favicon.svg, 0.56 in tile-touch.svg, 0.486 in tile-maskable.svg. The inner
+  number puts the bars' 18-unit true height at the same 10.24 drawn units music's
+  headphones occupy, so the two marks sit in their frames identically. Change the
+  stroke OR a coverage and every affected transform has to be recomputed from
+  that, or the mark silently stops filling the coverage its own comment claims.
+
+  C IS 1.0 HERE, not the 0.8975 music and peeq use — this is the one place the
+  family is deliberately departed from. Their argument is that a tab already sets
+  the icon in padding of its own, so the chip should sit inside that padding
+  rather than against it. Rendered at 16px against both a dark tab strip and
+  Safari's light plate, the extra pixel is worth more than the inset: the frame
+  is what carries the mark at that size, and it reads as a chip either way. The
+  two TILED sources keep their much smaller coverages — they are cropped by the
+  OS and have a different problem to solve.
+
+  Regenerate the rasters with ui/scripts/gen-icons.sh after touching this file —
+  and mirror any shape change into the other three sources, which are copies and
+  cannot follow on their own. Then rebuild the UI, so the new bytes land in
+  backend/web/dist, which is what the container serves.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <linearGradient id="og" x1="0" y1="0" x2="0.72" y2="1">
+    <stop offset="0" stop-color="#e08a68"/>
+    <stop offset="1" stop-color="#c25f34"/>
+  </linearGradient>
+  <g transform="translate(-6.4000 -6.4000) scale(3.20000)" fill="none" stroke="url(#og)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="3" y="3" width="18" height="18" rx="2"/>
+    <g transform="translate(5.1733 5.1733) scale(0.56889)">
+      <path d="M6 20v-4M12 20V10M18 20V4"/>
+    </g>
+  </g>
+</svg>

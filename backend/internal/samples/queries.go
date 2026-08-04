@@ -493,7 +493,6 @@ type Sample struct {
 	OutputTPS  *float64  `json:"output_tps"`
 	OK         bool      `json:"ok"`
 	AnswerOK   *bool     `json:"answer_ok"`
-	QuestionID *string   `json:"question_id"`
 	ErrorClass *string   `json:"error_class"`
 }
 
@@ -544,7 +543,6 @@ func (s *Store) RecentSamples(ctx context.Context, modelID, probeKind string, li
 			b := answerOK.Int64 == 1
 			s.AnswerOK = &b
 		}
-		s.QuestionID = nullS(qid)
 		s.ErrorClass = nullS(class)
 		out = append(out, s)
 	}
