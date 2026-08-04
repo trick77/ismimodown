@@ -1,4 +1,4 @@
-// Package config loads llmstats' runtime configuration from environment
+// Package config loads mimostats' runtime configuration from environment
 // variables. Secrets come from the environment only — never from a file the
 // repo could accidentally carry, since this repo is public and the MiMo
 // token-plan key is a live billable credential.
@@ -130,7 +130,7 @@ func Load() (Config, error) {
 	cfg := Config{
 		Addr:              env("BACKEND_ADDR", ":8080"),
 		PublicURL:         env("BACKEND_PUBLIC_URL", ""),
-		DBPath:            env("BACKEND_DB_PATH", "/data/llmstats.db"),
+		DBPath:            env("BACKEND_DB_PATH", "/data/mimostats.db"),
 		LogLevel:          env("BACKEND_LOG_LEVEL", "info"),
 		Origin:            env("BACKEND_ORIGIN", "rbx"),
 		BaseURL:           env("BACKEND_MIMO_BASE_URL", DefaultBaseURL),

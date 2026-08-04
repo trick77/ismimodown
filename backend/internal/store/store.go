@@ -16,7 +16,7 @@ import (
 	// every boot.
 	//
 	// peeq pins this driver at v0.23.3 because sqlite-vec's Go bindings are
-	// welded to that older API and host-function ABI. llmstats has no
+	// welded to that older API and host-function ABI. mimostats has no
 	// sqlite-vec — percentiles are plain SQL over a rolling window — so it
 	// carries no such pin and tracks the current release.
 	_ "github.com/ncruces/go-sqlite3/driver"

@@ -1,4 +1,4 @@
-module github.com/trick77/llmstats
+module github.com/trick77/mimostats
 
 go 1.26.5
 

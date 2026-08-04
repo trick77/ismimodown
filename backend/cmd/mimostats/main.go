@@ -1,4 +1,4 @@
-// Command llmstats runs the probe daemon and serves the public dashboard.
+// Command mimostats runs the probe daemon and serves the public dashboard.
 package main
 
 import (
@@ -13,11 +13,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/trick77/llmstats/internal/config"
-	"github.com/trick77/llmstats/internal/httpapi"
-	"github.com/trick77/llmstats/internal/store"
-	"github.com/trick77/llmstats/internal/version"
-	"github.com/trick77/llmstats/web"
+	"github.com/trick77/mimostats/internal/config"
+	"github.com/trick77/mimostats/internal/httpapi"
+	"github.com/trick77/mimostats/internal/store"
+	"github.com/trick77/mimostats/internal/version"
+	"github.com/trick77/mimostats/web"
 )
 
 func main() {
@@ -36,7 +36,7 @@ func run() error {
 	}
 	setupLogging(cfg.LogLevel)
 
-	slog.Info("starting llmstats",
+	slog.Info("starting mimostats",
 		"version", version.Version,
 		"origin", cfg.Origin,
 		"base_url", cfg.BaseURL,

@@ -26,10 +26,10 @@ fe-build:
 	@echo "no ui/ yet — lands in phase 5"
 
 build:
-	cd backend && CGO_ENABLED=0 go build -ldflags="-s -w -X github.com/trick77/llmstats/internal/version.Version=$$(git rev-parse --short HEAD 2>/dev/null || echo dev)" -o ../bin/llmstats ./cmd/llmstats
+	cd backend && CGO_ENABLED=0 go build -ldflags="-s -w -X github.com/trick77/mimostats/internal/version.Version=$$(git rev-parse --short HEAD 2>/dev/null || echo dev)" -o ../bin/mimostats ./cmd/mimostats
 
 run:
-	cd backend && go run ./cmd/llmstats
+	cd backend && go run ./cmd/mimostats
 
 dev:
 	./hack/dev.sh

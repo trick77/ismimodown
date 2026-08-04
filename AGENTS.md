@@ -49,13 +49,13 @@ guess. Every `infer_probes` row needs a `net_probes` row in the same cycle.
 
 ## Backend
 
-`backend/`, module `github.com/trick77/llmstats`. stdlib `net/http` with Go 1.22+ method
+`backend/`, module `github.com/trick77/mimostats`. stdlib `net/http` with Go 1.22+ method
 routing, `Deps` struct DI, `slog` with `err` as the error attr key, `config.Load()` from
 `BACKEND_*` env only. SQLite via pure-Go `ncruces/go-sqlite3`, WAL, `CGO_ENABLED=0`.
 Tables are `STRICT`.
 
 Do NOT add a dependabot ignore for `ncruces/go-sqlite3`. peeq pins it for sqlite-vec;
-llmstats has no sqlite-vec.
+mimostats has no sqlite-vec.
 
 Tests: `openTestDB(t)` against a real SQLite file in `t.TempDir()`, never `:memory:`.
 Probe tests run against `httptest.NewServer` fakes and a local `net.Listen` — no real API

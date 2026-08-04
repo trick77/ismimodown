@@ -19,7 +19,7 @@ func TestHandlerServesIndex(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", rec.Code)
 	}
-	if !strings.Contains(rec.Body.String(), "llmstats") {
+	if !strings.Contains(rec.Body.String(), "mimostats") {
 		t.Errorf("body does not look like the shell: %s", rec.Body.String())
 	}
 }
@@ -39,7 +39,7 @@ func TestHandlerFallsBackToTheShell(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200 (SPA fallback)", rec.Code)
 	}
-	if !strings.Contains(rec.Body.String(), "llmstats") {
+	if !strings.Contains(rec.Body.String(), "mimostats") {
 		t.Errorf("fallback did not serve the shell: %s", rec.Body.String())
 	}
 }

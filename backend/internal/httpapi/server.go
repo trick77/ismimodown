@@ -1,4 +1,4 @@
-// Package httpapi builds llmstats' HTTP handler: the public read-only JSON API
+// Package httpapi builds mimostats' HTTP handler: the public read-only JSON API
 // plus the embedded SPA. Phase 1 wires health and the static shell; the
 // summary/series/samples/methodology endpoints and the SSE stream land in
 // phase 4.

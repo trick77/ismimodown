@@ -7,12 +7,12 @@ WORKDIR /app/backend
 COPY backend/go.mod backend/go.sum* ./
 RUN go mod download
 COPY backend/ ./
-RUN CGO_ENABLED=0 go build -ldflags="-s -w -X github.com/trick77/llmstats/internal/version.Version=${BACKEND_VERSION}" -o /out/llmstats ./cmd/llmstats
+RUN CGO_ENABLED=0 go build -ldflags="-s -w -X github.com/trick77/mimostats/internal/version.Version=${BACKEND_VERSION}" -o /out/mimostats ./cmd/mimostats
 
 # --- Stage 2: minimal runtime ---
 #
 # distroless/static, unlike peeq's debian:13-slim: peeq shells out to ffmpeg and
-# yt-dlp for every download and needs a real userland. llmstats shells out to
+# yt-dlp for every download and needs a real userland. mimostats shells out to
 # nothing — it opens TCP sockets and talks HTTPS — so it gets the smaller,
 # shell-less base. ca-certificates comes with the image, which matters because
 # every inference probe is an outbound TLS call.
@@ -20,6 +20,6 @@ RUN CGO_ENABLED=0 go build -ldflags="-s -w -X github.com/trick77/llmstats/intern
 # The UI build stage lands in phase 5 alongside ui/. Until then the binary
 # embeds backend/web/dist/index.html, the committed placeholder.
 FROM gcr.io/distroless/static-debian12:nonroot AS runtime
-COPY --from=build /out/llmstats /usr/local/bin/llmstats
+COPY --from=build /out/mimostats /usr/local/bin/mimostats
 EXPOSE 8080
-ENTRYPOINT ["/usr/local/bin/llmstats"]
+ENTRYPOINT ["/usr/local/bin/mimostats"]
