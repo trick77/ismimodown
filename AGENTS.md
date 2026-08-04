@@ -79,6 +79,18 @@ make dev               # local dev against a throwaway /tmp DB
 
 Both coverage gates must pass: absolute floor (75%) and patch coverage (75%).
 
+## Deploy
+
+Container is distroless — no shell, no curl. Healthcheck is the binary probing
+itself: `mimostats -healthcheck`. Do NOT add a shell to the image to run one.
+
+`compose.yaml`: external traefik network, `read_only`, `cap_drop: ALL`,
+non-root, resource limits. Keep all of them.
+
+See `DEPLOY.md`. Confirm the two reference ping hosts FROM the probe box before
+trusting attribution — a dead europe reference destroys the route-vs-uplink
+distinction without causing a visible failure.
+
 ## Reference repos (read, never modify)
 
 `../peeq` — backend patterns, Makefile, hack/, workflows, compose shape, filter-pill CSS

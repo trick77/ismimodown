@@ -4,8 +4,10 @@ package main
 import (
 	"context"
 	"errors"
+	"flag"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -29,11 +31,59 @@ import (
 	"github.com/trick77/mimostats/web"
 )
 
+// healthcheckFlag makes the binary probe itself.
+//
+// The runtime image is distroless: no shell, no curl, no wget. A container
+// healthcheck therefore has to be the binary, and the alternative — adding a
+// shell to the image so it can run one — would undo the reason the image is
+// distroless in the first place.
+var healthcheckFlag = flag.Bool("healthcheck", false,
+	"probe the local /healthz endpoint and exit 0 (healthy) or 1 (not)")
+
 func main() {
+	flag.Parse()
+	if *healthcheckFlag {
+		if err := healthcheck(); err != nil {
+			fmt.Fprintln(os.Stderr, "healthcheck:", err)
+			os.Exit(1)
+		}
+		return
+	}
 	if err := run(); err != nil {
 		slog.Error("fatal", "err", err)
 		os.Exit(1)
 	}
+}
+
+// healthcheck hits /healthz over loopback.
+//
+// It reads BACKEND_ADDR so a non-default port still works, and rewrites a
+// wildcard bind to loopback — dialling ":8080" verbatim does not resolve.
+func healthcheck() error {
+	addr := os.Getenv("BACKEND_ADDR")
+	if addr == "" {
+		addr = ":8080"
+	}
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return fmt.Errorf("BACKEND_ADDR %q is not host:port: %w", addr, err)
+	}
+	if host == "" || host == "0.0.0.0" || host == "::" {
+		host = "127.0.0.1"
+	}
+
+	client := &http.Client{Timeout: 4 * time.Second}
+	resp, err := client.Get("http://" + net.JoinHostPort(host, port) + "/healthz")
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	// /healthz already pings the database, so a 200 here means the process can
+	// both listen and reach its store.
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("status %d", resp.StatusCode)
+	}
+	return nil
 }
 
 func run() error {
