@@ -121,7 +121,7 @@ export default function App() {
     <>
       <div className="aura" aria-hidden="true" />
       <div className="relative z-10 mx-auto max-w-[1180px] px-5 pb-24 sm:px-8">
-        <Masthead origin={summary?.origin ?? "rbx"} />
+        <Masthead />
         <VerdictBanner verdict={verdict} loading={loading} />
         <div className="mb-6">
           <PulseStrip samples={samples} />

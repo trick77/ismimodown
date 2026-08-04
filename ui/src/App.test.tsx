@@ -5,7 +5,6 @@ import App from "./App";
 
 const summary = (over: Record<string, unknown> = {}) => ({
   window: "24h",
-  origin: "rbx",
   cycles: 288,
   models: [
     {

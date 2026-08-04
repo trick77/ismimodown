@@ -95,7 +95,7 @@ func (s *server) handleSummary(w http.ResponseWriter, r *http.Request) {
 	key := "summary|" + window.Key + "|" + probeKind
 	s.writeJSON(w, r, key, func() (any, error) {
 		return s.deps.Samples.Summarize(
-			r.Context(), window, s.deps.Origin, s.deps.Models, probeKind, s.now())
+			r.Context(), window, s.deps.Models, probeKind, s.now())
 	})
 }
 
@@ -240,10 +240,11 @@ func (s *server) handleMethodology(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, r, "methodology", func() (any, error) {
 		return map[string]any{
 			"scope": "A MiMo latency monitor, not a cross-vendor benchmark. Two models, one vendor.",
-			"origin": map[string]any{
-				"id":   s.deps.Origin,
-				"note": "Single egress. All figures are from this vantage point only.",
-			},
+			// The vantage point is still disclosed — it is a real limit on every
+			// figure here — but it is prose, not a labelled identifier. There is
+			// one probe host and no second one planned, so a machine-readable id
+			// bought nothing and named the site.
+			"vantage":  "Single egress. All figures are from one probe host, over one network path.",
 			"endpoint": s.deps.BaseURL,
 			"cadence":  "One aligned cycle every 5 minutes, jittered symmetrically by up to 30s.",
 			"layers": map[string]any{

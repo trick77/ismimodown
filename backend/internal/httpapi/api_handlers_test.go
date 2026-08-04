@@ -22,7 +22,7 @@ func newAPIServer(t *testing.T) (http.Handler, *samples.Store) {
 	store := samples.New(db)
 	h := NewServer(Deps{
 		Version: "test", DB: db, Samples: store,
-		Origin: "rbx", Models: []string{"mimo-v2.5", "mimo-v2.5-pro"},
+		Models:         []string{"mimo-v2.5", "mimo-v2.5-pro"},
 		BaseURL:        "https://token-plan-sgp.example/v1",
 		RefSGPHost:     "sgp1.example.com",
 		RefEUHost:      "eu.example.com",
@@ -38,7 +38,6 @@ func seed(t *testing.T, store *samples.Store, n int, ttft float64) {
 		yes := true
 		if _, err := store.Save(context.Background(), samples.Cycle{
 			StartedAt: testNow.Add(-time.Duration(n-i) * time.Minute),
-			Origin:    "rbx",
 			Net: []probe.NetResult{
 				{Target: probe.TargetMimoSGP, ConnectMs: 170, OK: true},
 				{Target: probe.TargetRefSGP, ConnectMs: 265, OK: true},
@@ -206,7 +205,7 @@ func TestNoPublicEndpointEmitsErrorDetail(t *testing.T) {
 
 	const secret = "SECRET-PROVIDER-BODY-tp-livekey-fragment"
 	if _, err := store.Save(context.Background(), samples.Cycle{
-		StartedAt: testNow.Add(-time.Minute), Origin: "rbx",
+		StartedAt: testNow.Add(-time.Minute),
 		Net: []probe.NetResult{
 			{Target: probe.TargetMimoSGP, OK: false, ErrorClass: probe.ErrClassConnectTimeout,
 				ErrorDetail: secret},
@@ -274,7 +273,7 @@ func TestErrorClassIsServedEvenThoughDetailIsNot(t *testing.T) {
 	h, store := newAPIServer(t)
 
 	if _, err := store.Save(context.Background(), samples.Cycle{
-		StartedAt: testNow.Add(-time.Minute), Origin: "rbx",
+		StartedAt: testNow.Add(-time.Minute),
 		Net: []probe.NetResult{
 			{Target: probe.TargetMimoSGP, OK: true, ConnectMs: 170},
 			{Target: probe.TargetRefSGP, OK: true, ConnectMs: 265},
@@ -329,7 +328,7 @@ func TestRateLimitReturns429PastTheBurst(t *testing.T) {
 	db := openTestDB(t)
 	h := NewServer(Deps{
 		DB: db, Samples: samples.New(db),
-		Origin: "rbx", Models: []string{"mimo-v2.5"},
+		Models:  []string{"mimo-v2.5"},
 		Limiter: ratelimit.New(0.0001, 3), // 3 burst, effectively no refill
 		Now:     func() time.Time { return testNow },
 	})
@@ -356,7 +355,7 @@ func TestHealthzIsNotRateLimited(t *testing.T) {
 	db := openTestDB(t)
 	h := NewServer(Deps{
 		DB: db, Samples: samples.New(db),
-		Origin: "rbx", Models: []string{"mimo-v2.5"},
+		Models:  []string{"mimo-v2.5"},
 		Limiter: ratelimit.New(0.0001, 1),
 		Now:     func() time.Time { return testNow },
 	})
@@ -374,8 +373,8 @@ func TestResponsesAreCachedAndInvalidatedOnACycle(t *testing.T) {
 	store := samples.New(db)
 	srv := NewServer(Deps{
 		DB: db, Samples: store,
-		Origin: "rbx", Models: []string{"mimo-v2.5"},
-		Now: func() time.Time { return testNow },
+		Models: []string{"mimo-v2.5"},
+		Now:    func() time.Time { return testNow },
 	})
 	seed(t, store, 25, 900)
 

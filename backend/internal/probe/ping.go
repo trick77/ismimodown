@@ -192,7 +192,7 @@ func msSince(t time.Time) float64 {
 //
 //	mimo ok                          -> ok
 //	mimo fail, ref_sgp ok            -> edge    (MiMo's edge; the route is fine)
-//	mimo + ref_sgp fail, ref_eu ok   -> route   (Roubaix->Singapore degraded)
+//	mimo + ref_sgp fail, ref_eu ok   -> route   (Europe->Singapore degraded)
 //	all three fail                   -> uplink  (ours; window excluded)
 //
 // Precedence runs outward from us: each layer makes the ones beyond it

@@ -24,7 +24,6 @@ function model(over: Partial<ModelSummary> = {}): ModelSummary {
 
 const summary = (models: ModelSummary[]): Summary => ({
   window: "24h",
-  origin: "rbx",
   cycles: 288,
   models,
   net: [],

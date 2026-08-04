@@ -65,7 +65,6 @@ type Deps struct {
 
 	// Published on /api/methodology, so the page states what was actually
 	// measured rather than what the code once intended to measure.
-	Origin         string
 	Models         []string
 	BaseURL        string
 	RefSGPHost     string

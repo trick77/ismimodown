@@ -27,7 +27,7 @@ func newTestStore(t *testing.T) *samples.Store {
 func saveCycleAt(t *testing.T, s *samples.Store, at time.Time) {
 	t.Helper()
 	if _, err := s.Save(context.Background(), samples.Cycle{
-		StartedAt: at, Origin: "rbx",
+		StartedAt: at,
 		Net: []probe.NetResult{
 			{Target: probe.TargetMimoSGP, OK: true},
 			{Target: probe.TargetRefSGP, OK: true},

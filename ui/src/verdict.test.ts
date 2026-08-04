@@ -30,7 +30,6 @@ function model(over: Partial<ModelSummary> = {}): ModelSummary {
 function summary(over: Partial<Summary> = {}): Summary {
   return {
     window: "24h",
-    origin: "rbx",
     cycles: 288,
     models: [model()],
     net: [],

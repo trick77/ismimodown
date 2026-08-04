@@ -60,12 +60,20 @@ func TestMigrateIsIdempotent(t *testing.T) {
 		t.Fatalf("second Migrate: %v", err)
 	}
 
+	// Counted from the embedded files rather than hardcoded: a literal here
+	// turns every future migration into a spurious test failure, which trains
+	// people to edit the number instead of reading what broke.
+	files, err := migrationsFS.ReadDir("migrations")
+	if err != nil {
+		t.Fatalf("read migrations: %v", err)
+	}
+
 	var n int
 	if err := db.QueryRow(`SELECT count(*) FROM schema_migrations`).Scan(&n); err != nil {
 		t.Fatalf("count migrations: %v", err)
 	}
-	if n != 1 {
-		t.Errorf("schema_migrations has %d rows, want 1", n)
+	if n != len(files) {
+		t.Errorf("schema_migrations has %d rows, want %d", n, len(files))
 	}
 }
 
@@ -105,7 +113,7 @@ func TestInferProbeRequiresACycle(t *testing.T) {
 func TestDeletingACycleCascades(t *testing.T) {
 	db := openTestDB(t)
 
-	res, err := db.Exec(`INSERT INTO cycles (started_at, origin) VALUES ('2026-08-04T06:00:00Z', 'rbx')`)
+	res, err := db.Exec(`INSERT INTO cycles (started_at) VALUES ('2026-08-04T06:00:00Z')`)
 	if err != nil {
 		t.Fatalf("insert cycle: %v", err)
 	}
@@ -146,7 +154,7 @@ func TestDeletingACycleCascades(t *testing.T) {
 func TestCheckConstraintsRejectUnknownEnums(t *testing.T) {
 	db := openTestDB(t)
 
-	res, err := db.Exec(`INSERT INTO cycles (started_at, origin) VALUES ('2026-08-04T06:00:00Z', 'rbx')`)
+	res, err := db.Exec(`INSERT INTO cycles (started_at) VALUES ('2026-08-04T06:00:00Z')`)
 	if err != nil {
 		t.Fatalf("insert cycle: %v", err)
 	}
@@ -174,7 +182,7 @@ func TestCheckConstraintsRejectUnknownEnums(t *testing.T) {
 func TestNetProbeIsUniquePerCycleAndTarget(t *testing.T) {
 	db := openTestDB(t)
 
-	res, err := db.Exec(`INSERT INTO cycles (started_at, origin) VALUES ('2026-08-04T06:00:00Z', 'rbx')`)
+	res, err := db.Exec(`INSERT INTO cycles (started_at) VALUES ('2026-08-04T06:00:00Z')`)
 	if err != nil {
 		t.Fatalf("insert cycle: %v", err)
 	}

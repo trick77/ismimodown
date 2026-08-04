@@ -48,7 +48,6 @@ type Deps struct {
 	Prober Prober
 	Pinger Pinger
 
-	Origin string
 	Models []string
 
 	MimoHost   string
@@ -105,7 +104,7 @@ func New(deps Deps) *Scheduler {
 func (s *Scheduler) Run(ctx context.Context) {
 	slog.Info("scheduler starting",
 		"interval", CycleInterval, "jitter", CycleJitter,
-		"models", s.deps.Models, "origin", s.deps.Origin)
+		"models", s.deps.Models)
 
 	for {
 		s.RunCycle(ctx)
@@ -181,7 +180,7 @@ func (s *Scheduler) RunCycle(ctx context.Context) {
 	n := s.cycleCount.Add(1) - 1
 	started := s.deps.Now().UTC()
 
-	cycle := samples.Cycle{StartedAt: started, Origin: s.deps.Origin}
+	cycle := samples.Cycle{StartedAt: started}
 
 	// The network layer first, and always — it is free, it is fast, and every
 	// inference reading in this cycle is subtracted against it.
@@ -245,7 +244,7 @@ func (s *Scheduler) runProbe(
 		// concurrent runs against one model would contend for the same upstream
 		// node and each would measure the other's queueing.
 		slog.Warn("probe overrun; skipping", "model", model, "probe", kind, "cycle", n)
-		if err := s.deps.Store.RecordSkip(ctx, started, s.deps.Origin, model, kind); err != nil {
+		if err := s.deps.Store.RecordSkip(ctx, started, model, kind); err != nil {
 			slog.Error("record skip failed", "err", err)
 		}
 		return probe.InferResult{}, false

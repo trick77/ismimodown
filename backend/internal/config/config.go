@@ -24,10 +24,10 @@ const (
 	// and the inference host can be pointed apart during testing.
 	DefaultMimoHost = "token-plan-sgp.xiaomimimo.com"
 
-	// DefaultRefSGPHost answers "is *any* Roubaix->Singapore path healthy".
+	// DefaultRefSGPHost answers "is *any* Europe->Singapore path healthy".
 	//
 	// The plan originally named an OVH Singapore endpoint, because the probe box
-	// is OVH Roubaix and a same-carrier path makes "the route is fine" a stronger
+	// is on OVH and a same-carrier path makes "the route is fine" a stronger
 	// claim. No such public hostname exists: `ap-southeast-sgp` does not resolve,
 	// and `sgp.ovh` answers from Cloudflare anycast in Europe (~18 ms), which
 	// would be a Europe reference mislabelled as Singapore — exactly the failure
@@ -86,14 +86,9 @@ var DefaultModels = []string{"mimo-v2.5", "mimo-v2.5-pro"}
 
 // Config holds all runtime settings.
 type Config struct {
-	Addr      string // HTTP listen address
-	PublicURL string // externally reachable base URL
-	DBPath    string // path to the SQLite file
-	LogLevel  string
-
-	// Origin labels which egress produced a sample. Present from day one so a
-	// second probe location can be added without a migration.
-	Origin string
+	Addr     string // HTTP listen address
+	DBPath   string // path to the SQLite file
+	LogLevel string
 
 	// MiMo endpoint. BaseURL is the inference host; APIKey is required at boot
 	// so a misconfigured deployment fails loudly instead of recording an
@@ -157,10 +152,8 @@ func envDuration(key string, def time.Duration) (time.Duration, error) {
 func Load() (Config, error) {
 	cfg := Config{
 		Addr:              env("BACKEND_ADDR", ":8080"),
-		PublicURL:         env("BACKEND_PUBLIC_URL", ""),
 		DBPath:            env("BACKEND_DB_PATH", "/data/mimostats.db"),
 		LogLevel:          env("BACKEND_LOG_LEVEL", "info"),
-		Origin:            env("BACKEND_ORIGIN", "rbx"),
 		BaseURL:           env("BACKEND_MIMO_BASE_URL", DefaultBaseURL),
 		APIKey:            env("BACKEND_MIMO_API_KEY", ""),
 		MimoHost:          env("BACKEND_PING_MIMO_HOST", DefaultMimoHost),
@@ -196,14 +189,6 @@ func Load() (Config, error) {
 
 	if cfg.APIKey == "" {
 		return Config{}, fmt.Errorf("BACKEND_MIMO_API_KEY is required")
-	}
-	// TrimSpace, not == "": env() substitutes the default for an empty value, so
-	// an `== ""` test here could never fire and would be validation in name
-	// only. A whitespace-only override IS reachable, and it would stamp every
-	// sample with a blank origin — invisible until a second probe location is
-	// added and the two cannot be told apart.
-	if strings.TrimSpace(cfg.Origin) == "" {
-		return Config{}, fmt.Errorf("BACKEND_ORIGIN must not be empty")
 	}
 	if len(cfg.Models) == 0 {
 		return Config{}, fmt.Errorf("BACKEND_MODELS must name at least one model")
