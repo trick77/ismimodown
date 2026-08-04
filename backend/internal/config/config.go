@@ -257,5 +257,23 @@ func validateBaseURL(raw string) error {
 	if u.Host == "" {
 		return fmt.Errorf("BACKEND_MIMO_BASE_URL must include a host")
 	}
+	// Userinfo is a credential, and this value is PUBLISHED verbatim as the
+	// "endpoint" field of /api/methodology. "https://user:pass@host/v1" passes
+	// every other check here, so without this line a credential typed into the
+	// base URL would be served to every visitor. Rejected at boot rather than
+	// stripped later: an operator who put a secret here must be told, not
+	// silently have it dropped from one of the several places it would travel.
+	//
+	// httpapi.publicBaseURL strips it a second time on the way out, on the same
+	// belt-and-braces principle as the metric allow-lists.
+	if u.User != nil {
+		return fmt.Errorf("BACKEND_MIMO_BASE_URL must not embed credentials; use BACKEND_MIMO_API_KEY")
+	}
+	// A query string is not a credential by construction, but it is where an
+	// API key most often ends up on an OpenAI-compatible endpoint, and it is
+	// equally published. Same reasoning.
+	if u.RawQuery != "" {
+		return fmt.Errorf("BACKEND_MIMO_BASE_URL must not carry a query string")
+	}
 	return nil
 }
