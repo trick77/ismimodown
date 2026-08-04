@@ -148,3 +148,46 @@ describe("buildDecompositionOption", () => {
     expect(opt.series[1]!.data).toEqual([null]);
   });
 });
+
+describe("dashed series", () => {
+  // The prefill panel plots two probes PER MODEL and colour follows the model,
+  // so both lines share a hue. Without a second visual channel the gap between
+  // them — the entire point of that panel — cannot be read.
+  it("gives a dashed line style to the marked series only", () => {
+    const opt = buildLineOption({
+      series: { "m · 34 tok": [pt(1, 1)], "m · 3800 tok": [pt(1, 2)] },
+      order: ["m · 34 tok", "m · 3800 tok"],
+      colorOf: () => "#3987e5",
+      unit: "ms",
+      dashed: (name) => name.includes("3800"),
+    });
+    expect(opt.series[0]!.lineStyle.type).toBe("solid");
+    expect(opt.series[1]!.lineStyle.type).toBe("dashed");
+    // Same hue is correct — colour follows the model.
+    expect(opt.series[0]!.lineStyle.color).toBe(opt.series[1]!.lineStyle.color);
+  });
+
+  // Two filled areas in the same hue stack into a solid block and hide the very
+  // gap the panel exists to show.
+  it("drops the area fill under a dashed series", () => {
+    const opt = buildLineOption({
+      series: { a: [pt(1, 1)], b: [pt(1, 2)] },
+      order: ["a", "b"],
+      colorOf: () => "#3987e5",
+      unit: "ms",
+      dashed: (name) => name === "b",
+    });
+    expect(opt.series[0]!.areaStyle).toBeDefined();
+    expect(opt.series[1]!.areaStyle).toBeUndefined();
+  });
+
+  it("defaults every series to solid when no predicate is given", () => {
+    const opt = buildLineOption({
+      series: { a: [pt(1, 1)] },
+      order: ["a"],
+      colorOf: () => "#fff",
+      unit: "ms",
+    });
+    expect(opt.series[0]!.lineStyle.type).toBe("solid");
+  });
+});

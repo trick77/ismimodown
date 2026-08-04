@@ -1,15 +1,18 @@
 <!doctype html>
-<!--
-  Placeholder so //go:embed all:dist resolves on a fresh checkout without a UI
-  build. The Containerfile replaces this whole directory with the real Vite
-  bundle; .gitignore keeps every other dist/ file out of the repo.
--->
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>mimostats</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <title>mimostats — Xiaomi MiMo latency</title>
+    <meta
+      name="description"
+      content="Continuous latency monitor for Xiaomi MiMo, separating time-to-reach-the-endpoint from server-side time."
+    />
+    <script type="module" crossorigin src="/assets/index-zI1FX5SM.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-Cge4V43I.css">
   </head>
   <body>
-    <p>UI not built. Run <code>make fe-build</code>.</p>
+    <div id="root"></div>
   </body>
 </html>

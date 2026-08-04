@@ -46,6 +46,9 @@ export function PrefillPanel({
             series,
             order,
             colorOf: (name) => colorForModel(name.split(" · ")[0]!, models),
+            // Colour follows the model, so the two probes of one model share a
+            // hue; the wide series is dashed so they stay distinguishable.
+            dashed: (name) => name.includes("3800"),
             unit: "ms",
           })}
           ariaLabel="Time to first token for the short and wide probes, per model"
@@ -55,6 +58,25 @@ export function PrefillPanel({
           Not enough data yet — first samples within 5 minutes.
         </p>
       )}
+      <ul className="mt-3 flex flex-wrap gap-4">
+        {models.map((m) => (
+          <li key={m} className="flex items-center gap-2 text-label text-muted">
+            <span
+              className="inline-block h-2 w-4 rounded-sm"
+              style={{ background: colorForModel(m, models) }}
+              aria-hidden="true"
+            />
+            <span className="num">{m}</span>
+          </li>
+        ))}
+        <li className="flex items-center gap-2 text-label text-muted">
+          <span
+            className="inline-block h-0 w-4 border-t-2 border-dashed border-muted"
+            aria-hidden="true"
+          />
+          <span>dashed = wide probe (~3800 tok)</span>
+        </li>
+      </ul>
       {!hasWide && (
         <p className="mt-3 text-label text-muted">
           The wide probe runs hourly, so it takes an hour before this gap is

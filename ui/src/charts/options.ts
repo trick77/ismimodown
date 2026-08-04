@@ -50,6 +50,12 @@ type LineOpts = {
   // forceLinear pins the axis for values that are not latency (percentages,
   // token counts), where a log axis would be nonsense.
   forceLinear?: boolean;
+  // dashed marks series that share a colour with another and must still be
+  // told apart. The prefill panel plots two probes PER MODEL, and colour
+  // follows the model — so without a second channel both lines are the same
+  // hue and the gap between them, which is the entire point of that panel,
+  // cannot be read.
+  dashed?: (name: string) => boolean;
 };
 
 // buildLineOption is the shared shape for every time series on the page.
@@ -59,6 +65,7 @@ export function buildLineOption({
   colorOf,
   unit,
   forceLinear = false,
+  dashed,
 }: LineOpts) {
   // The y-axis switches to log automatically when the window's dynamic range
   // exceeds 20x, because a linear axis collapses either the normal reading or
@@ -100,12 +107,17 @@ export function buildLineOption({
         showSymbol: false,
         // Gaps are gaps: never connect across a bucket with no data.
         connectNulls: false,
-        lineStyle: { width: 2, color: colorOf(name) },
-        itemStyle: { color: colorOf(name) },
-        areaStyle: {
-          opacity: 0.12,
+        lineStyle: {
+          width: 2,
           color: colorOf(name),
+          type: dashed?.(name) ? "dashed" : "solid",
         },
+        itemStyle: { color: colorOf(name) },
+        // No area fill under a dashed series: two filled areas in the same hue
+        // stack into a solid block and hide the gap between the lines.
+        areaStyle: dashed?.(name)
+          ? undefined
+          : { opacity: 0.12, color: colorOf(name) },
         data: toPairs(series[name]!),
       })),
     logScale: log,

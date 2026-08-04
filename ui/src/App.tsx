@@ -11,6 +11,7 @@ import { SeriesPanel } from "./SeriesPanel";
 import { PrefillPanel } from "./PrefillPanel";
 import { NetworkPanel } from "./NetworkPanel";
 import { AvailabilityStrip } from "./AvailabilityStrip";
+import { PulseStrip } from "./PulseStrip";
 import { SamplesTable } from "./SamplesTable";
 import { MethodologyPanel } from "./MethodologyPanel";
 import { buildVerdict } from "./verdict";
@@ -67,7 +68,7 @@ export default function App() {
 
       const first = s.models[0]?.model_id;
       if (first) {
-        const raw = await getSamples(first, "infer", 60, signal);
+        const raw = await getSamples(first, "infer", 288, signal);
         setSamples(raw.samples);
       }
     } catch (err) {
@@ -122,6 +123,9 @@ export default function App() {
       <div className="relative z-10 mx-auto max-w-[1180px] px-5 pb-24 sm:px-8">
         <Masthead origin={summary?.origin ?? "rbx"} />
         <VerdictBanner verdict={verdict} loading={loading} />
+        <div className="mb-6">
+          <PulseStrip samples={samples} />
+        </div>
 
         <nav className="mb-6 flex flex-wrap gap-2" aria-label="Time window">
           {WINDOWS.map((key) => (
