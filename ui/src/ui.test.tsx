@@ -56,6 +56,20 @@ describe("OffPeakNote", () => {
     expect(screen.getByText(/02:00/)).toBeInTheDocument();
   });
 
+  // The spans arrive CLIPPED to the plot, and on the 24h chart the left edge
+  // falls inside the band for exactly the eight hours the rate is live. Quoting
+  // the clipped edge back would say the window opens at 22:00 while the chip
+  // beside it says the rate has been running since 18:00.
+  it("names the whole window even when the band was clipped to the plot", () => {
+    render(
+      <OffPeakNote
+        spans={[[Date.UTC(2026, 7, 4, 20), Date.UTC(2026, 7, 5, 0)]]}
+      />,
+    );
+    expect(screen.getByText(/18:00/)).toBeInTheDocument();
+    expect(screen.getByText(/02:00/)).toBeInTheDocument();
+  });
+
   it("uses the winter hours for a winter band", () => {
     render(
       <OffPeakNote

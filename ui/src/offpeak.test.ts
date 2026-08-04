@@ -3,6 +3,7 @@ import {
   currentOffPeak,
   isOffPeak,
   offPeakBands,
+  offPeakWindowFor,
   OFFPEAK_COEFFICIENT,
 } from "./offpeak";
 import { formatTime } from "./format";
@@ -78,6 +79,22 @@ describe("offPeakBands", () => {
     )[0]!;
     expect(formatTime(new Date(summer[0]))).toBe("18:00");
     expect(formatTime(new Date(winter[0]))).toBe("17:00");
+  });
+});
+
+describe("offPeakWindowFor", () => {
+  // The note names the window off this, never off the clipped span: a plot
+  // whose left edge lands mid-band would otherwise report an opening hour that
+  // is just where the chart happens to start.
+  it("gives the whole band from any instant inside it", () => {
+    expect(offPeakWindowFor(utc("2026-08-04T20:00:00Z"))).toEqual([
+      utc("2026-08-04T16:00:00Z"),
+      utc("2026-08-05T00:00:00Z"),
+    ]);
+    expect(offPeakWindowFor(utc("2026-08-04T16:00:00Z"))).toEqual([
+      utc("2026-08-04T16:00:00Z"),
+      utc("2026-08-05T00:00:00Z"),
+    ]);
   });
 });
 

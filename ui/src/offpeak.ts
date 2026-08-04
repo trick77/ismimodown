@@ -28,7 +28,11 @@ const DAY_MS = 24 * HOUR_MS;
 // between the two would silently mis-band one of them.
 export function isOffPeak(ms: number): boolean {
   if (!Number.isFinite(ms)) return false;
-  return new Date(ms).getUTCHours() >= OFFPEAK_START_UTC_HOUR;
+  // Both edges read off the constants, even though the upper test cannot fail
+  // while the window closes at 24:00: it is what keeps the pulse strip's tint
+  // and the chart's band from drifting apart if the window ever narrows.
+  const hour = new Date(ms).getUTCHours();
+  return hour >= OFFPEAK_START_UTC_HOUR && hour < OFFPEAK_END_UTC_HOUR;
 }
 
 // offPeakBands returns the [start, end) spans, in epoch ms, that overlap the
@@ -44,8 +48,10 @@ export function offPeakBands(fromMs: number, toMs: number): [number, number][] {
   }
 
   const bands: [number, number][] = [];
-  // Start a day early: the band that covers `fromMs` may have opened on the
-  // previous UTC day, since it runs past midnight.
+  // Start a day early. The window closes exactly at UTC midnight, so today's
+  // band cannot reach back over the range's left edge and this iteration
+  // contributes nothing as the constants stand; it is here so that a window
+  // moved past 24:00 would still be found rather than silently half-drawn.
   let day = Math.floor(fromMs / DAY_MS) * DAY_MS - DAY_MS;
 
   for (; day < toMs; day += DAY_MS) {
@@ -60,6 +66,26 @@ export function offPeakBands(fromMs: number, toMs: number): [number, number][] {
     }
   }
   return bands;
+}
+
+// offPeakWindowFor returns the WHOLE band the given instant belongs to, in
+// epoch ms, unclipped.
+//
+// offPeakBands clips its spans to the plot, which is right for drawing and wrong
+// for naming: a chart whose left edge falls inside the window gets a first span
+// starting at the edge, and quoting that back would report "22:00–02:00 here"
+// for a window that opens at 18:00. That case is not rare — on the 24h chart it
+// is exactly the eight hours the rate is live, which is when a reader is most
+// likely to be reading the note.
+//
+// Derived from the span's own UTC day, so the local hours still come out of the
+// band that was painted and the DST changeover needs no second rule.
+export function offPeakWindowFor(ms: number): [number, number] {
+  const day = Math.floor(ms / DAY_MS) * DAY_MS;
+  return [
+    day + OFFPEAK_START_UTC_HOUR * HOUR_MS,
+    day + OFFPEAK_END_UTC_HOUR * HOUR_MS,
+  ];
 }
 
 // currentOffPeak describes where `nowMs` sits relative to the window, for the

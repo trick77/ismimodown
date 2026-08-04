@@ -1,7 +1,11 @@
 import type { ReactNode } from "react";
 import type { State } from "./verdict";
 import { formatTime } from "./format";
-import { currentOffPeak, OFFPEAK_COEFFICIENT } from "./offpeak";
+import {
+  currentOffPeak,
+  offPeakWindowFor,
+  OFFPEAK_COEFFICIENT,
+} from "./offpeak";
 
 // Shared primitives. Colour is NEVER the only signal — every state chip carries
 // its word, and every delta its sign — so the dashboard stays readable to a
@@ -60,9 +64,11 @@ export function CensoredNote({ bands }: { bands: number }) {
 // OffPeakNote names the accent bands, and gives the hours in the LOCAL clock.
 //
 // Same reasoning as CensoredNote: a shaded rectangle nobody can name is not a
-// signal. The hours are quoted off the drawn band's own edges rather than from a
-// constant, so a window straddling the DST changeover reports what it actually
-// painted instead of a rule that was true on one side of it.
+// signal. The hours are quoted off the drawn band's own DAY rather than from a
+// local-clock constant, so a window straddling the DST changeover reports what
+// it actually painted instead of a rule that was true on one side of it — and
+// off the whole band, not the clipped span, since the span stops at the edge of
+// the plot and the window does not.
 //
 // It says billing and only billing. MiMo publishes no load figures, and a note
 // here implying these are the quiet hours would be inventing a claim the rest of
@@ -70,6 +76,7 @@ export function CensoredNote({ bands }: { bands: number }) {
 export function OffPeakNote({ spans }: { spans: [number, number][] }) {
   const first = spans[0];
   if (first === undefined) return null;
+  const [opens, closes] = offPeakWindowFor(first[0]);
   return (
     <p className="mt-3 flex items-start gap-2 text-label text-muted">
       <span
@@ -82,10 +89,10 @@ export function OffPeakNote({ spans }: { spans: [number, number][] }) {
             only the swatch to tell which sentence belonged to which band. */}
         Off-peak: MiMo bills these hours at {OFFPEAK_COEFFICIENT}× — 20% fewer
         credits. That is 00:00–08:00 in Beijing, which lands at{" "}
-        <span className="num">{formatTime(new Date(first[0]))}</span>–
-        <span className="num">{formatTime(new Date(first[1]))}</span> here. It
-        is a price, not a forecast: nothing is published about when the platform
-        is busy.
+        <span className="num">{formatTime(new Date(opens))}</span>–
+        <span className="num">{formatTime(new Date(closes))}</span> here. It is
+        a price, not a forecast: nothing is published about when the platform is
+        busy.
       </span>
     </p>
   );
