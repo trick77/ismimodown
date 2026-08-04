@@ -1,5 +1,5 @@
 import type { ModelSeries } from "./api/types";
-import { Card, CensoredNote } from "./ui";
+import { Card, CensoredNote, OffPeakChip, OffPeakNote } from "./ui";
 import { EChart } from "./charts/EChart";
 import { buildLineOption, colorForModel } from "./charts/options";
 
@@ -10,6 +10,7 @@ export function SeriesPanel({
   models,
   unit,
   forceLinear = false,
+  offPeak = false,
 }: {
   title: string;
   subtitle: string;
@@ -17,6 +18,11 @@ export function SeriesPanel({
   models: string[];
   unit: string;
   forceLinear?: boolean;
+  // offPeak shades MiMo's reduced-rate billing hours behind the plot. Opt-in
+  // per panel rather than automatic: it belongs on the chart a reader consults
+  // before deciding when to send work, and on every other chart it would be one
+  // more band competing with the measurement.
+  offPeak?: boolean;
 }) {
   const data = series?.models ?? {};
   const hasData = Object.values(data).some((points) => points.length > 0);
@@ -27,6 +33,7 @@ export function SeriesPanel({
     unit,
     forceLinear,
     bucketMs: series ? series.bucket_s * 1000 : undefined,
+    offPeak,
   });
 
   return (
@@ -34,13 +41,19 @@ export function SeriesPanel({
       title={title}
       subtitle={subtitle}
       right={
-        // A log axis read as a linear one is worse than no chart, so the switch
-        // is always announced on the plot.
-        option.logScale ? (
-          <span className="num rounded-full border border-border px-2 py-[2px] text-micro uppercase tracking-wider text-faint">
-            log scale
-          </span>
-        ) : null
+        <div className="flex items-center gap-2">
+          {/* Tied to the band actually being drawn, not to the prop. On 7d and
+              wider the band is dropped, and a chip promising a rate the plot
+              does not show is worse than no chip. */}
+          {option.offPeakSpans.length > 0 && <OffPeakChip />}
+          {/* A log axis read as a linear one is worse than no chart, so the
+              switch is always announced on the plot. */}
+          {option.logScale && (
+            <span className="num rounded-full border border-border px-2 py-[2px] text-micro uppercase tracking-wider text-faint">
+              log scale
+            </span>
+          )}
+        </div>
       }
     >
       {hasData ? (
@@ -52,6 +65,7 @@ export function SeriesPanel({
       )}
       <Legend models={models} />
       <CensoredNote bands={option.censoredBands} />
+      <OffPeakNote spans={option.offPeakSpans} />
     </Card>
   );
 }

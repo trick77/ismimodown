@@ -283,6 +283,10 @@ export default function App() {
             series={ttft}
             models={models}
             unit="ms"
+            // Only here. This is the chart a reader consults before deciding
+            // when to send work; on the throughput and network panels the same
+            // band would be one more thing competing with the measurement.
+            offPeak
           />
           <PrefillPanel infer={ttft} wide={wideTtft} models={models} />
           <SeriesPanel

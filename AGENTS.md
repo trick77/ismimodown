@@ -120,5 +120,9 @@ distinction without causing a visible failure.
 ## Conventions
 
 `.yaml` never `.yml`. English UI, Europe/Zurich, 24-hour clock.
+Chart axes too — ECharts has no per-axis timezone, so stamp `axisLabel`/tooltip
+via `format.ts`, never leave them on the viewer's clock.
+MiMo off-peak (`ui/src/offpeak.ts`) is 16:00–24:00 **UTC**. Derive from UTC —
+Beijing has no DST, Zurich does. It is a price; never label it as demand.
 Swiss orthography in any German text: `ss` never `ß`.
 Anything visual → show in Safari (`open -a Safari …`), never Chrome.

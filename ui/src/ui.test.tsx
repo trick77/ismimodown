@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
-import { Figure, Pill, StateChip } from "./ui";
+import { Figure, OffPeakChip, OffPeakNote, Pill, StateChip } from "./ui";
 
 describe("StateChip", () => {
   // Colour is never the only signal: the state word must be present so the
@@ -35,6 +35,74 @@ describe("Figure", () => {
     expect(screen.queryByText("0 ms")).not.toBeInTheDocument();
     // The sample count is still shown, so a reader knows how close it is.
     expect(screen.getByTestId("insufficient")).toHaveTextContent("3");
+  });
+});
+
+describe("OffPeakNote", () => {
+  it("renders nothing when no band was drawn", () => {
+    const { container } = render(<OffPeakNote spans={[]} />);
+    expect(container.firstChild).toBeNull();
+  });
+
+  // The hours come off the band's OWN edges, so a window either side of the DST
+  // changeover reports what it actually painted.
+  it("quotes the local hours of the band it was given", () => {
+    render(
+      <OffPeakNote
+        spans={[[Date.UTC(2026, 7, 4, 16), Date.UTC(2026, 7, 5, 0)]]}
+      />,
+    );
+    expect(screen.getByText(/18:00/)).toBeInTheDocument();
+    expect(screen.getByText(/02:00/)).toBeInTheDocument();
+  });
+
+  // The spans arrive CLIPPED to the plot, and on the 24h chart the left edge
+  // falls inside the band for exactly the eight hours the rate is live. Quoting
+  // the clipped edge back would say the window opens at 22:00 while the chip
+  // beside it says the rate has been running since 18:00.
+  it("names the whole window even when the band was clipped to the plot", () => {
+    render(
+      <OffPeakNote
+        spans={[[Date.UTC(2026, 7, 4, 20), Date.UTC(2026, 7, 5, 0)]]}
+      />,
+    );
+    expect(screen.getByText(/18:00/)).toBeInTheDocument();
+    expect(screen.getByText(/02:00/)).toBeInTheDocument();
+  });
+
+  it("uses the winter hours for a winter band", () => {
+    render(
+      <OffPeakNote
+        spans={[[Date.UTC(2026, 0, 4, 16), Date.UTC(2026, 0, 5, 0)]]}
+      />,
+    );
+    expect(screen.getByText(/17:00/)).toBeInTheDocument();
+  });
+
+  // MiMo publishes a price and nothing about load. A note implying these are
+  // the quiet hours would invent a claim this page exists to avoid.
+  it("says it is a price and not a forecast", () => {
+    const { container } = render(
+      <OffPeakNote
+        spans={[[Date.UTC(2026, 7, 4, 16), Date.UTC(2026, 7, 5, 0)]]}
+      />,
+    );
+    expect(container.textContent).toMatch(/bills/i);
+    expect(container.textContent).toMatch(/not a forecast/i);
+  });
+});
+
+describe("OffPeakChip", () => {
+  // A countdown would be stale for most of the five minutes it is on screen.
+  // The boundary is an instant, and it is either past or it is not.
+  it("names the end of the window while the rate is live", () => {
+    render(<OffPeakChip now={Date.UTC(2026, 7, 4, 20)} />);
+    expect(screen.getByText(/until/)).toHaveTextContent("02:00");
+  });
+
+  it("names the start of the next one while it is not", () => {
+    render(<OffPeakChip now={Date.UTC(2026, 7, 4, 9)} />);
+    expect(screen.getByText(/from/)).toHaveTextContent("18:00");
   });
 });
 
