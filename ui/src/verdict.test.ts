@@ -286,6 +286,70 @@ describe("buildVerdict", () => {
     expect(v.detail.join(" ")).toMatch(/40 minutes ago/);
   });
 
+  // `cycles` counts the fixed window; `recent` does not. A daemon dead longer
+  // than that window has cycles = 0 and a full block of stale cycles, and the
+  // empty-state guard must not swallow the stale banner that owns this case.
+  it("calls a daemon dead longer than the window stale, not empty", () => {
+    const v = buildVerdict(
+      summary({
+        cycles: 0,
+        recent: recent([], { newestAt: "2026-08-03T09:00:00Z" }),
+      }),
+      summary(),
+    );
+    expect(v.headline).toMatch(/probe itself may be down/i);
+    expect(v.headline).not.toMatch(/collecting data/i);
+  });
+
+  // max_reasoning_tokens is a `max` over the whole fixed window, so it stays
+  // true for a day after one bad run. Above the network branch it would swallow
+  // an outage happening right now under a caveat about yesterday.
+  it("lets a live fault speak ahead of a day-old reasoning caveat", () => {
+    const v = buildVerdict(
+      summary({
+        recent: recent([FAULT_UPLINK, FAULT_UPLINK]),
+        models: [model({ max_reasoning_tokens: 512 })],
+      }),
+      summary(),
+    );
+    expect(v.headline).toMatch(/nothing in singapore was reachable/i);
+  });
+
+  // The headline follows the severity here for the same reason it does in the
+  // model branch: one cycle cannot support a present-tense absolute claim.
+  it("does not headline a single failed cycle as an outage", () => {
+    const v = buildVerdict(
+      summary({ recent: recent([FAULT_EDGE]) }),
+      summary(),
+    );
+    expect(v.state).toBe("elevated");
+    expect(v.headline).not.toMatch(/edge is unreachable/i);
+    expect(v.headline).toMatch(/missed a cycle/i);
+  });
+
+  // The index is a count of cycles, not a clock: a dropped slot leaves no cycle
+  // behind — the scheduler records those as skipped_runs — so multiplying the
+  // index out understates how long ago the failure was, in the flattering
+  // direction.
+  it("dates the last failure from the timestamps, not the cycle index", () => {
+    // The three reds sit at indices 2-4, but everything from index 2 back is a
+    // further two hours old: the slots between them were dropped.
+    const cycles = recent([]).map((c, i) =>
+      i < 2
+        ? c
+        : {
+            ...c,
+            fault: i < 5 ? FAULT_EDGE : c.fault,
+            at: new Date(Date.parse(c.at) - 2 * 60 * 60 * 1000).toISOString(),
+          },
+    );
+    const v = buildVerdict(summary({ recent: cycles }), summary());
+    expect(v.state).toBe("degraded");
+    // Two hours and ten minutes back, not the ten minutes the index implies.
+    expect(v.detail.join(" ")).toMatch(/2 hours ago/);
+    expect(v.detail.join(" ")).not.toMatch(/10 minutes ago/);
+  });
+
   // A cycle with no stored attribution is not a failure. Absence of evidence is
   // not evidence, and a monitor must never round in that direction.
   it("treats an unattributed cycle as quiet, not as red", () => {

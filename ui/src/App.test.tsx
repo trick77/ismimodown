@@ -205,7 +205,17 @@ describe("App", () => {
     vi.stubGlobal(
       "fetch",
       mockFetch({
-        summary: summary({ cycles: 0, models: [], net: [], faults: {} }),
+        // An empty `recent` too, because that is what a cold database actually
+        // serves: `cycles` is window-scoped and `recent` is not, so a block of
+        // cycles with cycles = 0 is not "no data yet" — it is a daemon that
+        // stopped longer ago than the window, which the stale branch owns.
+        summary: summary({
+          cycles: 0,
+          models: [],
+          net: [],
+          faults: {},
+          recent: [],
+        }),
       }),
     );
     render(<App />);

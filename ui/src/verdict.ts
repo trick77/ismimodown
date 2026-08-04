@@ -112,12 +112,21 @@ export const ELEVATED_RECENT = 1;
 export const DEGRADED_WRONG_RECENT = 3;
 export const ELEVATED_WRONG_RECENT = 2;
 
-// Two missed cycles. Past this the newest measurement is not "now", and the
+// Three missed cycles. Past this the newest measurement is not "now", and the
 // only honest banner is one that says so: a daemon that died mid-incident must
 // not pin its last red cycle on screen forever, which is the same bug the
 // window-scoped counts had, wearing a different hat. Well clear of the 30s
 // response cache, so a cached body can never trip it.
-export const STALE_AFTER_MS = 2 * 5 * 60 * 1000;
+//
+// THREE, not two, because a cycle is stamped with its START and only becomes
+// visible when it is SAVED. The budget a live daemon actually has is this minus
+// the running cycle's own duration, and a cycle whose probes time out costs up
+// to BACKEND_PROBE_TIMEOUT each — 240 s, doubled on a wide cycle. At two
+// intervals a single timed-out wide cycle pushes the newest stored started_at
+// past the threshold and the banner announces "the probe itself may be down"
+// during the exact incident it should be reporting as degraded, which is the
+// severity inversion this constant exists to avoid.
+export const STALE_AFTER_MS = 3 * 5 * 60 * 1000;
 
 // A cycle nobody could attribute. Both classes travel together everywhere in
 // this codebase: route is no longer produced, but stored cycles carry it, and
@@ -141,7 +150,19 @@ export type Track = {
   // How many cycles back the newest red is, or null if there is none in the
   // whole served block — which reaches further back than the horizon, so a
   // quiet banner can still say when the last failure was.
+  //
+  // A COUNT of cycles, and only ever used as one. It is not a clock: a dropped
+  // slot leaves no cycle behind, so the block is not guaranteed to be evenly
+  // spaced. See lastRedMinutes.
   lastRedAgo: number | null;
+  // How long ago the newest red actually was, in minutes, read off the stored
+  // timestamps rather than multiplied out of the index above.
+  //
+  // The two disagree exactly when a slot was dropped — which the scheduler now
+  // records as skipped_runs rather than pretending it did not happen — so an
+  // index-derived "20 minutes ago" can describe a failure from an hour back,
+  // understating it in the direction that flatters.
+  lastRedMinutes: number | null;
 };
 
 export function track(
@@ -157,11 +178,20 @@ export function track(
     if (!isRed(cycle)) break;
     streak++;
   }
-  const lastRedAgo = cycles.findIndex(isRed);
+  const idx = cycles.findIndex(isRed);
+  let lastRedMinutes: number | null = null;
+  if (idx !== -1) {
+    // Measured from the NEWEST served cycle, not from the browser clock, for
+    // the same reason isStale is: a skewed client must not be able to age a
+    // failure it did not observe.
+    const delta = Date.parse(cycles[0]!.at) - Date.parse(cycles[idx]!.at);
+    lastRedMinutes = Number.isFinite(delta) ? Math.round(delta / 60000) : null;
+  }
   return {
     streak,
     count: horizon.filter(isRed).length,
-    lastRedAgo: lastRedAgo === -1 ? null : lastRedAgo,
+    lastRedAgo: idx === -1 ? null : idx,
+    lastRedMinutes,
   };
 }
 
@@ -231,9 +261,9 @@ export function isStale(summary: Summary): boolean {
   return Number.isFinite(age) && age > STALE_AFTER_MS;
 }
 
-// How long ago, in words, a cycle n places back from the newest one ran.
-function agoWords(cyclesBack: number): string {
-  const minutes = cyclesBack * 5;
+// How long ago, in words. Takes MINUTES off the stored timestamps rather than a
+// cycle index: the two only agree while every slot was actually run.
+function agoWords(minutes: number): string {
   if (minutes < 5) return "just now";
   if (minutes < 60) return `${minutes} minutes ago`;
   const hours = Math.round(minutes / 60);
@@ -260,7 +290,13 @@ export function buildVerdict(
   // the field must read as "nothing to say", never crash the page it is the
   // headline of.
   const recent = summary?.recent ?? [];
-  if (!summary || summary.cycles === 0 || recent.length === 0) {
+  // Deliberately NOT `summary.cycles === 0`. cycles counts the fixed window;
+  // recent does not. A daemon dead for longer than that window has cycles = 0
+  // and a full recent block, and testing cycles here would publish "first
+  // samples within 5 minutes" over a stack of hours-old cycles — swallowing the
+  // stale branch below, which exists for precisely that case. An empty recent
+  // block is the only thing that actually means "no data yet".
+  if (!summary || recent.length === 0) {
     return {
       state: "unknown",
       headline: "Collecting data — first samples within 5 minutes",
@@ -285,10 +321,23 @@ export function buildVerdict(
     };
   }
 
+  const infra = track(recent, infraRed);
+  const infraState = scoreTrack(infra, FAILURE_THRESHOLDS);
+  if (infraState !== "normal") {
+    return faultVerdict(infraState, recent, infra);
+  }
+
   // A non-zero reasoning count invalidates every latency figure in the window,
-  // so it outranks any latency verdict rather than sitting beside it. It is
-  // scored over the same window whose figures it invalidates — no longer over
-  // whichever range the reader selected.
+  // so it outranks any LATENCY verdict rather than sitting beside it — but it
+  // sits BELOW the network branch, and that order is load-bearing.
+  //
+  // max_reasoning_tokens is a `max` over the whole fixed window, so one run
+  // twenty-three hours ago holds this branch open for a further day. Above the
+  // network branch it would swallow a live uplink outage under a stale caveat,
+  // which is the window-scoped stickiness this whole banner was rewritten to
+  // remove, reintroduced one branch higher. Below it, a fault happening NOW
+  // still speaks first, and the caveat is still the loudest thing said about
+  // the latency figures themselves.
   const reasoning = summary.models.filter((m) => m.max_reasoning_tokens > 0);
   if (reasoning.length > 0) {
     return {
@@ -300,12 +349,6 @@ export function buildVerdict(
           `${m.model_id} returned up to ${m.max_reasoning_tokens} reasoning tokens despite thinking being disabled.`,
       ),
     };
-  }
-
-  const infra = track(recent, infraRed);
-  const infraState = scoreTrack(infra, FAILURE_THRESHOLDS);
-  if (infraState !== "normal") {
-    return faultVerdict(infraState, recent, infra);
   }
 
   const detail: string[] = [];
@@ -332,7 +375,7 @@ export function buildVerdict(
       detail:
         infra.lastRedAgo !== null
           ? [
-              `The last failed cycle was ${agoWords(infra.lastRedAgo)}; the ${infra.lastRedAgo} since have all been clean.`,
+              `The last failed cycle was ${agoWords(infra.lastRedMinutes ?? infra.lastRedAgo * 5)}; the ${infra.lastRedAgo} since have all been clean.`,
             ]
           : detail,
     };
@@ -354,10 +397,18 @@ export function buildVerdict(
 // faultVerdict speaks for the network layer, where the precedence that matters
 // is which layer failed rather than how much: uplink -> route -> edge, because
 // each one makes the ones beyond it unreadable.
+//
+// The HEADLINE still follows the severity, exactly as the model branch above
+// does. At elevated the whole evidence is one failed cycle inside the hour, and
+// "MiMo's edge is unreachable" over a detail line reading "One cycle is not yet
+// a pattern" is the banner contradicting itself in public — the present-tense
+// absolute claim being the half a reader remembers.
 function faultVerdict(state: State, recent: RecentCycle[], t: Track): Verdict {
   const { fault, counts } = dominantFault(recent);
   const horizon = Math.min(RECENT_CYCLES, recent.length);
-  const when = t.lastRedAgo === null ? "just now" : agoWords(t.lastRedAgo);
+  const when =
+    t.lastRedMinutes === null ? "just now" : agoWords(t.lastRedMinutes);
+  const sustained = state === "degraded";
 
   const detail: string[] = [];
   if (t.streak >= DEGRADED_STREAK) {
@@ -377,12 +428,19 @@ function faultVerdict(state: State, recent: RecentCycle[], t: Track): Verdict {
   if (fault === FAULT_UPLINK || fault === FAULT_ROUTE) {
     const headline =
       fault === FAULT_UPLINK
-        ? "Nothing in Singapore was reachable — this says nothing about MiMo"
-        : "The route to Singapore is degraded — not MiMo, and not us";
+        ? sustained
+          ? "Nothing in Singapore was reachable — this says nothing about MiMo"
+          : "A cycle reached nothing in Singapore — this says nothing about MiMo"
+        : sustained
+          ? "The route to Singapore is degraded — not MiMo, and not us"
+          : "A cycle found no route to Singapore — not MiMo, and not us";
+    // Singular at elevated, like the edge branch below: one cycle described in
+    // the plural is the same over-claim the headline just stopped making.
+    const those = t.count === 1 ? "That cycle" : "Those cycles";
     detail.push(
       fault === FAULT_UPLINK
-        ? "Those cycles reached neither MiMo nor the reference host, so they are excluded from availability. From one vantage point our own connection and the route to Singapore look identical, and neither is MiMo's to answer for."
-        : "Those cycles could not reach MiMo's edge OR an unrelated Singapore host.",
+        ? `${those} reached neither MiMo nor the reference host, so ${t.count === 1 ? "it is" : "they are"} excluded from availability. From one vantage point our own connection and the route to Singapore look identical, and neither is MiMo's to answer for.`
+        : `${those} could not reach MiMo's edge OR an unrelated Singapore host.`,
     );
     // A mixed run has to disclose the mix, or the headline claims more than the
     // evidence supports.
@@ -396,7 +454,9 @@ function faultVerdict(state: State, recent: RecentCycle[], t: Track): Verdict {
   }
 
   detail.push(
-    "They failed to reach MiMo while a second Singapore host answered.",
+    t.count === 1
+      ? "It failed to reach MiMo while a second Singapore host answered."
+      : "They failed to reach MiMo while a second Singapore host answered.",
   );
   const unattributed = (counts[FAULT_UPLINK] ?? 0) + (counts[FAULT_ROUTE] ?? 0);
   if (unattributed > 0) {
@@ -406,7 +466,9 @@ function faultVerdict(state: State, recent: RecentCycle[], t: Track): Verdict {
   }
   return {
     state,
-    headline: "MiMo's edge is unreachable — the route to Singapore is fine",
+    headline: sustained
+      ? "MiMo's edge is unreachable — the route to Singapore is fine"
+      : "MiMo's edge missed a cycle — the route to Singapore is fine",
     detail,
   };
 }
