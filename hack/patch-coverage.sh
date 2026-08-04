@@ -190,7 +190,35 @@ if [[ -f coverage/backend.xml ]]; then
   # "http://x" both stay counted. It is deliberately conservative: a file it
   # cannot read or parse keeps every line it had.
   go run hack/strip-comment-lines.go "$MODULE_DIR" \
-    < coverage/backend-rooted.xml > coverage/backend-code-only.xml
+    < coverage/backend-rooted.xml > coverage/backend-comment-free.xml
+
+  # Drop cmd/ from the patch report, exactly as hack/coverage-gate.sh drops it
+  # from the floor.
+  #
+  # The two gates were inconsistent: the floor excludes main() wiring by design
+  # ("Anything under cmd/ is deliberately not counted"), while patch coverage
+  # counted it. That divergence is invisible on a normal PR, which touches a few
+  # lines of cmd/ at most — and fatal on one that ADDS a binary's whole
+  # entrypoint. Measured on the phase-1 PR: 80.5% excluding cmd/, 63.7%
+  # including it, against a 75% floor.
+  #
+  # main() is process wiring: it opens a DB, builds a handler and blocks on
+  # ListenAndServe. Testing it means testing net/http. Holding new code to a
+  # bar that only a fake main() could clear would push logic OUT of testable
+  # packages, which is precisely backwards.
+  python3 - coverage/backend-comment-free.xml coverage/backend-code-only.xml <<'PY'
+import sys
+import xml.etree.ElementTree as ET
+
+src, dst = sys.argv[1], sys.argv[2]
+tree = ET.parse(src)
+for parent in tree.getroot().iter("classes"):
+    for cls in list(parent):
+        fn = cls.get("filename", "")
+        if fn.startswith("cmd/") or "/cmd/" in fn:
+            parent.remove(cls)
+tree.write(dst, encoding="UTF-8", xml_declaration=True)
+PY
 
   diff-cover coverage/backend-code-only.xml \
     --compare-branch "$BASE_REF" \

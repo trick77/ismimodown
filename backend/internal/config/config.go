@@ -168,8 +168,13 @@ func Load() (Config, error) {
 	if cfg.APIKey == "" {
 		return Config{}, fmt.Errorf("BACKEND_MIMO_API_KEY is required")
 	}
-	if cfg.Origin == "" {
-		return Config{}, fmt.Errorf("BACKEND_ORIGIN is required")
+	// TrimSpace, not == "": env() substitutes the default for an empty value, so
+	// an `== ""` test here could never fire and would be validation in name
+	// only. A whitespace-only override IS reachable, and it would stamp every
+	// sample with a blank origin — invisible until a second probe location is
+	// added and the two cannot be told apart.
+	if strings.TrimSpace(cfg.Origin) == "" {
+		return Config{}, fmt.Errorf("BACKEND_ORIGIN must not be empty")
 	}
 	if err := validateBaseURL(cfg.BaseURL); err != nil {
 		return Config{}, err

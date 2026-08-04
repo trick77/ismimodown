@@ -139,6 +139,7 @@ func TestLoadRejectsBadValues(t *testing.T) {
 		{"base url without scheme", "BACKEND_MIMO_BASE_URL", "token-plan-sgp.xiaomimimo.com/v1", "BACKEND_MIMO_BASE_URL"},
 		{"base url with bad scheme", "BACKEND_MIMO_BASE_URL", "ftp://example.com/v1", "BACKEND_MIMO_BASE_URL"},
 		{"empty system prompt", "BACKEND_PROBE_SYSTEM_PROMPT", " ", "BACKEND_PROBE_SYSTEM_PROMPT"},
+		{"whitespace origin", "BACKEND_ORIGIN", "  ", "BACKEND_ORIGIN"},
 		{"ping host with port", "BACKEND_PING_MIMO_HOST", "example.com:443", "BACKEND_PING_MIMO_HOST"},
 		{"ping host with scheme", "BACKEND_PING_REF_EU_HOST", "https://example.com", "BACKEND_PING_REF_EU_HOST"},
 	}
