@@ -1,0 +1,31 @@
+# Local stack: the same image, published on localhost with no Traefik and no
+# TLS. Useful for checking the built container rather than `make dev`, which
+# runs the daemon and Vite from source.
+#
+#   BACKEND_MIMO_API_KEY=tp-... docker compose -f compose.dev.yaml up --build
+services:
+  mimostats:
+    build:
+      context: .
+      dockerfile: backend/Containerfile
+    restart: unless-stopped
+    user: "1000:1000"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m
+    environment:
+      TMPDIR: /tmp
+      BACKEND_ADDR: ":8080"
+      BACKEND_PUBLIC_URL: "http://127.0.0.1:8080"
+      BACKEND_DB_PATH: /data/mimostats.db
+      BACKEND_LOG_LEVEL: debug
+      BACKEND_ORIGIN: "${BACKEND_ORIGIN:-dev}"
+      BACKEND_MIMO_API_KEY: "${BACKEND_MIMO_API_KEY:?BACKEND_MIMO_API_KEY is required}"
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - ./data:/data
