@@ -60,6 +60,12 @@ services:
     volumes:
       # SQLite lives here. ~110k rows over the 3-month window, so this stays
       # small — but it is the only state, and losing it loses the history.
+      #
+      # ./data must EXIST and be owned by the `user:` UID above before the first
+      # start. It is gitignored, so a fresh clone does not have it, and Docker
+      # creates a missing bind-mount source owned by root — which this non-root
+      # container cannot write, so SQLite fails and the container crash-loops.
+      # See DEPLOY.md; `mkdir -p data && sudo chown 1000:1000 data`.
       - ./data:/data
 
     networks:

@@ -21,7 +21,16 @@ with the dashboard embedded, plus one SQLite file.
 git clone git@github.com:trick77/mimostats.git
 cd mimostats
 cp .env.example .env
-$EDITOR .env          # BACKEND_MIMO_API_KEY is the only required value
+$EDITOR .env                      # BACKEND_MIMO_API_KEY is the only required value
+
+# The data directory must exist AND be owned by the container's UID before the
+# first start. It is gitignored, so a fresh clone has no ./data — and Docker
+# creates a missing bind-mount source owned by root, which the non-root
+# container then cannot write. SQLite fails to create the database and the
+# container crash-loops with "unable to open database file".
+mkdir -p data
+sudo chown 1000:1000 data         # matches `user:` in compose.yaml
+
 docker compose up -d
 ```
 
@@ -61,6 +70,18 @@ sqlite3 data/mimostats.db \
 cache-defeat nonce stopped working and the prefill numbers have quietly become
 cache lookups; on `infer` it means the system message went missing and MiMo is
 serving its own injected prompt from cache.
+
+### If the container crash-loops on first start
+
+```sh
+docker compose logs mimostats | tail -20
+```
+
+`unable to open database file` means `./data` is not writable by UID 1000 — see
+the `chown` in the install steps above. `BACKEND_MIMO_API_KEY is required`
+means `.env` was not filled in; compose fails before the container starts, by
+design, because a container running without a key would record an unbroken wall
+of auth failures that renders on the dashboard as a MiMo outage.
 
 ## Confirming the reference hosts from this box
 
@@ -118,6 +139,9 @@ The SQLite file is the only state:
 ```sh
 sqlite3 data/mimostats.db ".backup '/tmp/mimostats-$(date +%F).db'"
 ```
+
+Run this as a user that can write to `data/` — the database is in WAL mode, and
+even a read needs to touch the `-shm` file. `sudo -u '#1000'` if in doubt.
 
 Retention deletes cycles older than three months, so the history is bounded at
 roughly 110k rows regardless of uptime.
