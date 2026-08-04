@@ -97,7 +97,6 @@ func run() error {
 
 	slog.Info("starting mimostats",
 		"version", version.Version,
-		"origin", cfg.Origin,
 		"base_url", cfg.BaseURL,
 		"db", cfg.DBPath,
 	)
@@ -143,7 +142,6 @@ func run() error {
 		Broker:         broker,
 		Limiter:        limiter,
 		Shutdown:       shutdownCh,
-		Origin:         cfg.Origin,
 		Models:         cfg.Models,
 		BaseURL:        cfg.BaseURL,
 		RefSGPHost:     cfg.RefSGPHost,
@@ -165,7 +163,6 @@ func run() error {
 			Timeout:       cfg.ProbeTimeout,
 		}),
 		Pinger:     probe.NewPinger(cfg.PingTimeout),
-		Origin:     cfg.Origin,
 		Models:     cfg.Models,
 		MimoHost:   cfg.MimoHost,
 		RefSGPHost: cfg.RefSGPHost,

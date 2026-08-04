@@ -27,7 +27,6 @@ func New(db *sql.DB) *Store { return &Store{db: db} }
 // Cycle is one complete aligned measurement.
 type Cycle struct {
 	StartedAt time.Time
-	Origin    string
 	Net       []probe.NetResult
 	Infer     []probe.InferResult
 }
@@ -50,8 +49,8 @@ func (s *Store) Save(ctx context.Context, c Cycle) (int64, error) {
 	defer func() { _ = tx.Rollback() }()
 
 	res, err := tx.ExecContext(ctx,
-		`INSERT INTO cycles (started_at, origin) VALUES (?, ?)`,
-		c.StartedAt.UTC().Format(time.RFC3339Nano), c.Origin)
+		`INSERT INTO cycles (started_at) VALUES (?)`,
+		c.StartedAt.UTC().Format(time.RFC3339Nano))
 	if err != nil {
 		return 0, fmt.Errorf("insert cycle: %w", err)
 	}
@@ -147,10 +146,10 @@ func insertInfer(ctx context.Context, tx *sql.Tx, cycleID int64, in probe.InferR
 // Surfaced rather than swallowed: a silently skipped run makes the availability
 // strip lie by omission — the cycle simply is not there, which reads as "no
 // data" rather than "we were still busy".
-func (s *Store) RecordSkip(ctx context.Context, at time.Time, origin, modelID, probeKind string) error {
+func (s *Store) RecordSkip(ctx context.Context, at time.Time, modelID, probeKind string) error {
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO skipped_runs (occurred_at, origin, model_id, probe) VALUES (?, ?, ?, ?)`,
-		at.UTC().Format(time.RFC3339Nano), origin, modelID, probeKind)
+		`INSERT INTO skipped_runs (occurred_at, model_id, probe) VALUES (?, ?, ?)`,
+		at.UTC().Format(time.RFC3339Nano), modelID, probeKind)
 	return err
 }
 

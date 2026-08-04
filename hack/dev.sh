@@ -33,7 +33,6 @@ trap cleanup EXIT INT TERM
   cd "$ROOT/backend"
   exec env \
     BACKEND_ADDR=127.0.0.1:8080 \
-    BACKEND_PUBLIC_URL=http://127.0.0.1:8080 \
     BACKEND_DB_PATH="$DB_PATH" \
     BACKEND_LOG_LEVEL="${BACKEND_LOG_LEVEL:-debug}" \
     go run ./cmd/mimostats

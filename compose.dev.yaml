@@ -20,12 +20,17 @@ services:
     environment:
       TMPDIR: /tmp
       BACKEND_ADDR: ":8080"
-      BACKEND_PUBLIC_URL: "http://127.0.0.1:8080"
-      BACKEND_DB_PATH: /data/mimostats.db
       BACKEND_LOG_LEVEL: debug
-      BACKEND_ORIGIN: "${BACKEND_ORIGIN:-dev}"
       BACKEND_MIMO_API_KEY: "${BACKEND_MIMO_API_KEY:?BACKEND_MIMO_API_KEY is required}"
     ports:
       - "127.0.0.1:8080:8080"
     volumes:
+      # Same trap as the production compose file: this is a BIND mount, so it
+      # takes its ownership from the host directory and the image's 1000-owned
+      # /data does not apply. ./data is gitignored, so a fresh clone lacks it,
+      # and Docker creates a missing bind-mount source as root — which this
+      # non-root container cannot write, so SQLite fails with "unable to open
+      # database file: permission denied" and the container crash-loops.
+      # `mkdir -p data && sudo chown 1000:1000 data` before the first start.
+      # Linux only: macOS/OrbStack translates ownership and hides this.
       - ./data:/data

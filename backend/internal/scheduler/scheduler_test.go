@@ -94,7 +94,6 @@ func newTestScheduler(t *testing.T, prober Prober, pinger Pinger) (*Scheduler, *
 		Store:  samples.New(db),
 		Prober: prober,
 		Pinger: pinger,
-		Origin: "rbx",
 		Models: []string{"mimo-v2.5", "mimo-v2.5-pro"},
 	}), db
 }

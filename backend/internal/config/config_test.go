@@ -27,9 +27,6 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.BaseURL != DefaultBaseURL {
 		t.Errorf("BaseURL = %q, want %q", cfg.BaseURL, DefaultBaseURL)
 	}
-	if cfg.Origin != "rbx" {
-		t.Errorf("Origin = %q, want rbx", cfg.Origin)
-	}
 	if cfg.Retention != 2160*time.Hour {
 		t.Errorf("Retention = %v, want 2160h (3 months)", cfg.Retention)
 	}
@@ -103,7 +100,6 @@ func TestLoadRequiresAPIKey(t *testing.T) {
 func TestLoadOverrides(t *testing.T) {
 	setMinimalEnv(t)
 	t.Setenv("BACKEND_ADDR", "127.0.0.1:9999")
-	t.Setenv("BACKEND_ORIGIN", "fra")
 	t.Setenv("BACKEND_RETENTION", "720h")
 	t.Setenv("BACKEND_PROBE_TIMEOUT", "300s")
 	t.Setenv("BACKEND_PING_REF_SGP_HOST", "example.sg")
@@ -114,9 +110,6 @@ func TestLoadOverrides(t *testing.T) {
 	}
 	if cfg.Addr != "127.0.0.1:9999" {
 		t.Errorf("Addr = %q", cfg.Addr)
-	}
-	if cfg.Origin != "fra" {
-		t.Errorf("Origin = %q", cfg.Origin)
 	}
 	if cfg.Retention != 720*time.Hour {
 		t.Errorf("Retention = %v", cfg.Retention)
@@ -139,7 +132,6 @@ func TestLoadRejectsBadValues(t *testing.T) {
 		{"base url without scheme", "BACKEND_MIMO_BASE_URL", "token-plan-sgp.xiaomimimo.com/v1", "BACKEND_MIMO_BASE_URL"},
 		{"base url with bad scheme", "BACKEND_MIMO_BASE_URL", "ftp://example.com/v1", "BACKEND_MIMO_BASE_URL"},
 		{"empty system prompt", "BACKEND_PROBE_SYSTEM_PROMPT", " ", "BACKEND_PROBE_SYSTEM_PROMPT"},
-		{"whitespace origin", "BACKEND_ORIGIN", "  ", "BACKEND_ORIGIN"},
 		{"ping host with port", "BACKEND_PING_MIMO_HOST", "example.com:443", "BACKEND_PING_MIMO_HOST"},
 		{"ping host with scheme", "BACKEND_PING_REF_EU_HOST", "https://example.com", "BACKEND_PING_REF_EU_HOST"},
 	}

@@ -51,7 +51,6 @@ func TestSaveWritesTheWholeCycle(t *testing.T) {
 
 	id, err := s.Save(context.Background(), Cycle{
 		StartedAt: time.Date(2026, 8, 4, 6, 0, 0, 0, time.UTC),
-		Origin:    "rbx",
 		Net:       okNet(),
 		Infer:     []probe.InferResult{okInfer("mimo-v2.5", 912)},
 	})
@@ -88,7 +87,6 @@ func TestEveryInferRowHasNetworkReadingsInItsOwnCycle(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		if _, err := s.Save(context.Background(), Cycle{
 			StartedAt: time.Now().Add(time.Duration(i) * time.Minute),
-			Origin:    "rbx",
 			Net:       okNet(),
 			Infer: []probe.InferResult{
 				okInfer("mimo-v2.5", 900), okInfer("mimo-v2.5-pro", 1100),
@@ -118,8 +116,8 @@ func TestSaveRejectsACycleWithNoNetworkReadings(t *testing.T) {
 	s := New(openTestDB(t))
 
 	_, err := s.Save(context.Background(), Cycle{
-		StartedAt: time.Now(), Origin: "rbx",
-		Infer: []probe.InferResult{okInfer("mimo-v2.5", 900)},
+		StartedAt: time.Now(),
+		Infer:     []probe.InferResult{okInfer("mimo-v2.5", 900)},
 	})
 	if err == nil {
 		t.Fatal("expected Save to reject a cycle with no network readings")
@@ -134,7 +132,7 @@ func TestFailedRunStoresNullTimingsNotZeros(t *testing.T) {
 	s := New(db)
 
 	id, err := s.Save(context.Background(), Cycle{
-		StartedAt: time.Now(), Origin: "rbx", Net: okNet(),
+		StartedAt: time.Now(), Net: okNet(),
 		Infer: []probe.InferResult{{
 			ModelID: "mimo-v2.5", Probe: probe.ProbeInfer,
 			TotalMs: 240000, OK: false, ErrorClass: probe.ErrClassTimeout,
@@ -186,14 +184,14 @@ func TestTimeoutDoesNotPoisonThePercentile(t *testing.T) {
 	for i := 0; i < 9; i++ {
 		if _, err := s.Save(ctx, Cycle{
 			StartedAt: time.Now().Add(time.Duration(i) * time.Minute),
-			Origin:    "rbx", Net: okNet(),
-			Infer: []probe.InferResult{okInfer("mimo-v2.5", 900)},
+			Net:       okNet(),
+			Infer:     []probe.InferResult{okInfer("mimo-v2.5", 900)},
 		}); err != nil {
 			t.Fatalf("Save: %v", err)
 		}
 	}
 	if _, err := s.Save(ctx, Cycle{
-		StartedAt: time.Now().Add(10 * time.Minute), Origin: "rbx", Net: okNet(),
+		StartedAt: time.Now().Add(10 * time.Minute), Net: okNet(),
 		Infer: []probe.InferResult{{
 			ModelID: "mimo-v2.5", Probe: probe.ProbeInfer,
 			TotalMs: 240000, OK: false, ErrorClass: probe.ErrClassTimeout,
@@ -252,7 +250,7 @@ func TestCycleFaultIsStoredFromTheNetworkReadings(t *testing.T) {
 			s := New(db)
 
 			id, err := s.Save(context.Background(), Cycle{
-				StartedAt: time.Now(), Origin: "rbx",
+				StartedAt: time.Now(),
 				Net: []probe.NetResult{
 					{Target: probe.TargetMimoSGP, OK: tc.mimo},
 					{Target: probe.TargetRefSGP, OK: tc.refSGP},
@@ -284,7 +282,7 @@ func TestSaveIsAtomic(t *testing.T) {
 
 	// An invalid probe kind trips the CHECK constraint partway through.
 	_, err := s.Save(context.Background(), Cycle{
-		StartedAt: time.Now(), Origin: "rbx", Net: okNet(),
+		StartedAt: time.Now(), Net: okNet(),
 		Infer: []probe.InferResult{
 			okInfer("mimo-v2.5", 900),
 			{ModelID: "mimo-v2.5-pro", Probe: "not-a-probe-kind", OK: true},
@@ -309,7 +307,7 @@ func TestRecordSkip(t *testing.T) {
 	db := openTestDB(t)
 	s := New(db)
 
-	if err := s.RecordSkip(context.Background(), time.Now(), "rbx", "mimo-v2.5-pro", probe.ProbeInfer); err != nil {
+	if err := s.RecordSkip(context.Background(), time.Now(), "mimo-v2.5-pro", probe.ProbeInfer); err != nil {
 		t.Fatalf("RecordSkip: %v", err)
 	}
 
@@ -332,20 +330,20 @@ func TestSweepDeletesOnlyBeyondTheWindow(t *testing.T) {
 	now := time.Now()
 
 	oldID, err := s.Save(ctx, Cycle{
-		StartedAt: now.Add(-100 * 24 * time.Hour), Origin: "rbx",
-		Net: okNet(), Infer: []probe.InferResult{okInfer("mimo-v2.5", 900)},
+		StartedAt: now.Add(-100 * 24 * time.Hour),
+		Net:       okNet(), Infer: []probe.InferResult{okInfer("mimo-v2.5", 900)},
 	})
 	if err != nil {
 		t.Fatalf("Save old: %v", err)
 	}
 	newID, err := s.Save(ctx, Cycle{
-		StartedAt: now.Add(-1 * time.Hour), Origin: "rbx",
-		Net: okNet(), Infer: []probe.InferResult{okInfer("mimo-v2.5", 900)},
+		StartedAt: now.Add(-1 * time.Hour),
+		Net:       okNet(), Infer: []probe.InferResult{okInfer("mimo-v2.5", 900)},
 	})
 	if err != nil {
 		t.Fatalf("Save new: %v", err)
 	}
-	if err := s.RecordSkip(ctx, now.Add(-100*24*time.Hour), "rbx", "m", probe.ProbeInfer); err != nil {
+	if err := s.RecordSkip(ctx, now.Add(-100*24*time.Hour), "m", probe.ProbeInfer); err != nil {
 		t.Fatalf("RecordSkip: %v", err)
 	}
 

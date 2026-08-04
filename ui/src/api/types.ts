@@ -39,7 +39,6 @@ export type NetSummary = {
 
 export type Summary = {
   window: string;
-  origin: string;
   cycles: number;
   models: ModelSummary[];
   net: NetSummary[];

@@ -82,7 +82,7 @@ CREATE INDEX idx_infer_probes_model_probe ON infer_probes (model_id, probe, cycl
 --
 --   mimo ok                       -> 'ok'
 --   mimo fail, ref_sgp ok         -> 'edge'   (MiMo's edge; the route is fine)
---   mimo + ref_sgp fail, ref_eu ok-> 'route'  (Roubaix->Singapore degraded)
+--   mimo + ref_sgp fail, ref_eu ok-> 'route'  (Europe->Singapore degraded)
 --   all three fail                -> 'uplink' (ours; window excluded from availability)
 CREATE TABLE cycle_fault (
   cycle_id INTEGER PRIMARY KEY REFERENCES cycles (id) ON DELETE CASCADE,

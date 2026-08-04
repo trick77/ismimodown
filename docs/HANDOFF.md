@@ -26,7 +26,7 @@ then `AGENTS.md` (the invariants).
 2. Merging #7 cuts the next patch release. The image already builds: six release runs have
    succeeded and `0.0.6` — the first build carrying the UI stage — is on GHCR as `latest`.
    It has never been RUN, only built, so `docker compose up` is still unexercised.
-3. **Confirm the two reference ping hosts from the Roubaix box.** Every RTT so far is from
+3. **Confirm the two reference ping hosts from the probe box.** Every RTT so far is from
    Zurich. `DEPLOY.md` has a copy-paste script. This is the longest-standing open item.
 4. Deploy per `DEPLOY.md`, then let it run 24h and confirm the network/server-side split looks
    sane and consumption tracks the cost model.

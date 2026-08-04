@@ -2,11 +2,11 @@
 //
 // Two models from one vendor, measured from one place. Anyone screenshotting a
 // number off this page should be able to see both limits without scrolling.
-export function Masthead({ origin }: { origin: string }) {
+export function Masthead() {
   return (
     <header className="py-10 sm:py-16">
       <p className="num text-micro uppercase tracking-[0.22em] text-faint">
-        live · {origin} → singapore · every 5 min
+        live → singapore · every 5 min
       </p>
       <h1 className="mt-3 font-serif text-[clamp(2.4rem,7vw,4rem)] font-normal leading-[0.95] tracking-tight text-ink">
         mimostats

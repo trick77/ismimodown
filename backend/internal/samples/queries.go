@@ -123,7 +123,6 @@ type NetSummary struct {
 // Summary is the whole dashboard state for one window.
 type Summary struct {
 	Window      string         `json:"window"`
-	Origin      string         `json:"origin"`
 	Cycles      int            `json:"cycles"`
 	Models      []ModelSummary `json:"models"`
 	Net         []NetSummary   `json:"net"`
@@ -183,10 +182,10 @@ func (s *Store) stats(ctx context.Context, column, modelID, probeKind string, si
 }
 
 // Summarize builds the dashboard state for a window.
-func (s *Store) Summarize(ctx context.Context, w Window, origin string, models []string, probeKind string, now time.Time) (Summary, error) {
+func (s *Store) Summarize(ctx context.Context, w Window, models []string, probeKind string, now time.Time) (Summary, error) {
 	since := now.Add(-w.Duration)
 	out := Summary{
-		Window: w.Key, Origin: origin,
+		Window: w.Key,
 		Faults: map[string]int{}, GeneratedAt: now.UTC(),
 	}
 
