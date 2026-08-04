@@ -42,12 +42,32 @@ export type NetSummary = {
   available_pct: number;
 };
 
+// One model's outcome in one cycle. Two fields, because a "how is it right
+// now" reading acts on whether the run happened and whether it was right —
+// never on its timings, which are scored from a window's percentiles.
+export type RecentRun = { ok: boolean; answer_ok: boolean | null };
+
+// One cycle with its stored attribution, newest first.
+//
+// This is the only part of the summary NOT scoped to the window. fault arrives
+// RAW — including the historical "route" and the empty string a cycle with no
+// attribution row carries — because deciding what those mean is verdict.ts's
+// job, not the daemon's.
+export type RecentCycle = {
+  at: string;
+  fault: string;
+  models: Record<string, RecentRun>;
+};
+
 export type Summary = {
   window: string;
   cycles: number;
   models: ModelSummary[];
   net: NetSummary[];
   faults: Record<string, number>;
+  // NOT window-scoped. faults counts what happened over the window; this is
+  // what is happening now, and the two answer different questions.
+  recent: RecentCycle[];
   skipped_runs: number;
   generated_at: string;
 };

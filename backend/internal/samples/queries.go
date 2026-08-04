@@ -150,15 +150,55 @@ type NetSummary struct {
 	Available float64 `json:"available_pct"`
 }
 
+// RecentRun is one model's outcome in one cycle, reduced to the two facts a
+// "how is it right now" verdict can act on.
+//
+// No timings. Latency is scored from a window summary, where the percentiles
+// are computed in SQL over enough samples to mean something — not from a
+// handful of rows sorted on the client.
+type RecentRun struct {
+	OK       bool  `json:"ok"`
+	AnswerOK *bool `json:"answer_ok"`
+}
+
+// RecentCycle is one probe cycle with its stored attribution.
+//
+// This is the only part of the summary payload that is NOT scoped to the
+// window, and deliberately so: the verdict banner answers "how is it right
+// now", and reading that off aggregate fault COUNTS over the selected window is
+// how one failed cycle published DEGRADED until it aged out — three months, on
+// the 3mo view.
+//
+// Fault is served raw, including the historical 'route' and the empty string a
+// cycle with no attribution row would carry. Deciding what those mean is the
+// client's job: see ui/src/verdict.ts.
+type RecentCycle struct {
+	At     time.Time            `json:"at"`
+	Fault  string               `json:"fault"`
+	Models map[string]RecentRun `json:"models"`
+}
+
+// RecentCycleCount is how far back the recent block reaches. It is a payload
+// size, not an opinion: the client decides what a red run means (RECENT_CYCLES
+// in ui/src/verdict.ts, currently 12) and must never be able to ask for more
+// evidence than this serves — so this stays comfortably above it. Three hours
+// at the 5-minute cadence, which is what lets a quiet banner still say how long
+// ago the last failure was.
+const RecentCycleCount = 36
+
 // Summary is the whole dashboard state for one window.
 type Summary struct {
-	Window      string         `json:"window"`
-	Cycles      int            `json:"cycles"`
-	Models      []ModelSummary `json:"models"`
-	Net         []NetSummary   `json:"net"`
-	Faults      map[string]int `json:"faults"`
-	Skipped     int            `json:"skipped_runs"`
-	GeneratedAt time.Time      `json:"generated_at"`
+	Window string         `json:"window"`
+	Cycles int            `json:"cycles"`
+	Models []ModelSummary `json:"models"`
+	Net    []NetSummary   `json:"net"`
+	Faults map[string]int `json:"faults"`
+	// Recent is NOT window-scoped — see RecentCycle for why. It rides along in
+	// this response rather than in an endpoint of its own because the client
+	// needs it on exactly the requests it already makes.
+	Recent      []RecentCycle `json:"recent"`
+	Skipped     int           `json:"skipped_runs"`
+	GeneratedAt time.Time     `json:"generated_at"`
 }
 
 // censoredSQL builds the predicate for a run our own timeout ladder cut off,
@@ -266,6 +306,14 @@ func (s *Store) Summarize(ctx context.Context, w Window, models []string, probeK
 	if err := rows.Err(); err != nil {
 		return Summary{}, err
 	}
+
+	// Not scoped to `since`, unlike everything above and below it. See
+	// RecentCycle: the counts above describe the window, this describes now.
+	recent, err := s.RecentCycles(ctx, probeKind)
+	if err != nil {
+		return Summary{}, err
+	}
+	out.Recent = recent
 
 	for _, model := range models {
 		ms, err := s.modelSummary(ctx, model, probeKind, since)
@@ -814,6 +862,80 @@ func (s *Store) RecentPulse(ctx context.Context, modelID, probeKind string, limi
 		}
 		p.ErrorClass = nullS(class)
 		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
+// RecentCycles returns the last RecentCycleCount cycles, newest first, each
+// with its stored fault attribution and every model's outcome in it.
+//
+// Deliberately unbounded by any window. This is the block the verdict banner
+// reads, and bounding it by `since` would tie the banner back to the chart
+// selector — which is the bug it exists to fix. The handler test asserting the
+// block is identical on 24h and 3mo is what holds that line.
+//
+// Note what this query does NOT do: it does not exclude uplink and route
+// cycles, unlike modelSummary and netSummary. Those compute availability FROM
+// the attribution, so an unattributable cycle has to come out of the
+// denominator. This one REPORTS the attribution and lets the client decide —
+// so the uplink/route pairing lives in ui/src/verdict.ts instead, and both
+// classes have to be handled there.
+func (s *Store) RecentCycles(ctx context.Context, probeKind string) ([]RecentCycle, error) {
+	// LEFT JOIN on both sides. A cycle whose fault row is missing must still
+	// appear — dropping it would make the gap look like a clean stretch — and so
+	// must one that recorded no inference run at all.
+	rows, err := s.db.QueryContext(ctx, `
+		WITH recent AS (
+			SELECT c.id, c.started_at, COALESCE(f.fault, '') AS fault
+			FROM cycles c
+			LEFT JOIN cycle_fault f ON f.cycle_id = c.id
+			ORDER BY c.started_at DESC, c.id DESC
+			LIMIT ?
+		)
+		SELECT r.id, r.started_at, r.fault, i.model_id, i.ok, i.answer_ok
+		FROM recent r
+		LEFT JOIN infer_probes i ON i.cycle_id = r.id AND i.probe = ?
+		ORDER BY r.started_at DESC, r.id DESC`, RecentCycleCount, probeKind)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	// One row per (cycle, model), so consecutive rows collapse into one cycle.
+	// Grouped on the cycle id, not the timestamp: two cycles sharing a
+	// started_at is pathological but would silently merge two verdicts' worth of
+	// evidence into one.
+	var out []RecentCycle
+	var cur *RecentCycle
+	var curID int64 = -1
+	for rows.Next() {
+		var id int64
+		var at, fault string
+		var modelID sql.NullString
+		var okInt, answerOK sql.NullInt64
+		if err := rows.Scan(&id, &at, &fault, &modelID, &okInt, &answerOK); err != nil {
+			return nil, err
+		}
+		if cur == nil || id != curID {
+			parsed, err := time.Parse(time.RFC3339Nano, at)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, RecentCycle{
+				At: parsed, Fault: fault, Models: map[string]RecentRun{},
+			})
+			cur = &out[len(out)-1]
+			curID = id
+		}
+		if !modelID.Valid {
+			continue
+		}
+		run := RecentRun{OK: okInt.Int64 == 1}
+		if answerOK.Valid {
+			b := answerOK.Int64 == 1
+			run.AnswerOK = &b
+		}
+		cur.Models[modelID.String] = run
 	}
 	return out, rows.Err()
 }

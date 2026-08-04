@@ -3,6 +3,18 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 
+// A clean hour of cycles. The verdict banner reads this rather than the
+// window's fault counts, so every fixture needs one or the page has nothing to
+// say about right now.
+const cleanCycles = (n = 12) =>
+  Array.from({ length: n }, (_, i) => ({
+    at: new Date(
+      Date.parse("2026-08-04T12:00:00Z") - i * 5 * 60 * 1000,
+    ).toISOString(),
+    fault: "ok",
+    models: { "mimo-v2.5": { ok: true, answer_ok: true } },
+  }));
+
 const summary = (over: Record<string, unknown> = {}) => ({
   window: "24h",
   cycles: 288,
@@ -33,6 +45,7 @@ const summary = (over: Record<string, unknown> = {}) => ({
     },
   ],
   faults: { ok: 288 },
+  recent: cleanCycles(),
   skipped_runs: 0,
   generated_at: "2026-08-04T12:00:00Z",
   ...over,
@@ -192,7 +205,17 @@ describe("App", () => {
     vi.stubGlobal(
       "fetch",
       mockFetch({
-        summary: summary({ cycles: 0, models: [], net: [], faults: {} }),
+        // An empty `recent` too, because that is what a cold database actually
+        // serves: `cycles` is window-scoped and `recent` is not, so a block of
+        // cycles with cycles = 0 is not "no data yet" — it is a daemon that
+        // stopped longer ago than the window, which the stale branch owns.
+        summary: summary({
+          cycles: 0,
+          models: [],
+          net: [],
+          faults: {},
+          recent: [],
+        }),
       }),
     );
     render(<App />);
@@ -275,6 +298,27 @@ describe("App", () => {
       expect(opens()).toBe(2);
       await vi.advanceTimersByTimeAsync(1000);
       expect(opens()).toBe(3);
+    });
+
+    // The banner reads a fixed window and the cards read the selected one, so a
+    // load wants three summaries — but on the default window two of them are
+    // the same URL. Every /api/* call spends a token from the per-IP limiter,
+    // and this runs on every cycle and every stream event.
+    it("asks for each summary window once, not once per consumer", async () => {
+      const fetchMock = mockFetch();
+      vi.stubGlobal("fetch", fetchMock);
+      render(<App />);
+
+      await waitFor(() =>
+        expect(screen.getByTestId("verdict")).toHaveTextContent(/normal/i),
+      );
+      const windows = fetchMock.mock.calls
+        .map((c) => String(c[0]))
+        .filter((u) => u.includes("/api/summary"))
+        .map((u) => new URL(u, "http://x").searchParams.get("window"));
+      expect(new Set(windows).size).toBe(windows.length);
+      // 24h serves both the selected window and the banner's.
+      expect(windows.sort()).toEqual(["24h", "7d"]);
     });
 
     it("refetches on the probe's cadence even while the stream stays open", async () => {

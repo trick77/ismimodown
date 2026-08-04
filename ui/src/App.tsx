@@ -56,6 +56,19 @@ const CYCLE_MS = 5 * 60 * 1000;
 // documentation.
 const BASELINE_WINDOW = "7d";
 
+// The window the verdict banner reads, fixed regardless of what the charts are
+// showing. The banner answers "how is it right now"; the cards below answer
+// "over the selected window". Tying the first to the second is how one failed
+// cycle out of sixty published DEGRADED — and kept publishing it until the
+// cycle aged out of the range, which on the 3-month view is three months.
+//
+// 24h rather than something shorter because a percentile still needs samples:
+// the discrete failures the banner actually fires on come from summary.recent,
+// which reaches back three hours whatever this says. The trade is that a
+// latency spike twenty minutes ago is diluted in a day's P50 — but if it is bad
+// enough to matter it produces timeouts, and those land in recent as failures.
+const NOW_WINDOW = "24h";
+
 // One day of cycles at the 5-minute cadence. The pulse strip is the only thing
 // that wants this many, and it wants them narrow — see /api/pulse.
 const PULSE_CYCLES = 288;
@@ -78,6 +91,9 @@ function readWindow(): string {
 export default function App() {
   const [windowKey, setWindowKey] = useState(readWindow);
   const [summary, setSummary] = useState<Summary | null>(null);
+  // What the banner reads: a fixed window, so switching the charts to 3mo
+  // cannot change the answer to "how is it right now".
+  const [nowSummary, setNowSummary] = useState<Summary | null>(null);
   // The 7-day summary is the rolling baseline every higher-is-worse metric is
   // scored against, so it is fetched independently of the selected window.
   const [baseline, setBaseline] = useState<Summary | null>(null);
@@ -97,16 +113,25 @@ export default function App() {
 
   const load = useCallback(async (key: string, signal?: AbortSignal) => {
     try {
-      const [s, b, t, w, p, n] = await Promise.all([
-        getSummary(key, "infer", signal),
-        getSummary(BASELINE_WINDOW, "infer", signal),
+      // Three summaries — the selected window, the banner's fixed one, the
+      // baseline — but DEDUPLICATED, because on ?window=24h the first two are
+      // the same request and on ?window=7d so are the first and third. The
+      // daemon would serve the duplicate from its cache, but every /api/* call
+      // still spends a token from the per-IP limiter, and this runs on every
+      // cycle and every stream event.
+      const wanted = [...new Set([key, NOW_WINDOW, BASELINE_WINDOW])];
+      const [summaries, t, w, p, n] = await Promise.all([
+        Promise.all(wanted.map((k) => getSummary(k, "infer", signal))),
         getSeries("ttft", key, "infer", signal),
         getSeries("ttft", key, "wide", signal),
         getSeries("tps", key, "infer", signal),
         getNetSeries(key, signal),
       ]);
+      const byWindow = new Map(wanted.map((k, i) => [k, summaries[i]!]));
+      const s = byWindow.get(key)!;
       setSummary(s);
-      setBaseline(b);
+      setNowSummary(byWindow.get(NOW_WINDOW)!);
+      setBaseline(byWindow.get(BASELINE_WINDOW)!);
       setTtft(t);
       setWideTtft(w);
       setTps(p);
@@ -213,7 +238,7 @@ export default function App() {
     window.history.replaceState(null, "", url);
   };
 
-  const verdict = buildVerdict(summary, baseline);
+  const verdict = buildVerdict(nowSummary, baseline);
   const mimoEdge =
     summary?.net.find((n) => n.target === TARGET_MIMO)?.connect.p50_ms ?? null;
 
