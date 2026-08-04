@@ -1,5 +1,5 @@
 import type { ModelSeries } from "./api/types";
-import { Card, CensoredNote, OffPeakChip, OffPeakNote } from "./ui";
+import { Card, CensoredNote, OffPeakNote } from "./ui";
 import { EChart } from "./charts/EChart";
 import { buildLineOption, colorForModel } from "./charts/options";
 
@@ -41,19 +41,17 @@ export function SeriesPanel({
       title={title}
       subtitle={subtitle}
       right={
-        <div className="flex items-center gap-2">
-          {/* Tied to the band actually being drawn, not to the prop. On 7d and
-              wider the band is dropped, and a chip promising a rate the plot
-              does not show is worse than no chip. */}
-          {option.offPeakSpans.length > 0 && <OffPeakChip />}
-          {/* A log axis read as a linear one is worse than no chart, so the
-              switch is always announced on the plot. */}
-          {option.logScale && (
-            <span className="num rounded-full border border-border px-2 py-[2px] text-micro uppercase tracking-wider text-faint">
-              log scale
-            </span>
-          )}
-        </div>
+        /* No off-peak chip here — the page carries it once, on the pulse
+           strip. The band and the note below still say the rate applies to
+           what is plotted; the chip said what the rate is doing right now,
+           which is one fact and does not want three headers. */
+        /* A log axis read as a linear one is worse than no chart, so the
+           switch is always announced on the plot. */
+        option.logScale ? (
+          <span className="num rounded-full border border-border px-2 py-[2px] text-micro uppercase tracking-wider text-faint">
+            log scale
+          </span>
+        ) : null
       }
     >
       {hasData ? (

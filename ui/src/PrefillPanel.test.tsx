@@ -44,10 +44,12 @@ describe("PrefillPanel", () => {
     expect(screen.getByText(/18:00/)).toBeInTheDocument();
   });
 
-  it("carries the rate chip in the header", () => {
+  // The rate chip lives on the pulse strip and nowhere else. The note below the
+  // plot still quotes the rate — what is gone is the badge in the header.
+  it("leaves the rate chip to the pulse strip", () => {
     render(<PrefillPanel infer={infer} wide={wide} models={["mimo-v2.5"]} />);
-    // Matched on the boundary wording, since the note below quotes the rate too.
-    expect(screen.getByText(/0\.8× (until|from)/i)).toBeInTheDocument();
+    // Matched on the boundary wording, since the note quotes the rate too.
+    expect(screen.queryByText(/0\.8× (until|from)/i)).not.toBeInTheDocument();
   });
 
   // The wide probe runs hourly, so the panel exists before its subject does.

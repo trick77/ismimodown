@@ -1,5 +1,5 @@
 import type { ModelSeries, Point } from "./api/types";
-import { Card, CensoredNote, OffPeakChip, OffPeakNote } from "./ui";
+import { Card, CensoredNote, OffPeakNote } from "./ui";
 import { EChart } from "./charts/EChart";
 import { buildLineOption, colorForModel } from "./charts/options";
 
@@ -60,7 +60,8 @@ export function PrefillPanel({
     <Card
       title="Prefill cost"
       subtitle="TTFT at ~3800 input tokens against TTFT at ~34, per model. The gap between the lines is what prefill actually costs; a widening gap is the signal that catches a batching change or a requantisation. Lower is better, and so is a narrower gap."
-      right={option.offPeakSpans.length > 0 ? <OffPeakChip /> : null}
+      /* No off-peak chip: the page states the rate once, on the pulse strip.
+         The green band and the note below still tie it to this plot. */
     >
       {Object.keys(series).length > 0 ? (
         <EChart
