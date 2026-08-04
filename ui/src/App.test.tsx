@@ -70,6 +70,11 @@ function mockFetch(overrides: Record<string, unknown> = {}) {
                 }
               : {};
     if (url.includes("/api/events")) {
+      // eventsStatus makes the stream FAIL instead, which is what the reconnect
+      // tests need — streamSSE throws on a non-OK response.
+      if (overrides.eventsStatus) {
+        return new Response("", { status: Number(overrides.eventsStatus) });
+      }
       // Never resolves during a test; the component aborts it on unmount.
       return new Promise<Response>(() => {});
     }
@@ -191,5 +196,52 @@ describe("App", () => {
     );
     // The masthead survives, so the page still explains what it is.
     expect(screen.getByText(/mimostats/i)).toBeInTheDocument();
+  });
+
+  // A dashboard that has quietly stopped updating is worse than one that says
+  // it cannot load: it shows numbers, and they are wrong. The stream ends for
+  // reasons that are not errors — a sleeping laptop, a proxy capping connection
+  // age, a daemon restart — so neither of these paths is redundant.
+  describe("staying current", () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("reopens the event stream after it drops", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      const fetchMock = mockFetch({ eventsStatus: 503 });
+      vi.stubGlobal("fetch", fetchMock);
+      render(<App />);
+
+      const opens = () =>
+        fetchMock.mock.calls.filter((c) => String(c[0]).includes("/api/events"))
+          .length;
+
+      await waitFor(() => expect(opens()).toBe(1));
+      // The backoff doubles: first retry at 1s, the next 2s after that. Asserted
+      // as two separate advances so a constant-delay retry loop fails here.
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(opens()).toBe(2);
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(opens()).toBe(3);
+    });
+
+    it("refetches on the probe's cadence even while the stream stays open", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      const fetchMock = mockFetch();
+      vi.stubGlobal("fetch", fetchMock);
+      render(<App />);
+
+      const loads = () =>
+        fetchMock.mock.calls.filter((c) => String(c[0]).includes("/api/summary"))
+          .length;
+
+      await waitFor(() => expect(loads()).toBeGreaterThan(0));
+      const before = loads();
+      // A stream that stays open but stops delivering looks exactly like one
+      // with nothing to say, so the interval has to fire regardless.
+      await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
+      expect(loads()).toBeGreaterThan(before);
+    });
   });
 });
