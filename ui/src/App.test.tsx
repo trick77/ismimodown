@@ -324,6 +324,17 @@ describe("App", () => {
     );
   });
 
+  // The default is what a bare URL already means, so spelling it out only
+  // makes the address bar uglier. Going back to it clears the parameter.
+  it("drops the query string when the default window is selected", async () => {
+    window.history.replaceState(null, "", "/?window=7d");
+    vi.stubGlobal("fetch", mockFetch());
+    render(<App />);
+
+    await userEvent.click(screen.getByRole("button", { name: "24h" }));
+    await waitFor(() => expect(new URL(window.location.href).search).toBe(""));
+  });
+
   it("reads the initial window from the query string", async () => {
     window.history.replaceState(null, "", "/?window=48h");
     vi.stubGlobal("fetch", mockFetch());
@@ -339,9 +350,9 @@ describe("App", () => {
 
   // 1h was removed: at one cycle every five minutes it could hold at most 12
   // samples against a threshold of 20, so every card on it read
-  // insufficient_data forever. Links carrying it still exist — the window is
-  // written into the URL on every click — and they must land somewhere useful
-  // rather than on a blank or a dead button.
+  // insufficient_data forever. Links carrying it still exist — every
+  // non-default window writes itself into the URL — and they must land
+  // somewhere useful rather than on a blank or a dead button.
   it("sends a stale ?window=1h link to the default rather than nowhere", () => {
     window.history.replaceState(null, "", "/?window=1h");
     vi.stubGlobal("fetch", mockFetch());
