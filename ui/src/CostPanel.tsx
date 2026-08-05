@@ -47,10 +47,19 @@ export function CostPanel({ cost }: { cost: CostBreakdown | null }) {
       subtitle="Every probe mimostats sends, priced from the usage MiMo reported on it — both models, both probe kinds. The plan bills in credits, so these are list rates rather than an invoice."
       right={
         <span
-          className="num rounded-full border border-online/40 bg-online/10 px-2 py-[2px] text-micro uppercase tracking-wider text-online"
+          className={`num rounded-full border px-2 py-[2px] text-micro uppercase tracking-wider ${
+            cost.offpeak_active
+              ? "border-online/40 bg-online/10 text-online"
+              : "border-border-soft text-muted"
+          }`}
           data-testid="offpeak-chip"
         >
-          {cost.offpeak_coefficient}× until{" "}
+          {/* offpeak_until is the next boundary either way, so the preposition
+              has to come from offpeak_active: "until" while the reduced rate is
+              running, "from" while it is still ahead. Reading it as "until" in
+              both states says the discount is live at 16:00 Zurich, which is
+              two hours before it starts. */}
+          {cost.offpeak_coefficient}× {cost.offpeak_active ? "until" : "from"}{" "}
           {formatTime(new Date(cost.offpeak_until * 1000))}
         </span>
       }
