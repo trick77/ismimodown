@@ -1,12 +1,6 @@
 import type { Sample } from "./api/types";
 import { Card } from "./ui";
-import {
-  formatInt,
-  formatMs,
-  formatTime,
-  formatTps,
-  probeName,
-} from "./format";
+import { formatInt, formatMs, formatTime, formatTps } from "./format";
 
 // How many cycles the table renders.
 //
@@ -104,7 +98,7 @@ export function SamplesTable({ perProbe }: { perProbe: Sample[][] }) {
                   className="border-t border-border-soft text-muted"
                 >
                   <td className="num py-2 pr-4">{formatTime(s.at)}</td>
-                  <td className="num py-2 pr-4">{probeName(s.probe)}</td>
+                  <td className="num py-2 pr-4">{s.probe}</td>
                   <td className="num py-2 pr-4 text-right">
                     {formatMs(s.ttft_ms)}
                   </td>

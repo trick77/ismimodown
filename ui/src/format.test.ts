@@ -12,7 +12,6 @@ import {
   shouldUseLogScale,
   formatUSD,
   formatUSDPrecise,
-  probeName,
 } from "./format";
 
 describe("plural", () => {
@@ -168,26 +167,5 @@ describe("money", () => {
     expect(formatUSD(null)).toBe("—");
     expect(formatUSDPrecise(undefined)).toBe("—");
     expect(formatUSD(Number.NaN)).toBe("—");
-  });
-});
-
-describe("probeName", () => {
-  // The wire agrees since migration 0003, so both current kinds pass straight
-  // through under the name they arrive with.
-  it("shows the current kinds as they are sent", () => {
-    expect(probeName("short")).toBe("short");
-    expect(probeName("wide")).toBe("wide");
-  });
-
-  // `infer` was the short probe's name until 0003 rewrote every row. Nothing
-  // should still send it — but the cost card reads a kind straight out of a
-  // response, and printing a retired name at a reader is the worse outcome.
-  it("still renders the pre-rename name under the current word", () => {
-    expect(probeName("infer")).toBe("short");
-  });
-
-  // A kind the page has no name for is still something an operator must see.
-  it("passes an unrecognised kind through rather than blanking it", () => {
-    expect(probeName("deep")).toBe("deep");
   });
 });

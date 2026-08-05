@@ -112,16 +112,8 @@ describe("SamplesTable", () => {
     expect(screen.getByText("wide")).toBeInTheDocument();
   });
 
-  // `infer` was this probe's name until migration 0003 rewrote every row, so
-  // nothing should send it any more. The row still renders under the current
-  // word rather than printing a name the page retired at a reader.
-  it("still names a pre-rename row the way the page names it now", () => {
-    render(<SamplesTable perProbe={[[sample({ probe: "infer" })]]} />);
-    expect(screen.queryByText("infer")).not.toBeInTheDocument();
-    expect(screen.getByText("short")).toBeInTheDocument();
-  });
-
-  // A kind the table has no label for is still a row an operator must see.
+  // The column is the wire value, so a kind the table has never heard of is
+  // still a row an operator must see.
   it("shows an unrecognised probe verbatim rather than dropping it", () => {
     render(<SamplesTable perProbe={[[sample({ probe: "deep" })]]} />);
     expect(screen.getByText("deep")).toBeInTheDocument();

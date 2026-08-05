@@ -1,11 +1,5 @@
 import type { CostBreakdown, CostGroup } from "./api/types";
-import {
-  formatInt,
-  formatTime,
-  formatUSD,
-  formatUSDPrecise,
-  probeName,
-} from "./format";
+import { formatInt, formatTime, formatUSD, formatUSDPrecise } from "./format";
 import { Card } from "./ui";
 import { EChart } from "./charts/EChart";
 import { buildCostOption } from "./charts/options";
@@ -23,17 +17,16 @@ import { buildCostOption } from "./charts/options";
 // produces a total that is technically correct and reads as the daily bill.
 const MIN_RUNS = 10;
 
-// How often each probe kind runs, said once beside its per-run price. The NAMES
-// live in format.ts; these are the cadences, which no response carries.
+// How often each probe kind runs, said once beside its per-run price — the one
+// thing about a probe that no response carries.
 //
-// Keyed on the wire value, which migration 0003 changed from `infer` to
-// `short`. The migration rewrote every row, so nothing should key on the old
-// name — but a miss here fails silently, dropping the cadence and leaving a
-// per-run price with nothing to scale it, so the dead key stays rather than
-// trusting that.
+// Keyed on the wire value, which is also what the label is built from: since
+// 0003 the schema spells both kinds the way a reader should see them, so
+// nothing translates and there is no second spelling to keep in step. A kind
+// with no entry here simply gets no cadence, which is the honest outcome for a
+// probe this card has never heard of.
 const PROBE_HINTS: Record<string, string> = {
   short: "every 5 min",
-  infer: "every 5 min",
   wide: "hourly",
 };
 
@@ -76,7 +69,7 @@ export function CostPanel({ cost }: { cost: CostBreakdown | null }) {
         {cost.probes.map((p) => (
           <Money
             key={p.probe}
-            label={`Per ${probeName(p.probe)} run`}
+            label={`Per ${p.probe} run`}
             value={formatUSDPrecise(perRun(p))}
             hint={`${formatInt(p.runs)} runs · ${PROBE_HINTS[p.probe] ?? ""}`}
           />
