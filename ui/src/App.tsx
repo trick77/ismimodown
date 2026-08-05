@@ -289,7 +289,7 @@ export default function App() {
               it is only readable once its parts have been shown. */}
             <SeriesPanel
               title="The whole wait"
-              subtitle="P50 end-to-end, request sent to last token. It looks a lot like the time-to-first-token plot above, and that resemblance IS the finding rather than a repeat of it: most of the wait is spent getting to the first token, and the vertical gap between the two — read off the axis, not off the shape — is what decoding the answer adds. This one moves with answer LENGTH as well as with speed — output is capped at 150 tokens, and a short answer finishes sooner than a long one — so read a step change here against the throughput plot before calling it a slowdown. Failed runs are excluded. Lower is better."
+              subtitle="P50 end-to-end, request sent to last token. Its resemblance to the time-to-first-token plot is the finding: most of the wait is getting to the first token, and the gap between the two — read off the axis, not the shape — is what decoding adds. Length matters too, since output caps at 150 tokens, so check a step change here against the throughput plot before calling it a slowdown. Failed runs are excluded. Lower is better."
               series={data?.series.total ?? null}
               models={models}
               unit="ms"
