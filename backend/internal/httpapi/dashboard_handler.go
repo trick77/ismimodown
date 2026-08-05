@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"slices"
 	"time"
@@ -129,11 +130,15 @@ func (s *server) buildDashboard(ctx context.Context, window samples.Window, now 
 	}
 	byWindow := map[string]samples.Summary{}
 	for _, key := range wanted {
-		// Allow-listed constants, so the lookup cannot fail; the selected one
-		// was validated by the caller.
+		// Allow-listed constants, so the lookup cannot fail today; the selected
+		// one was validated by the caller. Loud rather than skipped anyway: a
+		// miss would leave `now` or `baseline` a zero-value Summary served with
+		// a 200, and the verdict banner would compare against a summary with no
+		// models in it — permanently wrong with nothing anywhere saying so.
+		// Renaming a key in samples.Windows is what would do it.
 		win, ok := samples.LookupWindow(key)
 		if !ok {
-			continue
+			return nil, fmt.Errorf("%w: %s", errUnknownWindow, key)
 		}
 		sum, err := s.deps.Samples.Summarize(ctx, win, s.deps.Models, probe.ProbeShort, now)
 		if err != nil {
@@ -220,6 +225,11 @@ func (s *server) buildDashboard(ctx context.Context, window samples.Window, now 
 // surfacing at runtime, not a caller's bad input — hence a 500 rather than the
 // 400 an unknown ?metric= used to earn.
 var errUnknownMetric = errors.New("unknown metric")
+
+// errUnknownWindow is the same kind of mistake for the two comparison windows:
+// both are literals in this file, so a miss is a rename in samples.Windows that
+// nothing else caught, not a caller's bad input.
+var errUnknownWindow = errors.New("unknown window")
 
 // buildModelSeries is one metric across every model, bucketed for the window.
 func (s *server) buildModelSeries(ctx context.Context, metric, probeKind string, window samples.Window, now time.Time) (any, error) {

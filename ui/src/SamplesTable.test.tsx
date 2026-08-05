@@ -225,8 +225,8 @@ describe("SamplesTable", () => {
 
   // In before Out, and both before the rate: what went in, what came out, and
   // the rate the last two imply. The input side is what separates the probes —
-  // ~20 tokens on short against ~3800 on wide — and reading it off /api/cost
-  // means reconstructing one run from a daily sum.
+  // ~20 tokens on short against ~3800 on wide — and reading it off the cost
+  // panel means reconstructing one run from a daily sum.
   it("shows what a run sent as well as what it generated", () => {
     render(
       <SamplesTable
