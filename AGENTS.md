@@ -124,6 +124,15 @@ distinction without causing a visible failure.
 `../music` — UI stack (React 19 + Vite + TS + Tailwind v4), `@theme` tokens, `ui.tsx`
 `../loom` — MiMo client: `internal/llm/{client,types,session,stream}.go`
 
+## Naming
+
+The product is `mimostats` — lowercase, one word, everywhere including
+sentence-initial. Never `MiMoStats`, `MiMo Stats`, `MiMostats`, `Mimostats`.
+It matches the domain, the repo, `cmd/mimostats` and the manifest, none of
+which can be cased differently.
+The platform and its models are `MiMo`. Model IDs verbatim: `mimo-v2.5`,
+`mimo-v2.5-pro`.
+
 ## Conventions
 
 `.yaml` never `.yml`. English UI, Europe/Zurich, 24-hour clock.
