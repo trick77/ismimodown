@@ -82,8 +82,24 @@ sqlite3 data/mimostats.db \
 
 `cached_tokens` should also be at or near 0. On `wide` a rise means the
 cache-defeat nonce stopped working and the prefill numbers have quietly become
-cache lookups; on `infer` it means the system message went missing and MiMo is
+cache lookups; on `short` it means the system message went missing and MiMo is
 serving its own injected prompt from cache.
+
+The `probe` column reads `short` from migration 0003 onward; databases last
+written by an older build hold `infer` there instead. That CHECK is why the
+rename is one-way.
+
+A pre-0003 binary on a migrated database boots clean — 0003 is already recorded
+— and then stores nothing at all. A cycle is written in ONE transaction, so the
+short probe's row failing the constraint takes the whole cycle down with it: the
+cycle row, both network readings and the wide run. The daemon logs `persist
+cycle failed` every five minutes while everything already collected stays on the
+dashboard, so it reads as a page that quietly stopped updating rather than as an
+outage. Roll forward, not back.
+
+```sh
+docker compose logs mimostats | grep 'persist cycle failed'
+```
 
 ### If the container crash-loops on first start
 

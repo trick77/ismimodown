@@ -31,8 +31,8 @@ const wideNonceLen = 8
 
 // WideMaxTokens caps the wide response. 300 output tokens is ~7 s of
 // generation, long enough to watch throughput degrade mid-stream under KV-cache
-// pressure. At the short probe's ~70 tokens (~1.5 s) only the opening moments of decode
-// are ever observed.
+// pressure. At the short probe's ~70 tokens (~1.5 s) only the opening moments
+// of decode are ever observed.
 const WideMaxTokens = 300
 
 // ShortMaxTokens caps the short response at roughly double the 2-3 sentences

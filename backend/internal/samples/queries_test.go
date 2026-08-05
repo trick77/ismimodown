@@ -307,14 +307,14 @@ func TestRecentSamplesServesOutputTokens(t *testing.T) {
 	if _, err := s.Save(ctx, Cycle{
 		StartedAt: now.Add(-time.Minute), Net: okNet(),
 		Infer: []probe.InferResult{{
-			ModelID: "mimo-v2.5", Probe: probe.ProbeInfer,
+			ModelID: "mimo-v2.5", Probe: probe.ProbeShort,
 			OK: false, ErrorClass: probe.ErrClassHTTP,
 		}},
 	}); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
 
-	rows, err := s.RecentSamples(ctx, "mimo-v2.5", probe.ProbeInfer, 10)
+	rows, err := s.RecentSamples(ctx, "mimo-v2.5", probe.ProbeShort, 10)
 	if err != nil {
 		t.Fatalf("RecentSamples: %v", err)
 	}

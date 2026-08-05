@@ -158,6 +158,7 @@ func TestRenameMigrationRewritesExistingRows(t *testing.T) {
 		`INSERT INTO infer_probes (id, cycle_id, model_id, probe, ttft_ms, ok, answer_ok) VALUES (7, 1, 'mimo-v2.5', 'infer', 912.0, 1, 1)`,
 		`INSERT INTO infer_probes (id, cycle_id, model_id, probe, ttft_ms, ok) VALUES (8, 1, 'mimo-v2.5', 'wide', 1543.0, 1)`,
 		`INSERT INTO skipped_runs (occurred_at, model_id, probe) VALUES ('2026-08-04T06:00:00Z', 'mimo-v2.5', 'infer')`,
+		`INSERT INTO skipped_runs (occurred_at, model_id, probe) VALUES ('2026-08-04T06:05:00Z', 'mimo-v2.5', 'wide')`,
 	} {
 		if _, err := db.Exec(q); err != nil {
 			t.Fatalf("seed pre-rename row: %v", err)
@@ -210,6 +211,23 @@ func TestRenameMigrationRewritesExistingRows(t *testing.T) {
 		if leftover != 0 {
 			t.Errorf("%s still holds %d rows under the old name", table, leftover)
 		}
+	}
+
+	// skipped_runs is rebuilt by the same INSERT...SELECT and gets the same
+	// count assertion, not just the leftover one above: a rebuild that dropped
+	// every row would leave nothing under the old name either, and pass.
+	var skippedTotal, skippedShort int
+	if err := db.QueryRow(
+		`SELECT count(*), sum(probe = 'short') FROM skipped_runs`,
+	).Scan(&skippedTotal, &skippedShort); err != nil {
+		t.Fatalf("count skipped_runs: %v", err)
+	}
+	if skippedTotal != 2 {
+		t.Errorf("skipped_runs holds %d rows, want 2 — the rebuild dropped history",
+			skippedTotal)
+	}
+	if skippedShort != 1 {
+		t.Errorf("%d skipped_runs rows renamed, want 1", skippedShort)
 	}
 
 	// The wide row is untouched, and found by its ORIGINAL id: RecentSamples
