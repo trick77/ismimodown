@@ -10,8 +10,10 @@
       backend/web/dist is gitignored apart from this file, which exists so
       //go:embed all:dist has something to embed and `go build ./...` works on a
       fresh checkout without running the UI build first. The Containerfile
-      overwrites the whole directory with the Vite output, so this is never what
-      production serves — see the COPY --from=ui line there.
+      copies the Vite output over this directory, replacing this file, so it is
+      never what production serves — see the COPY --from=ui line there. That
+      COPY merges rather than replaces, so it overwrites this file by name but
+      does not delete anything else already sitting in the directory.
 
       It carries NO references to anything outside itself, and that is the point.
       It used to be a copy of a real build, which meant it named hashed bundles
@@ -21,6 +23,11 @@
       five console errors that look like a broken app rather than a missing
       build step. A placeholder that references files it cannot guarantee is not
       a placeholder; it is a stale artifact.
+
+      This file is not self-defending. vite.config.ts sets emptyOutDir, so
+      `npm run build` DELETES it and writes a real shell in its place — and one
+      `git commit -am` from there restores the exact trap described above. If
+      you have built the UI locally, discard this path before committing.
 
       Keep it self-contained. Keep #root, which backend/web/embed_test.go uses to
       recognise the shell, and keep the name in the body, which the same file
