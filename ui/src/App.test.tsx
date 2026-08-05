@@ -120,6 +120,24 @@ describe("App", () => {
     expect(screen.getByText("916 ms")).toBeInTheDocument();
   });
 
+  // End-to-end latency is the one number a reader waits for, and it is a
+  // SEPARATE series — total_ms, not ttft_ms and not derived from tps. The URL is
+  // asserted alongside the heading because the panel renders identically off
+  // whichever metric it is handed, so the heading alone cannot tell the two
+  // apart.
+  it("charts total response time off the total metric", async () => {
+    const fetchMock = mockFetch();
+    vi.stubGlobal("fetch", fetchMock);
+    render(<App />);
+
+    expect(await screen.findByText("The whole wait")).toBeInTheDocument();
+    expect(
+      fetchMock.mock.calls.some((c) =>
+        String(c[0]).includes("metric=total&window=24h&probe=infer"),
+      ),
+    ).toBe(true);
+  });
+
   // The residual must never be called model time anywhere on the page.
   it("labels the residual as server-side time", async () => {
     vi.stubGlobal("fetch", mockFetch());
