@@ -14,9 +14,13 @@ import { colorForModel } from "./charts/options";
 export function ModelCards({
   summary,
   baseline,
+  pending = false,
 }: {
   summary: Summary | null;
   baseline: Summary | null;
+  // Whether a first response is still on its way. Only then is holding ground
+  // for cards a promise the page can keep — see the placeholder below.
+  pending?: boolean;
 }) {
   const models = summary?.models ?? [];
   const ids = models.map((m) => m.model_id);
@@ -42,7 +46,12 @@ export function ModelCards({
   // response says and this renders before the response — so a third model
   // would leave one row unreserved at either width, rather than one shape
   // being right and the other wrong.
-  if (models.length === 0) {
+  //
+  // Gated on pending rather than on being empty. A load that failed is empty
+  // too, and holding 500 px of blank ground for a response that is never coming
+  // is not a reservation — it is a hole with a border, sitting under an error
+  // message that already said so.
+  if (models.length === 0 && pending) {
     return (
       <div
         className="card h-[500px] p-5 sm:h-[242px]"

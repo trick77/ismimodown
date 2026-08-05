@@ -421,11 +421,16 @@ describe("App", () => {
       await screen.findByTestId("model-card-mimo-v2.5");
       const main = screen.getByRole("main");
       expect(main).toContainElement(screen.getByTestId("verdict"));
-      expect(main).toContainElement(screen.getByTestId("pulse-strip"));
+      expect(main).toContainElement(screen.getByTestId("model-card-mimo-v2.5"));
       // A <header> nested in <main> is no longer a banner, which is the one
       // landmark a reader uses to find out what site they are on.
       expect(main).not.toContainElement(
         screen.getByRole("heading", { name: /is xiaomi mimo down\?/i }),
+      );
+      // And the footer is outside it for the same reason — the other half of
+      // the claim, and the one nothing else here would catch.
+      expect(main).not.toContainElement(
+        screen.getByRole("contentinfo") as HTMLElement,
       );
     });
 
@@ -616,7 +621,11 @@ describe("the pulse strip", () => {
     );
     render(<App />);
 
-    const strip = await screen.findByTestId("pulse-strip");
+    // Waited on a card, not on the strip: the strip is in the document from
+    // the first render now — it holds its frame while the fetch is in flight —
+    // so awaiting it would no longer gate on the response having landed.
+    await screen.findByTestId("model-card-mimo-v2.5");
+    const strip = screen.getByTestId("pulse-strip");
     // Both models reported the same cycle, so it is one bar — and the failure
     // on the second model is what it shows.
     expect(strip.children).toHaveLength(1);

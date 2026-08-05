@@ -40,7 +40,7 @@ describe("ModelCards", () => {
   // nothing until the fetch lands is what shoved that page down and made this
   // the largest single contributor to the dashboard's layout shift.
   it("holds a row of height before the models arrive", () => {
-    render(<ModelCards summary={null} baseline={null} />);
+    render(<ModelCards summary={null} baseline={null} pending />);
 
     const pending = screen.getByTestId("model-cards-pending");
     // Two shapes, because the grid has two: one row side by side above the sm
@@ -51,6 +51,18 @@ describe("ModelCards", () => {
     // It carries no information, so it must not be an object a screen reader
     // stops on — the verdict banner above already says the page is loading.
     expect(pending).toHaveAttribute("aria-hidden", "true");
+  });
+
+  // A load that failed is empty too. Holding the ground then is not a
+  // reservation — nothing is coming to fill it, and the error message above has
+  // already said so.
+  it("does not hold ground once the load has finished with no models", () => {
+    const { container } = render(<ModelCards summary={null} baseline={null} />);
+
+    expect(screen.queryByTestId("model-cards-pending")).toBeNull();
+    // The empty grid it always rendered in this case — zero pixels tall, and
+    // nothing left below it to push.
+    expect(container.firstChild).toBeEmptyDOMElement();
   });
 
   it("renders one card per model", () => {

@@ -202,6 +202,19 @@ export default function App() {
     window.history.replaceState(null, "", url);
   };
 
+  // Nothing has arrived and something still might. This is what the reserved
+  // heights below key on — NOT on the page being empty.
+  //
+  // Empty is the wrong question, because a load that FAILED is also empty: the
+  // strip would go on telling a screen reader it was "still loading" beside a
+  // visible error, and the model cards would hold 500 px of blank ground for a
+  // response that is never coming. Reserving space is a promise that something
+  // is about to fill it, and this is the only state in which that is true.
+  //
+  // False once a refetch is in flight over data already on screen, which is
+  // correct: those cards are still rendered, so there is nothing to hold.
+  const pending = loading && data === null && error === null;
+
   const verdict = buildVerdict(data?.now ?? null, data?.baseline ?? null);
   const mimoEdge =
     data?.summary.net.find((n) => n.target === TARGET_MIMO)?.connect.p50_ms ??
@@ -221,7 +234,10 @@ export default function App() {
         <main>
           <VerdictBanner verdict={verdict} loading={loading} />
           <div className="mb-6">
-            <PulseStrip perModel={data?.pulse.map((p) => p.cycles) ?? []} />
+            <PulseStrip
+              perModel={data?.pulse.map((p) => p.cycles) ?? []}
+              pending={pending}
+            />
           </div>
 
           <nav className="mb-6 flex flex-wrap gap-2" aria-label="Time window">
@@ -251,6 +267,7 @@ export default function App() {
             <ModelCards
               summary={data?.summary ?? null}
               baseline={data?.baseline ?? null}
+              pending={pending}
             />
             <SeriesPanel
               title="Time to first token"

@@ -76,14 +76,32 @@ function maxOrNull(a: number | null, b: number | null): number | null {
   return Math.max(a, b);
 }
 
-export function PulseStrip({ perModel }: { perModel: Cycle[][] }) {
+export function PulseStrip({
+  perModel,
+  pending = false,
+}: {
+  perModel: Cycle[][];
+  // Whether a first response is still on its way, which is what decides
+  // between an empty frame and no strip at all.
+  pending?: boolean;
+}) {
   const ordered = worstPerCycle(perModel);
-  // Empty renders the strip's FRAME rather than nothing. Returning null here
-  // meant the whole block — 48 px of bars plus its caption — appeared the
-  // moment the dashboard fetch landed, near the top of the page, shoving the
-  // window pills and both model cards down with it. That single insertion was
-  // most of a 0.43 layout shift. An empty frame holds the same ground it will
-  // occupy once the bars arrive, so the arrival costs nothing.
+  // While the response is in flight, this renders the strip's FRAME rather than
+  // nothing. Returning null unconditionally meant the whole block — 48 px of
+  // bars plus its caption — appeared the moment the dashboard fetch landed,
+  // near the top of the page, shoving the window pills and both model cards
+  // down with it. That single insertion was most of a 0.43 layout shift. An
+  // empty frame holds the same ground it will occupy once the bars arrive, so
+  // the arrival costs nothing.
+  //
+  // Once the answer is in, an empty strip is a strip with nothing to draw, and
+  // it goes back to rendering nothing: there is no arrival left to hold ground
+  // for, and a bordered 48 px void beside an error message is not a
+  // reservation. Nothing below it has been laid out yet either way — this is
+  // the same instant the rest of the page resolves.
+  if (ordered.length === 0 && !pending) {
+    return null;
+  }
 
   const successes = ordered
     .map((s) => s.ttft_ms)
