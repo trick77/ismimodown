@@ -1,21 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  getCost,
-  getNetSeries,
-  getPulse,
-  getSamples,
-  getSeries,
-  getSummary,
-} from "./api";
+import { getDashboard } from "./api";
 import { streamSSE } from "./api/stream";
-import type {
-  CostBreakdown,
-  Cycle,
-  ModelSeries,
-  NetSeries,
-  Sample,
-  Summary,
-} from "./api/types";
+import type { Dashboard } from "./api/types";
 import { TARGET_MIMO } from "./api/types";
 import { Masthead } from "./Masthead";
 import { VerdictBanner } from "./VerdictBanner";
@@ -44,44 +30,31 @@ const DEFAULT_WINDOW = "24h";
 // the daemon's cadence — if that moves, this moves with it.
 const CYCLE_MS = 5 * 60 * 1000;
 
-// The rolling reference every higher-is-worse metric is scored against.
+// The verdict's two reference windows — the rolling 7-day baseline every
+// higher-is-worse metric is scored against, and the fixed 24h "right now" the
+// banner reads regardless of what the charts show — are chosen by the daemon
+// now, in dashboard_handler.go, and arrive as `baseline` and `now`.
 //
-// Rolling rather than absolute, so the page keeps working if MiMo gets
-// permanently faster or slower — a fixed threshold would either cry wolf
-// forever or stop firing at all.
+// They moved because they were never a request parameter in spirit: they are
+// what the page asks, and the page asked three times to say so. The reasoning
+// went with them, and it is worth keeping in view from here:
 //
-// The decision lives here because the client is the only thing that acts on
-// it: the daemon serves whatever window it is asked for and has no opinion
-// about which one is the baseline. It used to also carry a BaselineWindow
-// constant, which nothing read — so changing it did nothing, and this line
-// silently won. A constant whose value cannot affect behaviour is a trap, not
-// documentation.
-const BASELINE_WINDOW = "7d";
-
-// The window the verdict banner reads, fixed regardless of what the charts are
-// showing. The banner answers "how is it right now"; the cards below answer
-// "over the selected window". Tying the first to the second is how one failed
-// cycle out of sixty published DEGRADED — and kept publishing it until the
-// cycle aged out of the range, which on the 3-month view is three months.
+//   Rolling rather than absolute, so the page keeps working if MiMo gets
+//   permanently faster or slower — a fixed threshold would either cry wolf
+//   forever or stop firing at all.
 //
-// 24h rather than something shorter because a percentile still needs samples:
-// the discrete failures the banner actually fires on come from summary.recent,
-// which reaches back three hours whatever this says. The trade is that a
-// latency spike twenty minutes ago is diluted in a day's P50 — but if it is bad
-// enough to matter it produces timeouts, and those land in recent as failures.
-const NOW_WINDOW = "24h";
-
-// One day of cycles at the 5-minute cadence. The pulse strip is the only thing
-// that wants this many, and it wants them narrow — see /api/pulse.
-const PULSE_CYCLES = 288;
-
-// How many rows to ask for PER model and probe. The table's own cap is what
-// decides how many are drawn; this is the supply.
+//   The banner's window is fixed regardless of the charts because tying the
+//   first to the second is how one failed cycle out of sixty published
+//   DEGRADED — and kept publishing it until the cycle aged out of the range,
+//   which on the 3-month view is three months. 24h rather than something
+//   shorter because a percentile still needs samples: the discrete failures
+//   the banner actually fires on come from summary.recent, which reaches back
+//   three hours regardless.
 //
-// Asking this many of each rather than a share of it: wide runs hourly per
-// model, so it contributes a row every twelfth cycle, and a smaller ask would
-// only shorten how far back the table reaches without saving a request.
-const TABLE_ROWS = 20;
+// The pulse strip's day of cycles and the raw table's row supply moved for the
+// same reason and now live beside them as dashboardPulseLimit and
+// dashboardSampleLimit. Nothing here reads them, and a constant whose value
+// cannot affect behaviour is a trap rather than documentation.
 
 // The window lives in the query string rather than in component state, so a
 // view can be linked and reloaded. There is no router: one shell, one
@@ -95,126 +68,71 @@ function readWindow(): string {
 
 export default function App() {
   const [windowKey, setWindowKey] = useState(readWindow);
-  const [summary, setSummary] = useState<Summary | null>(null);
-  // What the banner reads: a fixed window, so switching the charts to 3mo
-  // cannot change the answer to "how is it right now".
-  const [nowSummary, setNowSummary] = useState<Summary | null>(null);
-  // The 7-day summary is the rolling baseline every higher-is-worse metric is
-  // scored against, so it is fetched independently of the selected window.
-  const [baseline, setBaseline] = useState<Summary | null>(null);
-  const [ttft, setTtft] = useState<ModelSeries | null>(null);
-  const [wideTtft, setWideTtft] = useState<ModelSeries | null>(null);
-  const [tps, setTps] = useState<ModelSeries | null>(null);
-  const [total, setTotal] = useState<ModelSeries | null>(null);
-  const [net, setNet] = useState<NetSeries | null>(null);
-  const [cost, setCost] = useState<CostBreakdown | null>(null);
-  // One array per probed model; the strip merges them.
-  const [cycles, setCycles] = useState<Cycle[][]>([]);
-  // One array per model and probe kind — the full cross product; the table
-  // merges them, as the strip does for models.
-  const [samples, setSamples] = useState<Sample[][]>([]);
+  // ONE piece of state for the whole page, because one response carries it.
+  //
+  // This is not tidiness. It used to be eleven, filled by a load that ran from
+  // three places — the window effect, the 5-minute interval and every stream
+  // event — with no ordering between them. Two overlapping loads each called
+  // eleven setters, and whichever call landed last won PER SETTER, so the page
+  // could hold one window's charts beside another's cards. One response and
+  // one setState makes that unrepresentable rather than unlikely.
+  const [data, setData] = useState<Dashboard | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   const models = useMemo(
-    () => summary?.models.map((m) => m.model_id) ?? [],
-    [summary],
+    () => data?.summary.models.map((m) => m.model_id) ?? [],
+    [data],
   );
 
-  const load = useCallback(async (key: string, signal?: AbortSignal) => {
-    try {
-      // Three summaries — the selected window, the banner's fixed one, the
-      // baseline — but DEDUPLICATED, because on ?window=24h the first two are
-      // the same request and on ?window=7d so are the first and third. The
-      // daemon would serve the duplicate from its cache, but every /api/* call
-      // still spends a token from the per-IP limiter, and this runs on every
-      // cycle and every stream event.
-      const wanted = [...new Set([key, NOW_WINDOW, BASELINE_WINDOW])];
-      const [summaries, t, w, p, tot, n, c] = await Promise.all([
-        Promise.all(wanted.map((k) => getSummary(k, "short", signal))),
-        getSeries("ttft", key, "short", signal),
-        getSeries("ttft", key, "wide", signal),
-        getSeries("tps", key, "short", signal),
-        getSeries("total", key, "short", signal),
-        getNetSeries(key, signal),
-        getCost(key, signal),
-      ]);
-      const byWindow = new Map(wanted.map((k, i) => [k, summaries[i]!]));
-      const s = byWindow.get(key)!;
-      setSummary(s);
-      setNowSummary(byWindow.get(NOW_WINDOW)!);
-      setBaseline(byWindow.get(BASELINE_WINDOW)!);
-      setTtft(t);
-      setWideTtft(w);
-      setTps(p);
-      setTotal(tot);
-      setNet(n);
-      setCost(c);
-      setError(null);
+  // Its OWN controller, deliberately not the stream's.
+  //
+  // The three callers used to share the SSE effect's single controller, which
+  // meant cancelling a superseded load would have torn down the event stream
+  // with it. Keeping one here lets a newer load abort an older one — which is
+  // the point, since the older one's answer is about a window the reader has
+  // already left.
+  const loadCtl = useRef<AbortController | null>(null);
+  // Abort is not enough on its own: a fetch that has already resolved cannot
+  // be cancelled, so the sequence number is what keeps a slow earlier load
+  // from publishing over a fast later one.
+  const loadSeq = useRef(0);
 
-      const probed = s.models.map((m) => m.model_id);
-      if (probed.length > 0) {
-        // Requests with two different shapes, because the two consumers want
-        // two different things and neither should pay for the other.
-        //
-        // PULSE_CYCLES is a day at the 5-minute cadence — the strip draws one
-        // bar per cycle and nothing less than the day makes its shape mean
-        // anything. But a bar needs five fields, so /api/pulse serves five.
-        //
-        // Every model, not just the first: the strip draws the worse of them
-        // per cycle, and drawing one model is how a failure on the other used
-        // to be painted green. /api/pulse is per model by design — it is a
-        // projection of one model's cycles — so the merge happens here.
-        //
-        // TABLE_ROWS is what the table shows, and only those rows carry every
-        // measurement. Asking /api/samples for the day and rendering a score of
-        // it is how a page ends up holding a detail series it never displays.
-        //
-        // EVERY model and both probes, which is the whole cross product: the
-        // table calls itself the raw record, and it was showing one quarter of
-        // one.
-        //
-        // Two separate omissions, with the same shape. The wide run was never
-        // asked for at all — stored against the same cycle as the short one,
-        // served by the same endpoint, simply never requested. And every
-        // request named probed[0], so the second model's runs were absent from
-        // the one surface that promises nothing is aggregated away, on a page
-        // whose entire subject is the two of them side by side.
-        //
-        // The wide stagger made the second omission acute rather than merely
-        // wrong: wide now alternates between models, so half the fleet's wide
-        // runs landed on the model the table did not fetch, and the panel
-        // looked like it was missing runs that had in fact happened.
-        //
-        // /api/samples filters on model and probe by design — mixing two TTFTs
-        // inside one response is exactly what it exists to prevent — so, as
-        // with the pulse, the merge happens here. Order matters: the table
-        // sorts on the instant, and these arrive as one group per pair.
-        const [pulses, ...raw] = await Promise.all([
-          Promise.all(
-            probed.map((id) => getPulse(id, "short", PULSE_CYCLES, signal)),
-          ),
-          ...probed.flatMap((id) => [
-            getSamples(id, "short", TABLE_ROWS, signal),
-            getSamples(id, "wide", TABLE_ROWS, signal),
-          ]),
-        ]);
-        setCycles(pulses.map((p) => p.cycles));
-        setSamples(raw.map((r) => r.samples));
-      }
+  const load = useCallback(async (key: string) => {
+    loadCtl.current?.abort();
+    const ctl = new AbortController();
+    loadCtl.current = ctl;
+    const seq = ++loadSeq.current;
+    try {
+      // One request. It used to be fifteen, in two waves — and the second wave
+      // could not start until the first had answered, because the models to
+      // fan out over came back inside the summary. The daemon has known that
+      // list since it booted.
+      const next = await getDashboard(key, ctl.signal);
+      // A superseded load must not publish. Aborting handles the ones still in
+      // flight; this handles the one that already resolved while a newer
+      // request was being made.
+      if (seq !== loadSeq.current) return;
+      setData(next);
+      setError(null);
     } catch (err) {
-      if ((err as Error)?.name === "AbortError") return;
+      if ((err as Error)?.name === "AbortError" || seq !== loadSeq.current) {
+        return;
+      }
       setError((err as Error)?.message ?? "could not load");
     } finally {
-      setLoading(false);
+      // Guarded for the same reason: without it a superseded load clears the
+      // loading state while the load that replaced it is still running.
+      if (seq === loadSeq.current) setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    const controller = new AbortController();
     setLoading(true);
-    void load(windowKey, controller.signal);
-    return () => controller.abort();
+    void load(windowKey);
+    // load aborts its own predecessor, so the cleanup only has to cover the
+    // case where nothing replaces it — unmount.
+    return () => loadCtl.current?.abort();
   }, [load, windowKey]);
 
   // Live updates. The stream carries only a cycle notification, so the client
@@ -244,7 +162,7 @@ export default function App() {
           await streamSSE(
             "/api/events",
             () => {
-              void load(windowRef.current, controller.signal);
+              void load(windowRef.current);
             },
             controller.signal,
           );
@@ -267,7 +185,7 @@ export default function App() {
     })();
 
     const tick = setInterval(() => {
-      void load(windowRef.current, controller.signal);
+      void load(windowRef.current);
     }, CYCLE_MS);
 
     return () => {
@@ -283,9 +201,10 @@ export default function App() {
     window.history.replaceState(null, "", url);
   };
 
-  const verdict = buildVerdict(nowSummary, baseline);
+  const verdict = buildVerdict(data?.now ?? null, data?.baseline ?? null);
   const mimoEdge =
-    summary?.net.find((n) => n.target === TARGET_MIMO)?.connect.p50_ms ?? null;
+    data?.summary.net.find((n) => n.target === TARGET_MIMO)?.connect.p50_ms ??
+    null;
 
   return (
     <>
@@ -294,7 +213,7 @@ export default function App() {
         <Masthead />
         <VerdictBanner verdict={verdict} loading={loading} />
         <div className="mb-6">
-          <PulseStrip perModel={cycles} />
+          <PulseStrip perModel={data?.pulse.map((p) => p.cycles) ?? []} />
         </div>
 
         <nav className="mb-6 flex flex-wrap gap-2" aria-label="Time window">
@@ -321,18 +240,21 @@ export default function App() {
         )}
 
         <div className="grid gap-6">
-          <ModelCards summary={summary} baseline={baseline} />
+          <ModelCards
+            summary={data?.summary ?? null}
+            baseline={data?.baseline ?? null}
+          />
           <SeriesPanel
             title="Time to first token"
             subtitle="P50 per bucket. Failed runs are excluded — an outage is counted as availability, not as latency. Lower is better."
-            series={ttft}
+            series={data?.series.ttft ?? null}
             models={models}
             unit="ms"
           />
           <SeriesPanel
             title="Throughput"
             subtitle="Output tokens per second over the decode window. This leads rather than inter-token latency, because MiMo batches tokens into chunks and delivers them in bursts — the median inter-chunk gap collapses toward zero on a perfectly healthy run. Higher is better."
-            series={tps}
+            series={data?.series.tps ?? null}
             models={models}
             unit="tok/s"
             forceLinear
@@ -343,7 +265,7 @@ export default function App() {
           <SeriesPanel
             title="The whole wait"
             subtitle="P50 end-to-end, request sent to last token. This one moves with answer LENGTH as well as with speed — output is capped at 150 tokens, and a short answer finishes sooner than a long one — so read a step change here against the throughput plot before calling it a slowdown. Failed runs are excluded. Lower is better."
-            series={total}
+            series={data?.series.total ?? null}
             models={models}
             unit="ms"
           />
@@ -353,7 +275,11 @@ export default function App() {
               it read as one more component the sum was made of. After it, the
               question it answers is the one a reader actually arrives with:
               given the wait above, what does a bigger prompt add to it? */}
-          <PrefillPanel short={ttft} wide={wideTtft} models={models} />
+          <PrefillPanel
+            short={data?.series.ttft ?? null}
+            wide={data?.series.ttft_wide ?? null}
+            models={models}
+          />
           {/* Everything from here down rests on the handshake, so the panel
               that measures it comes first. Above, both of these forward-
               referenced an edge RTT and a Singapore reference host the reader
@@ -362,15 +288,15 @@ export default function App() {
               had yet introduced. (The verdict banner can name that host: it is
               a summary, and a summary is allowed to state a conclusion the
               panels below then show the working for.) */}
-          <NetworkPanel series={net} />
-          <Decomposition summary={summary} edgeMs={mimoEdge} />
-          <AvailabilityStrip summary={summary} />
+          <NetworkPanel series={data?.series.network ?? null} />
+          <Decomposition summary={data?.summary ?? null} edgeMs={mimoEdge} />
+          <AvailabilityStrip summary={data?.summary ?? null} />
           {/* Last of the panels, above the raw cycles. Everything over it
               measures the endpoint; this one measures what measuring it costs,
               which is a fact about us rather than about MiMo — so it reads as a
               footnote to the page rather than as one of its findings. */}
-          <CostPanel cost={cost} />
-          <SamplesTable perGroup={samples} />
+          <CostPanel cost={data?.cost ?? null} />
+          <SamplesTable perGroup={data?.samples.map((g) => g.samples) ?? []} />
         </div>
       </div>
     </>

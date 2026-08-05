@@ -106,7 +106,7 @@ func TestSecurityHeadersAreOnEveryResponse(t *testing.T) {
 		"Cross-Origin-Resource-Policy": "same-origin",
 	}
 
-	for _, path := range []string{"/healthz", "/api/models", "/api/summary?window=24h", "/api/nope", "/does-not-exist"} {
+	for _, path := range []string{"/healthz", "/api/dashboard?window=24h", "/api/nope", "/does-not-exist"} {
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
 
@@ -150,7 +150,7 @@ func TestNoCORSHeaders(t *testing.T) {
 	h := NewServer(Deps{Version: "test", DB: db, Samples: samples.New(db), Models: []string{"mimo-v2.5"}})
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/models", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/dashboard?window=24h", nil)
 	req.Header.Set("Origin", "https://evil.example")
 	h.ServeHTTP(rec, req)
 

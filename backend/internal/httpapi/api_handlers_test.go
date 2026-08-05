@@ -62,15 +62,12 @@ func TestSummaryServesTheDashboardState(t *testing.T) {
 	h, store := newAPIServer(t)
 	seed(t, store, 25, 900)
 
-	rec := get(t, h, "/api/summary?window=24h")
+	rec := get(t, h, "/api/dashboard?window=24h")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
 	}
 
-	var sum samples.Summary
-	if err := json.Unmarshal(rec.Body.Bytes(), &sum); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
+	sum := getDashboard(t, h, "24h").Summary
 	if sum.Window != "24h" || sum.Cycles != 25 {
 		t.Errorf("window = %q, cycles = %d", sum.Window, sum.Cycles)
 	}
@@ -95,12 +92,8 @@ func TestSummarySuppressesThinPercentiles(t *testing.T) {
 	h, store := newAPIServer(t)
 	seed(t, store, 5, 900)
 
-	rec := get(t, h, "/api/summary?window=24h")
-	var sum samples.Summary
-	if err := json.Unmarshal(rec.Body.Bytes(), &sum); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	m := sum.Models[0]
+	rec := get(t, h, "/api/dashboard?window=24h")
+	m := getDashboard(t, h, "24h").Summary.Models[0]
 	if m.TTFT.Sufficient {
 		t.Error("5 samples must not be sufficient")
 	}
@@ -114,22 +107,22 @@ func TestSummarySuppressesThinPercentiles(t *testing.T) {
 	}
 }
 
-// Unknown parameters are rejected rather than defaulted: silently charting a
-// different range than the caller asked for is worse than an error.
+// The window is the only caller-controlled input left on the API, and it is
+// rejected rather than defaulted: silently charting a different range than the
+// caller asked for is worse than an error.
+//
+// The metric, model, probe and limit cases that used to sit here went with the
+// parameters they guarded. Those were never a caller's choice — they were the
+// page's, arriving the long way round — and the strongest form of validating
+// an input is not accepting it.
 func TestUnknownParametersAreRejected(t *testing.T) {
 	h, _ := newAPIServer(t)
 
 	cases := []struct{ name, path string }{
-		{"window", "/api/summary?window=6mo"},
+		{"window", "/api/dashboard?window=6mo"},
 		// URL-encoded, because the point is what the HANDLER does with a hostile
 		// value, not what net/http does with a malformed request line.
-		{"window injection", "/api/summary?window=%27%20OR%201%3D1--"},
-		{"metric injection", "/api/series?metric=ttft_ms%3B%20DROP%20TABLE%20cycles--"},
-		{"probe", "/api/summary?probe=narrow"},
-		{"metric", "/api/series?metric=error_detail"},
-		{"model", "/api/samples?model=gpt-4"},
-		{"limit", "/api/samples?limit=abc"},
-		{"negative limit", "/api/samples?limit=-5"},
+		{"window injection", "/api/dashboard?window=%27%20OR%201%3D1--"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -140,48 +133,10 @@ func TestUnknownParametersAreRejected(t *testing.T) {
 	}
 }
 
-// `infer` was the short probe's name until migration 0003. The page and the
-// daemon ship in one binary, so the instant it rolls, every browser still
-// holding the previous bundle asks for the old name — and a 400 there does not
-// degrade one card, it rejects the whole load and blanks the dashboard on an
-// error banner.
-//
-// Translated, never echoed: the response says what the server actually served,
-// so nothing downstream learns the old name exists.
-func TestLegacyProbeNameIsTranslatedNotRejected(t *testing.T) {
-	h, store := newAPIServer(t)
-	seed(t, store, 40, 900)
-
-	rec := get(t, h, "/api/series?metric=ttft&window=24h&probe=infer")
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want the pre-rename name to still be served: %s",
-			rec.Code, rec.Body.String())
-	}
-	var out struct {
-		Probe  string                           `json:"probe"`
-		Models map[string]([]struct{ T int64 }) `json:"models"`
-	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if out.Probe != "short" {
-		t.Errorf("probe = %q, want the response to name what was served", out.Probe)
-	}
-	// Served the same rows as the current name, not an empty series that would
-	// pass the status check while charting nothing.
-	if len(out.Models) == 0 {
-		t.Error("the legacy name returned no models; it was accepted and then filtered to nothing")
-	}
-}
-
 func TestSeriesIsBucketedAndPerModel(t *testing.T) {
 	h, store := newAPIServer(t)
 	seed(t, store, 40, 900)
 
-	rec := get(t, h, "/api/series?metric=ttft&window=24h&probe=short")
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
-	}
 	var out struct {
 		Window  string                     `json:"window"`
 		BucketS int                        `json:"bucket_s"`
@@ -189,7 +144,7 @@ func TestSeriesIsBucketedAndPerModel(t *testing.T) {
 		Probe   string                     `json:"probe"`
 		Models  map[string][]samples.Point `json:"models"`
 	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+	if err := json.Unmarshal(getDashboard(t, h, "24h").Series.TTFT, &out); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
 	// The bucket is derived server-side so a caller cannot ask for 100 000
@@ -211,21 +166,16 @@ func TestNetworkSeriesIsSeparateFromModels(t *testing.T) {
 	h, store := newAPIServer(t)
 	seed(t, store, 25, 900)
 
-	rec := get(t, h, "/api/series?metric=network&window=24h")
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
-	}
-	var out struct {
-		Metric  string                     `json:"metric"`
-		Targets map[string][]samples.Point `json:"targets"`
-	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
+	got := getDashboard(t, h, "24h")
 	for _, target := range []string{probe.TargetMimoSGP, probe.TargetRefSGP} {
-		if _, ok := out.Targets[target]; !ok {
+		if _, ok := got.Series.Network.Targets[target]; !ok {
 			t.Errorf("network series is missing %s", target)
 		}
+	}
+	// It sits beside the model series rather than among them: a metric-keyed
+	// map could not hold it without making the network a model.
+	if len(got.Series.TTFT) == 0 {
+		t.Error("the model series went missing alongside it")
 	}
 }
 
@@ -253,14 +203,12 @@ func TestNoPublicEndpointEmitsErrorDetail(t *testing.T) {
 	// dataPaths carry measurements, and none of them may name the field at
 	// all: a future struct change that starts serializing error_detail fails
 	// here rather than on a live deployment.
+	// One path now, and it carries every measurement the API serves — which
+	// makes this assertion stronger than the seven it replaced, not weaker:
+	// there is no longer a route it could forget to name.
 	dataPaths := []string{
-		"/api/models",
-		"/api/summary?window=24h",
-		"/api/summary?window=48h&probe=wide",
-		"/api/series?metric=ttft&window=24h",
-		"/api/series?metric=network&window=24h",
-		"/api/samples?model=mimo-v2.5&limit=100",
-		"/api/pulse?model=mimo-v2.5&limit=100",
+		"/api/dashboard?window=24h",
+		"/api/dashboard?window=48h",
 	}
 	for _, p := range dataPaths {
 		t.Run(p, func(t *testing.T) {
@@ -307,10 +255,7 @@ func TestRequestShapeIsNotServed(t *testing.T) {
 	}
 
 	for _, p := range []string{
-		"/api/models",
-		"/api/summary?window=24h",
-		"/api/samples?model=mimo-v2.5&limit=100",
-		"/api/pulse?model=mimo-v2.5&limit=100",
+		"/api/dashboard?window=24h",
 	} {
 		t.Run(p, func(t *testing.T) {
 			body := get(t, h, p).Body.String()
@@ -348,13 +293,18 @@ func TestErrorClassIsServedEvenThoughDetailIsNot(t *testing.T) {
 		t.Fatalf("Save: %v", err)
 	}
 
-	rec := get(t, h, "/api/samples?model=mimo-v2.5")
+	rec := get(t, h, "/api/dashboard?window=24h")
 	if !strings.Contains(rec.Body.String(), probe.ErrClassTimeout) {
 		t.Errorf("error_class must be served: %s", rec.Body.String())
 	}
 }
 
 // Without a rate limit one scraper pins a public, unauthenticated API.
+//
+// It matters more now than it did across six routes: the one that remains is
+// the heaviest thing the box serves. If it ever drifts onto the root mux —
+// where /api/events lives, outside the limiter, for reasons that do not apply
+// to a query — this is what fails.
 func TestRateLimitReturns429PastTheBurst(t *testing.T) {
 	db := openTestDB(t)
 	h := NewServer(Deps{
@@ -366,7 +316,7 @@ func TestRateLimitReturns429PastTheBurst(t *testing.T) {
 
 	var got429 bool
 	for i := 0; i < 6; i++ {
-		rec := get(t, h, "/api/models")
+		rec := get(t, h, "/api/dashboard?window=24h")
 		if rec.Code == http.StatusTooManyRequests {
 			got429 = true
 			if rec.Header().Get("Retry-After") == "" {
@@ -398,64 +348,17 @@ func TestHealthzIsNotRateLimited(t *testing.T) {
 	}
 }
 
-// The cache exists so the database is not the rate limit.
-func TestResponsesAreCachedAndInvalidatedOnACycle(t *testing.T) {
-	db := openTestDB(t)
-	store := samples.New(db)
-	srv := NewServer(Deps{
-		DB: db, Samples: store,
-		Models: []string{"mimo-v2.5"},
-		Now:    func() time.Time { return testNow },
-	})
-	seed(t, store, 25, 900)
-
-	first := get(t, srv, "/api/summary?window=24h").Body.String()
-
-	// New data landing without an invalidation must NOT change the response —
-	// that is what proves the cache is live.
-	seed(t, store, 5, 5000)
-	second := get(t, srv, "/api/summary?window=24h").Body.String()
-	if second != first {
-		t.Error("response changed without invalidation; the cache is not being used")
-	}
-
-	// After a cycle lands, the page must reflect it immediately rather than up
-	// to a TTL later — which matters most during an incident.
-	srv.OnCycle()
-	third := get(t, srv, "/api/summary?window=24h").Body.String()
-	if third == first {
-		t.Error("OnCycle did not invalidate the cache; the dashboard would lag a live incident")
-	}
-}
-
-func TestSamplesEndpointClampsLimit(t *testing.T) {
-	h, store := newAPIServer(t)
-	seed(t, store, 30, 900)
-
-	rec := get(t, h, "/api/samples?model=mimo-v2.5&limit=100000")
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
-	}
-	var out struct {
-		Samples []samples.Sample `json:"samples"`
-	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if len(out.Samples) > samples.MaxSampleLimit {
-		t.Errorf("returned %d samples, above the clamp", len(out.Samples))
-	}
-}
-
 // An empty database must serve a usable page, not an error: the site is public
 // from minute one and the first samples take five minutes to arrive.
+//
+// Every window, because the window is what a reader can still change.
 func TestEmptyDatabaseStillServesEveryEndpoint(t *testing.T) {
 	h, _ := newAPIServer(t)
 
 	for _, p := range []string{
-		"/api/models", "/api/summary?window=24h",
-		"/api/series?metric=ttft&window=24h", "/api/series?metric=network&window=24h",
-		"/api/samples?model=mimo-v2.5", "/api/pulse?model=mimo-v2.5",
+		"/api/dashboard?window=24h", "/api/dashboard?window=48h",
+		"/api/dashboard?window=7d", "/api/dashboard?window=30d",
+		"/api/dashboard?window=3mo",
 	} {
 		t.Run(p, func(t *testing.T) {
 			rec := get(t, h, p)
@@ -469,21 +372,28 @@ func TestEmptyDatabaseStillServesEveryEndpoint(t *testing.T) {
 	}
 }
 
+// The pulse rows stay the narrow projection even now that they ride inside a
+// bigger payload — more so, since a day of full measurements per model would
+// now be carried by the response every reader gets.
 func TestPulseEndpointServesTheNarrowShape(t *testing.T) {
 	h, store := newAPIServer(t)
 	seed(t, store, 30, 900)
 
-	rec := get(t, h, "/api/pulse?model=mimo-v2.5&limit=288")
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(get(t, h, "/api/dashboard?window=24h").Body.Bytes(), &raw); err != nil {
+		t.Fatalf("decode: %v", err)
 	}
-	var out struct {
+	var groups []struct {
 		ModelID string           `json:"model_id"`
 		Cycles  []map[string]any `json:"cycles"`
 	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
-		t.Fatalf("decode: %v", err)
+	if err := json.Unmarshal(raw["pulse"], &groups); err != nil {
+		t.Fatalf("decode pulse: %v", err)
 	}
+	if len(groups) == 0 {
+		t.Fatal("no pulse groups")
+	}
+	out := groups[0]
 	if out.ModelID != "mimo-v2.5" {
 		t.Errorf("model_id = %q", out.ModelID)
 	}
@@ -504,44 +414,12 @@ func TestPulseEndpointServesTheNarrowShape(t *testing.T) {
 	}
 }
 
-func TestPulseEndpointClampsLimit(t *testing.T) {
-	h, store := newAPIServer(t)
-	seed(t, store, 30, 900)
-
-	rec := get(t, h, "/api/pulse?model=mimo-v2.5&limit=100000")
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
-	}
-	var out struct {
-		Cycles []samples.Pulse `json:"cycles"`
-	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	// Exact, not `> MaxSampleLimit`: with 30 rows seeded that comparison can
-	// never fail, so it would pass a handler that returned nothing at all. The
-	// assertion that means something is "an absurd limit neither errors nor
-	// over-returns" — it serves what exists.
-	if len(out.Cycles) != 30 {
-		t.Errorf("returned %d cycles, want the 30 that exist", len(out.Cycles))
-	}
-}
-
-// The two raw-cycle endpoints share one validator, so a rejection on one must
-// be a rejection on the other.
-func TestPulseEndpointRejectsTheSameBadInputAsSamples(t *testing.T) {
-	h, _ := newAPIServer(t)
-
-	for _, p := range []string{
-		"/api/pulse?model=gpt-4",
-		"/api/pulse?model=mimo-v2.5&limit=abc",
-		"/api/pulse?model=mimo-v2.5&limit=-5",
-	} {
-		if rec := get(t, h, p); rec.Code != http.StatusBadRequest {
-			t.Errorf("%s: status = %d, want 400", p, rec.Code)
-		}
-	}
-}
+// The row limits are no longer caller-controlled — they are constants in
+// dashboard_handler.go — so the clamps that guarded them, and the shared
+// validator that rejected a bad model or a negative limit, went with the
+// parameters. What they protected is now unreachable rather than defended:
+// samples.MaxSampleLimit still clamps inside the store, and the only value
+// that reaches it is a literal.
 
 // The recent block rides inside a window-keyed response, so the one thing that
 // must never happen is someone "tidying" it by adding the window's `since`
@@ -553,16 +431,19 @@ func TestRecentBlockIsIdenticalOnEveryWindow(t *testing.T) {
 	seed(t, store, 30, 900)
 
 	recentFor := func(window string) string {
-		rec := get(t, h, "/api/summary?window="+window)
+		rec := get(t, h, "/api/dashboard?window="+window)
 		if rec.Code != http.StatusOK {
 			t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
 		}
-		var out struct {
-			Recent json.RawMessage `json:"recent"`
+		var body struct {
+			Summary struct {
+				Recent json.RawMessage `json:"recent"`
+			} `json:"summary"`
 		}
-		if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 			t.Fatalf("decode: %v", err)
 		}
+		out := body.Summary
 		if len(out.Recent) == 0 || string(out.Recent) == "null" {
 			t.Fatalf("window %s served no recent block", window)
 		}
@@ -582,13 +463,7 @@ func TestSummaryRecentBlockCarriesFaultAndRuns(t *testing.T) {
 	h, store := newAPIServer(t)
 	seed(t, store, 3, 900)
 
-	rec := get(t, h, "/api/summary?window=24h")
-	var out struct {
-		Recent []samples.RecentCycle `json:"recent"`
-	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
+	out := getDashboard(t, h, "24h").Summary
 	if len(out.Recent) != 3 {
 		t.Fatalf("recent = %d, want 3", len(out.Recent))
 	}
@@ -625,6 +500,22 @@ func seedCost(t *testing.T, store *samples.Store, n int) {
 	}
 }
 
+// costOf pulls the cost panel out of the page it now rides in.
+func costOf(t *testing.T, h http.Handler, window string) samples.CostBreakdown {
+	t.Helper()
+	rec := get(t, h, "/api/dashboard?window="+window)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		Cost samples.CostBreakdown `json:"cost"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	return body.Cost
+}
+
 func TestCostEndpointServesTheWholePanel(t *testing.T) {
 	db := openTestDB(t)
 	store := samples.New(db)
@@ -636,16 +527,7 @@ func TestCostEndpointServesTheWholePanel(t *testing.T) {
 	})
 	seedCost(t, store, 3)
 
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/cost?window=24h", nil))
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, body %s", rec.Code, rec.Body.String())
-	}
-
-	var got samples.CostBreakdown
-	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
+	got := costOf(t, h, "24h")
 	if got.Window != "24h" || !got.Priced {
 		t.Errorf("window = %q, priced = %v", got.Window, got.Priced)
 	}
@@ -667,8 +549,7 @@ func TestCostEndpointServesTheWholePanel(t *testing.T) {
 func TestCostEndpointRejectsAnUnknownWindow(t *testing.T) {
 	h, _ := newAPIServer(t)
 
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/cost?window=6mo", nil))
+	rec := get(t, h, "/api/dashboard?window=6mo")
 	if rec.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400", rec.Code)
 	}
@@ -680,15 +561,7 @@ func TestCostEndpointWithoutPricesServesNoMoney(t *testing.T) {
 	h, store := newAPIServer(t)
 	seedCost(t, store, 3)
 
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/cost?window=24h", nil))
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d", rec.Code)
-	}
-	var got samples.CostBreakdown
-	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
+	got := costOf(t, h, "24h")
 	if got.Priced || got.Total.USD != nil {
 		t.Errorf("money served with no price table: %+v", got.Total)
 	}

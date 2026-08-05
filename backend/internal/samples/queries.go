@@ -711,7 +711,7 @@ type Sample struct {
 	// tell those apart.
 	//
 	// The prompt side used to stay out on the grounds that it says what the run
-	// cost rather than what it produced, and that /api/cost already sums it. The
+	// cost rather than what it produced, and that the cost panel already sums it. The
 	// sum is the wrong shape for this table: prompt_tokens is ~20 on short and
 	// ~3800 on wide, and that 200x step IS the difference between the two
 	// probes. Reading it off a daily total means reconstructing per-run input

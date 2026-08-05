@@ -975,7 +975,7 @@ func TestRecentPulseMatchesRecentSamplesOrderAndClamp(t *testing.T) {
 	}
 }
 
-// The whole reason /api/pulse exists: a day of cycles reaches the page without
+// The whole reason the pulse projection exists: a day of cycles reaches the page without
 // the page being handed a day of measurements. If Pulse ever grows a latency
 // column beyond ttft_ms, the narrowing has silently stopped happening.
 func TestPulseTypeCarriesOnlyWhatTheStripDraws(t *testing.T) {

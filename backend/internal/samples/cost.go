@@ -124,7 +124,7 @@ type ProbeCost struct {
 	CostGroup
 }
 
-// CostBreakdown is the /api/cost payload.
+// CostBreakdown is the cost panel of the dashboard payload.
 type CostBreakdown struct {
 	Window string `json:"window"`
 	// Priced reports whether a price table was configured. When false every USD

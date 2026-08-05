@@ -90,7 +90,7 @@ func TestMiddlewareReturns429(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	req := httptest.NewRequest(http.MethodGet, "/api/summary", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/dashboard", nil)
 	req.RemoteAddr = "9.9.9.9:1234"
 
 	first := httptest.NewRecorder()
@@ -114,7 +114,7 @@ func TestMiddlewareReturns429(t *testing.T) {
 // limit entirely, so the LAST entry — appended by the nearest trusted proxy —
 // is the one used.
 func TestClientIPUsesTheLastForwardedEntryNotTheFirst(t *testing.T) {
-	req := httptest.NewRequest(http.MethodGet, "/api/summary", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/dashboard", nil)
 	req.RemoteAddr = "10.0.0.1:5000"
 	req.Header.Set("X-Forwarded-For", "1.1.1.1, 2.2.2.2, 3.3.3.3")
 
@@ -131,7 +131,7 @@ func TestClientIPSpoofingCannotMintIdentities(t *testing.T) {
 	// Same real client, varying the spoofable leading entry each time.
 	var denied bool
 	for i := 0; i < 5; i++ {
-		req := httptest.NewRequest(http.MethodGet, "/api/summary", nil)
+		req := httptest.NewRequest(http.MethodGet, "/api/dashboard", nil)
 		req.RemoteAddr = "10.0.0.1:5000"
 		req.Header.Set("X-Forwarded-For", string(rune('a'+i))+".fake, 3.3.3.3")
 		rec := httptest.NewRecorder()
@@ -147,7 +147,7 @@ func TestClientIPSpoofingCannotMintIdentities(t *testing.T) {
 }
 
 func TestClientIPFallsBackToRemoteAddr(t *testing.T) {
-	req := httptest.NewRequest(http.MethodGet, "/api/summary", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/dashboard", nil)
 	req.RemoteAddr = "192.0.2.5:41234"
 
 	if got := ClientIP(req); got != "192.0.2.5" {
@@ -172,7 +172,7 @@ func TestClientIPCollapsesIPv6ToItsPrefix(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodGet, "/api/summary", nil)
+			req := httptest.NewRequest(http.MethodGet, "/api/dashboard", nil)
 			req.RemoteAddr = tc.remote
 			if tc.xff != "" {
 				req.Header.Set("X-Forwarded-For", tc.xff)

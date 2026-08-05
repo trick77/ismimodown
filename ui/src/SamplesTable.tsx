@@ -19,9 +19,13 @@ import { formatInt, formatMs, formatTime, formatTps } from "./format";
 // price of showing every call, and it is the one being paid: the card answers
 // "what happened just now", and the pulse strip above is what covers the day.
 //
-// App asks the server for TABLE_ROWS per model and probe, which is four times
-// this in total, so the slice below does real work rather than being the no-op
-// it was when the table fetched one series.
+// The daemon supplies dashboardSampleLimit rows per model and probe, which is
+// four times this in total, so the slice below does real work rather than being
+// the no-op it was when the table fetched one series.
+//
+// Keep the two numbers equal. A supply below this cap would not error — it
+// would quietly shorten how far back the table reaches, which is the one thing
+// the paragraph above exists to keep visible.
 const ROWS = 20;
 
 // newestFirst merges one array of samples per model and probe kind into the

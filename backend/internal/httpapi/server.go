@@ -61,7 +61,7 @@ type Deps struct {
 	// turns every restart into a 15s hang and a non-zero exit.
 	//
 	// The obvious fix is srv.BaseContext returning the signal context, but that
-	// cancels EVERY in-flight request: a mid-flight /api/summary loses its DB
+	// cancels EVERY in-flight request: a mid-flight /api/dashboard loses its DB
 	// query and returns 500 on what should be a graceful restart. Signalling
 	// only the long-lived stream fixes the hang, lets ordinary requests drain,
 	// and — unlike BaseContext, which can only live in main() — sits where it
@@ -73,8 +73,8 @@ type Deps struct {
 	// database, so a model that was dropped from the config stops being served.
 	Models []string
 
-	// Prices is the per-model list price table /api/cost multiplies tokens by.
-	// Nil is supported and means that endpoint serves tokens with no money in
+	// Prices is the per-model list price table the cost panel multiplies tokens by.
+	// Nil is supported and means the panel carries tokens with no money in
 	// them — see config.Config.Prices.
 	Prices map[string]config.ModelPrice
 
@@ -135,13 +135,12 @@ func (s *server) routes() {
 	// /api/* is rate limited; /healthz and the static shell are not. The
 	// container healthcheck must never be throttled, and the SPA is served from
 	// memory.
+	//
+	// One data route, because the page is one page. It replaced six that the
+	// SPA had to call fifteen times between them to draw itself once — and
+	// still stays behind the limiter, being the heaviest thing the box serves.
 	api := http.NewServeMux()
-	api.HandleFunc("GET /api/models", s.handleModels)
-	api.HandleFunc("GET /api/summary", s.handleSummary)
-	api.HandleFunc("GET /api/series", s.handleSeries)
-	api.HandleFunc("GET /api/samples", s.handleSamples)
-	api.HandleFunc("GET /api/pulse", s.handlePulse)
-	api.HandleFunc("GET /api/cost", s.handleCost)
+	api.HandleFunc("GET /api/dashboard", s.handleDashboard)
 
 	var apiHandler http.Handler = api
 	if s.deps.Limiter != nil {
