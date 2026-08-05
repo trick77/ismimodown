@@ -136,6 +136,20 @@ func (l *Limiter) Sweep(idle time.Duration) int {
 	return n
 }
 
+// MaxBlock is the longest a caller can be denied: the time it takes a bucket at
+// the debt floor to climb back to one token.
+//
+// It exists so a Retry-After can be honest without repeating the limiter's
+// numbers somewhere else, where the two would drift apart the first time one of
+// them was tuned. A caller told to come back sooner than this comes back to
+// another rejection.
+func (l *Limiter) MaxBlock() time.Duration {
+	if l.rate <= 0 {
+		return 0
+	}
+	return time.Duration((l.burst + 1) / l.rate * float64(time.Second))
+}
+
 // Len reports how many buckets are tracked, for tests and diagnostics.
 func (l *Limiter) Len() int {
 	l.mu.Lock()

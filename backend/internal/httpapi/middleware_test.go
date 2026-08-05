@@ -3,6 +3,7 @@ package httpapi
 import (
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -279,8 +280,12 @@ func TestThrottledResponseShape(t *testing.T) {
 	if !strings.Contains(api.Body.String(), `"error"`) {
 		t.Errorf("/api/* body = %q, want JSON", api.Body.String())
 	}
-	if api.Header().Get("Retry-After") == "" {
-		t.Error("a 429 must tell the caller when to retry")
+	// The header names the limiter's own worst case, not a constant that would
+	// send an obedient client back into a second 429: burst 3 at 0.0001/s is a
+	// very long block indeed.
+	want := strconv.Itoa(int(ratelimit.New(0.0001, 3).MaxBlock().Seconds()))
+	if got := api.Header().Get("Retry-After"); got != want {
+		t.Errorf("Retry-After = %q, want %q — the limiter's real recovery time", got, want)
 	}
 	if api.Header().Get("Content-Security-Policy") == "" {
 		t.Error("a 429 must still carry the security headers")

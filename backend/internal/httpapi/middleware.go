@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"net/http"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"time"
 
@@ -172,7 +173,7 @@ func notFoundPenalty(l *ratelimit.Limiter, next http.Handler) http.Handler {
 
 		key := ratelimit.ClientIP(r)
 		if !l.Permitted(key) {
-			writeTooManyRequests(w, r)
+			writeTooManyRequests(w, r, l.MaxBlock())
 			return
 		}
 
@@ -188,11 +189,17 @@ func notFoundPenalty(l *ratelimit.Limiter, next http.Handler) http.Handler {
 // implies: a client that parses every /api/* response as JSON must not be
 // handed text/plain, and a browser asking for a page gains nothing from JSON.
 //
-// Retry-After is minutes, not the request limiter's one second, because this
-// block is minutes — a client that obeys it and comes back too early only digs
-// the bucket deeper.
-func writeTooManyRequests(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Retry-After", "120")
+// Retry-After comes from the limiter rather than a number written here, so it
+// cannot promise a recovery the limiter will not grant: a caller that spent its
+// budget and kept going sits at the debt floor, and the climb back to one token
+// is minutes, not the request limiter's one second. A short constant would be
+// obeyed and answered with another 429.
+//
+// Coming back early is not itself punished. Only a 404 charges, and a throttled
+// request never reaches a handler, so an impatient client is merely early, not
+// deeper in debt.
+func writeTooManyRequests(w http.ResponseWriter, r *http.Request, retryAfter time.Duration) {
+	w.Header().Set("Retry-After", strconv.Itoa(int(retryAfter.Seconds())))
 	if strings.HasPrefix(r.URL.Path, "/api/") {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusTooManyRequests)
