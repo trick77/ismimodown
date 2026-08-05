@@ -105,7 +105,8 @@ export default function App() {
   const [total, setTotal] = useState<ModelSeries | null>(null);
   const [net, setNet] = useState<NetSeries | null>(null);
   const [cost, setCost] = useState<CostBreakdown | null>(null);
-  const [cycles, setCycles] = useState<Cycle[]>([]);
+  // One array per probed model; the strip merges them.
+  const [cycles, setCycles] = useState<Cycle[][]>([]);
   const [samples, setSamples] = useState<Sample[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -146,23 +147,31 @@ export default function App() {
       setCost(c);
       setError(null);
 
-      const first = s.models[0]?.model_id;
-      if (first) {
-        // Two requests with two different shapes, because the two consumers
-        // want two different things and neither should pay for the other.
+      const probed = s.models.map((m) => m.model_id);
+      const first = probed[0];
+      if (first !== undefined) {
+        // Requests with two different shapes, because the two consumers want
+        // two different things and neither should pay for the other.
         //
         // PULSE_CYCLES is a day at the 5-minute cadence — the strip draws one
         // bar per cycle and nothing less than the day makes its shape mean
         // anything. But a bar needs five fields, so /api/pulse serves five.
         //
+        // Every model, not just the first: the strip draws the worse of them
+        // per cycle, and drawing one model is how a failure on the other used
+        // to be painted green. /api/pulse is per model by design — it is a
+        // projection of one model's cycles — so the merge happens here.
+        //
         // TABLE_ROWS is what the table shows, and only those rows carry every
         // measurement. Asking /api/samples for the day and rendering a score of
         // it is how a page ends up holding a detail series it never displays.
-        const [pulse, raw] = await Promise.all([
-          getPulse(first, "infer", PULSE_CYCLES, signal),
+        const [pulses, raw] = await Promise.all([
+          Promise.all(
+            probed.map((id) => getPulse(id, "infer", PULSE_CYCLES, signal)),
+          ),
           getSamples(first, "infer", TABLE_ROWS, signal),
         ]);
-        setCycles(pulse.cycles);
+        setCycles(pulses.map((p) => p.cycles));
         setSamples(raw.samples);
       }
     } catch (err) {
@@ -257,7 +266,7 @@ export default function App() {
         <Masthead />
         <VerdictBanner verdict={verdict} loading={loading} />
         <div className="mb-6">
-          <PulseStrip cycles={cycles} />
+          <PulseStrip perModel={cycles} />
         </div>
 
         <nav className="mb-6 flex flex-wrap gap-2" aria-label="Time window">
