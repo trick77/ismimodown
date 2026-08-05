@@ -319,7 +319,11 @@ func validateBaseURL(raw string) (string, error) {
 	if u.Scheme != "http" && u.Scheme != "https" {
 		return "", fmt.Errorf("BACKEND_MIMO_BASE_URL must be an http or https URL")
 	}
-	if u.Host == "" {
+	// Hostname(), not just Host: "https://:8443/v1" parses with a non-empty Host
+	// of ":8443" and an EMPTY hostname, which would be handed back as the derived
+	// ping target. The retired BACKEND_PING_MIMO_HOST had its own non-empty
+	// guard; deriving the host is what makes this the place for it.
+	if u.Host == "" || u.Hostname() == "" {
 		return "", fmt.Errorf("BACKEND_MIMO_BASE_URL must include a host")
 	}
 	// Userinfo is a credential. "https://user:pass@host/v1" passes every other

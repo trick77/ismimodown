@@ -228,6 +228,11 @@ func TestLoadRejectsBadValues(t *testing.T) {
 	}{
 		{"base url without scheme", "BACKEND_MIMO_BASE_URL", "token-plan-sgp.xiaomimimo.com/v1", "BACKEND_MIMO_BASE_URL"},
 		{"base url with bad scheme", "BACKEND_MIMO_BASE_URL", "ftp://example.com/v1", "BACKEND_MIMO_BASE_URL"},
+		// Host is ":8443" here, which is non-empty, but the hostname is not —
+		// and the hostname is what the MiMo ping target is derived from. An
+		// empty ping target fails resolution on every cycle and reads on the
+		// dashboard as MiMo's edge being down.
+		{"base url with a port and no host", "BACKEND_MIMO_BASE_URL", "https://:8443/v1", "BACKEND_MIMO_BASE_URL"},
 		{"ping host with port", "BACKEND_PING_REF_SGP_HOST", "example.com:443", "BACKEND_PING_REF_SGP_HOST"},
 		{"ping host with scheme", "BACKEND_PING_REF_SGP_HOST", "https://example.com", "BACKEND_PING_REF_SGP_HOST"},
 		// A credential embedded in the base URL would travel wherever that
