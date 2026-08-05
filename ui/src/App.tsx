@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  getCost,
   getNetSeries,
   getPulse,
   getSamples,
@@ -8,6 +9,7 @@ import {
 } from "./api";
 import { streamSSE } from "./api/stream";
 import type {
+  CostBreakdown,
   Cycle,
   ModelSeries,
   NetSeries,
@@ -25,6 +27,7 @@ import { NetworkPanel } from "./NetworkPanel";
 import { AvailabilityStrip } from "./AvailabilityStrip";
 import { PulseStrip } from "./PulseStrip";
 import { SamplesTable } from "./SamplesTable";
+import { CostPanel } from "./CostPanel";
 import { buildVerdict } from "./verdict";
 
 // Mirrors samples.Windows on the daemon. 1h is absent for the reason documented
@@ -101,6 +104,7 @@ export default function App() {
   const [tps, setTps] = useState<ModelSeries | null>(null);
   const [total, setTotal] = useState<ModelSeries | null>(null);
   const [net, setNet] = useState<NetSeries | null>(null);
+  const [cost, setCost] = useState<CostBreakdown | null>(null);
   const [cycles, setCycles] = useState<Cycle[]>([]);
   const [samples, setSamples] = useState<Sample[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -120,13 +124,14 @@ export default function App() {
       // still spends a token from the per-IP limiter, and this runs on every
       // cycle and every stream event.
       const wanted = [...new Set([key, NOW_WINDOW, BASELINE_WINDOW])];
-      const [summaries, t, w, p, tot, n] = await Promise.all([
+      const [summaries, t, w, p, tot, n, c] = await Promise.all([
         Promise.all(wanted.map((k) => getSummary(k, "infer", signal))),
         getSeries("ttft", key, "infer", signal),
         getSeries("ttft", key, "wide", signal),
         getSeries("tps", key, "infer", signal),
         getSeries("total", key, "infer", signal),
         getNetSeries(key, signal),
+        getCost(key, signal),
       ]);
       const byWindow = new Map(wanted.map((k, i) => [k, summaries[i]!]));
       const s = byWindow.get(key)!;
@@ -138,6 +143,7 @@ export default function App() {
       setTps(p);
       setTotal(tot);
       setNet(n);
+      setCost(c);
       setError(null);
 
       const first = s.models[0]?.model_id;
@@ -322,6 +328,11 @@ export default function App() {
           <NetworkPanel series={net} />
           <Decomposition summary={summary} edgeMs={mimoEdge} />
           <AvailabilityStrip summary={summary} />
+          {/* Last of the panels, above the raw cycles. Everything over it
+              measures the endpoint; this one measures what measuring it costs,
+              which is a fact about us rather than about MiMo — so it reads as a
+              footnote to the page rather than as one of its findings. */}
+          <CostPanel cost={cost} />
           <SamplesTable samples={samples} />
         </div>
       </div>

@@ -60,6 +60,10 @@ services:
       # Which models are probed, comma-separated. Empty means the built-in pair.
       BACKEND_MODELS: "${BACKEND_MODELS:-}"
 
+      # Per-model list price, model=in/out[/cached] in USD per million tokens.
+      # Empty means the cost panel is hidden rather than priced at a guess.
+      BACKEND_PRICES: "${BACKEND_PRICES:-}"
+
       # Must stay inside the mounted volume below, or the history is written to
       # the read-only rootfs and lost on every restart.
       BACKEND_DB_PATH: "${BACKEND_DB_PATH:-}"

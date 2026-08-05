@@ -143,6 +143,7 @@ func run() error {
 		Limiter:        limiter,
 		Shutdown:       shutdownCh,
 		Models:         cfg.Models,
+		Prices:         cfg.Prices,
 		ProbeUserAgent: cfg.ProbeUserAgent,
 	})
 

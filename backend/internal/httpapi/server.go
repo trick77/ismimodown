@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/trick77/mimostats/internal/config"
 	"github.com/trick77/mimostats/internal/ratelimit"
 	"github.com/trick77/mimostats/internal/samples"
 )
@@ -71,6 +72,11 @@ type Deps struct {
 	// answers from this rather than from whatever ids happen to be in the
 	// database, so a model that was dropped from the config stops being served.
 	Models []string
+
+	// Prices is the per-model list price table /api/cost multiplies tokens by.
+	// Nil is supported and means that endpoint serves tokens with no money in
+	// them — see config.Config.Prices.
+	Prices map[string]config.ModelPrice
 
 	// ProbeUserAgent is deliberately NOT published: the request shape is
 	// operator-only, because an endpoint that can recognise the probe by its
@@ -135,6 +141,7 @@ func (s *server) routes() {
 	api.HandleFunc("GET /api/series", s.handleSeries)
 	api.HandleFunc("GET /api/samples", s.handleSamples)
 	api.HandleFunc("GET /api/pulse", s.handlePulse)
+	api.HandleFunc("GET /api/cost", s.handleCost)
 
 	var apiHandler http.Handler = api
 	if s.deps.Limiter != nil {

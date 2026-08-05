@@ -308,3 +308,75 @@ func TestSetButEmptyIsTreatedAsUnset(t *testing.T) {
 		}
 	}
 }
+
+// BACKEND_PRICES unset is a supported state: the cost endpoint then serves
+// tokens with no money in them, which is honest. A default price would publish
+// a number that looks like a bill and is not one.
+func TestLoadWithoutPricesIsNotAnError(t *testing.T) {
+	setMinimalEnv(t)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(cfg.Prices) != 0 {
+		t.Errorf("Prices = %+v, want none", cfg.Prices)
+	}
+}
+
+func TestLoadParsesPrices(t *testing.T) {
+	setMinimalEnv(t)
+	t.Setenv("BACKEND_PRICES", "mimo-v2.5=0.30/1.20/0.15, mimo-v2.5-pro=0.60/2.40")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got, want := cfg.Prices["mimo-v2.5"], (ModelPrice{In: 0.30, Out: 1.20, Cached: 0.15}); got != want {
+		t.Errorf("mimo-v2.5 = %+v, want %+v", got, want)
+	}
+	// The cached rate is optional and falls back to the INPUT rate, which
+	// overstates a cache hit rather than flattering it.
+	if got, want := cfg.Prices["mimo-v2.5-pro"], (ModelPrice{In: 0.60, Out: 2.40, Cached: 0.60}); got != want {
+		t.Errorf("mimo-v2.5-pro = %+v, want %+v", got, want)
+	}
+}
+
+// A malformed table is an error rather than a silent fallback to none: someone
+// tried to configure prices, and coming up publishing no cost at all would look
+// identical to not having tried.
+func TestLoadRejectsMalformedPrices(t *testing.T) {
+	for _, bad := range []string{
+		"mimo-v2.5",
+		"mimo-v2.5=0.30",
+		"mimo-v2.5=0.30/1.20/0.15/0.02",
+		"mimo-v2.5=cheap/1.20",
+		"=0.30/1.20",
+		"mimo-v2.5=-0.30/1.20",
+	} {
+		t.Run(bad, func(t *testing.T) {
+			setMinimalEnv(t)
+			t.Setenv("BACKEND_PRICES", bad)
+
+			if _, err := Load(); err == nil {
+				t.Errorf("%q must be rejected", bad)
+			} else if !strings.Contains(err.Error(), "BACKEND_PRICES") {
+				t.Errorf("error must name the variable: %v", err)
+			}
+		})
+	}
+}
+
+// A free tier is a real thing to configure and produces a true total of nothing.
+func TestLoadAcceptsZeroPrices(t *testing.T) {
+	setMinimalEnv(t)
+	t.Setenv("BACKEND_PRICES", "mimo-v2.5=0/0")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if _, ok := cfg.Prices["mimo-v2.5"]; !ok {
+		t.Error("a zero-priced model must still be in the table")
+	}
+}

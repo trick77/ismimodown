@@ -135,3 +135,27 @@ export const LOG_SCALE_THRESHOLD = 20;
 export function shouldUseLogScale(values: (number | null)[]): boolean {
   return dynamicRange(values) > LOG_SCALE_THRESHOLD;
 }
+
+// Money comes in two magnitudes on this page and one formatter cannot serve
+// both. A window total is dollars and cents; a per-inference figure is a
+// hundredth of a cent, and rendering that at two decimals prints $0.00 for a
+// number that is not zero.
+
+// formatUSD is the headline form: two decimals, always. Totals and phase
+// figures use it, because a bill is read in cents.
+export function formatUSD(usd: number | null | undefined): string {
+  if (usd === null || usd === undefined || !Number.isFinite(usd)) return "—";
+  return `$${usd.toFixed(2)}`;
+}
+
+// formatUSDPrecise keeps three significant figures wherever the value lands, so
+// a per-run cost and an axis tick on a fraction of a cent both survive. Capped
+// at six decimals: past that the digits are noise from float arithmetic rather
+// than anything MiMo billed.
+export function formatUSDPrecise(usd: number | null | undefined): string {
+  if (usd === null || usd === undefined || !Number.isFinite(usd)) return "—";
+  if (usd === 0) return "$0.00";
+  const magnitude = Math.floor(Math.log10(Math.abs(usd)));
+  const decimals = Math.min(6, Math.max(2, 2 - magnitude));
+  return `$${usd.toFixed(decimals)}`;
+}

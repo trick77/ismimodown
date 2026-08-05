@@ -157,3 +157,47 @@ export const FAULT_EDGE = "edge";
 // render it.
 export const FAULT_ROUTE = "route";
 export const FAULT_UPLINK = "uplink";
+
+// Cost. What the probing itself bills, priced server-side from the usage MiMo
+// reported on every run.
+export type CostTokens = {
+  // prompt is the WHOLE input count and cached is a subset of it, exactly as
+  // MiMo reports them. Adding the two would count the cached part twice.
+  prompt: number;
+  cached: number;
+  output: number;
+};
+
+export type CostGroup = {
+  runs: number;
+  tokens: CostTokens;
+  // null means no price is configured for something in this group. It must
+  // render as "not priced", never as $0.00 — the difference is between a bill
+  // of nothing and no bill at all.
+  usd: number | null;
+  list_usd: number | null;
+};
+
+export type CostPoint = { t: number; usd: number | null; runs: number };
+
+export type CostBreakdown = {
+  window: string;
+  priced: boolean;
+  currency: string;
+  offpeak_coefficient: number;
+  total: CostGroup;
+  phases: ({ phase: "full" | "offpeak" } & CostGroup)[];
+  probes: ({ probe: string } & CostGroup)[];
+  series: CostPoint[];
+  bucket_s: number;
+  // unpriced_runs is how many runs carry no usage at all — cut off before the
+  // usage chunk, and billed anyway. They are in no figure above, so the panel
+  // has to say so rather than let the total quietly run low.
+  unpriced_runs: number;
+  // The reduced-rate spans inside this window, in unix SECONDS, clipped to it.
+  // Server-derived: the client keeps no clock of its own.
+  offpeak_spans: [number, number][];
+  offpeak_until: number;
+  offpeak_active: boolean;
+  generated_at: string;
+};

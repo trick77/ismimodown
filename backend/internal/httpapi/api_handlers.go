@@ -198,6 +198,22 @@ func (s *server) handleSamples(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleCost serves what the probing itself costs over a window.
+//
+// One endpoint for the whole panel — totals, the per-phase and per-probe splits,
+// and the series behind the chart — because they are one query's output and
+// three round trips would let the figures and the line disagree about which
+// instant they describe.
+func (s *server) handleCost(w http.ResponseWriter, r *http.Request) {
+	window, ok := s.window(w, r)
+	if !ok {
+		return
+	}
+	s.writeJSON(w, r, "cost|"+window.Key, func() (any, error) {
+		return s.deps.Samples.Cost(r.Context(), window, s.deps.Prices, s.now())
+	})
+}
+
 // handlePulse serves the same cycles as /api/samples with every column the
 // pulse strip does not draw removed.
 //
