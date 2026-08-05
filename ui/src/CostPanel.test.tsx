@@ -9,7 +9,6 @@ const NOW = Date.parse("2026-08-04T18:00:00Z") / 1000;
 
 const cost = (over: Partial<CostBreakdown> = {}): CostBreakdown => ({
   window: "24h",
-  priced: true,
   currency: "USD",
   offpeak_coefficient: 0.8,
   total: {
@@ -152,24 +151,6 @@ describe("CostPanel", () => {
   });
 
   describe("when there is nothing honest to show", () => {
-    it("renders nothing without a price table", () => {
-      const { container } = render(
-        <CostPanel
-          cost={cost({
-            priced: false,
-            total: {
-              runs: 624,
-              tokens: { prompt: 213000, cached: 0, output: 55000 },
-              usd: null,
-              list_usd: null,
-            },
-          })}
-        />,
-      );
-
-      expect(container).toBeEmptyDOMElement();
-    });
-
     it("renders nothing on a handful of runs", () => {
       const { container } = render(
         <CostPanel

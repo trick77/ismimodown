@@ -18,7 +18,7 @@ repo, never a fork/upstream. Commit as `trick77@users.noreply.github.com`. Defau
 
 ## Measurement invariants — break these and the numbers lie silently
 
-**Always send a system message** (`BACKEND_PROBE_SYSTEM_PROMPT`). With none MiMo injects its
+**Always send a system message** (`config.DefaultSystemPrompt`). With none MiMo injects its
 own: 250 prompt tokens, ~192 back as `cached_tokens` — 6.5x the token budget AND measured
 prefill becomes a cache lookup. Any non-empty message suppresses it (prompt_tokens → 20).
 
@@ -73,6 +73,11 @@ batch, ~0.008 ms).
 `backend/`, module `github.com/trick77/mimostats`. stdlib `net/http` with Go 1.22+ method
 routing, `Deps` struct DI, `slog` with `err` as the error key, `config.Load()` from `BACKEND_*`
 env only. SQLite via pure-Go `ncruces/go-sqlite3`, WAL, `CGO_ENABLED=0`, `STRICT` tables.
+
+Seven env vars, and that is the whole surface: API key, addr, log level, DB path, base URL,
+SGP reference host, probe user agent. Probe shape — models, prices, system prompt, retention,
+timeout ladder — is constants in `config.go`. Do NOT add an env var for any of them; they say what the page
+measures, not where it runs.
 
 Do NOT add a dependabot ignore for `ncruces/go-sqlite3` — peeq pins it for sqlite-vec, this
 repo has none.

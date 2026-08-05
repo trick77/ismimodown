@@ -9,7 +9,6 @@ import (
 	"net"
 	"net/url"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -20,23 +19,27 @@ const (
 	// DefaultBaseURL is the token-plan host the tp- key is issued against.
 	DefaultBaseURL = "https://token-plan-sgp.xiaomimimo.com/v1"
 
-	// DefaultMimoHost is the TCP ping target for MiMo's own edge. It is derived
-	// from DefaultBaseURL by default, but stays overridable so the ping target
-	// and the inference host can be pointed apart during testing.
-	DefaultMimoHost = "token-plan-sgp.xiaomimimo.com"
-
 	// DefaultRefSGPHost answers "is *any* Europe->Singapore path healthy".
 	//
-	// The plan originally named an OVH Singapore endpoint, because the probe box
-	// is on OVH and a same-carrier path makes "the route is fine" a stronger
-	// claim. No such public hostname exists: `ap-southeast-sgp` does not resolve,
-	// and `sgp.ovh` answers from Cloudflare anycast in Europe (~18 ms), which
-	// would be a Europe reference mislabelled as Singapore — exactly the failure
-	// the reference exists to prevent. DigitalOcean's Singapore endpoint is a
-	// genuine SGP target (~268 ms from Zurich), at the cost of the same-carrier
-	// argument: an operator-specific backbone fault on MiMo's own path may not
-	// show up here.
-	DefaultRefSGPHost = "sgp1.digitaloceanspaces.com"
+	// OVH, because the probe box is on OVH and a same-carrier path makes "the
+	// route is fine" a stronger claim: an operator-specific backbone fault on
+	// MiMo's own transit shows up here rather than hiding behind a different
+	// carrier's healthy path.
+	//
+	// Two OVH names do NOT work and are recorded so they are not re-tested:
+	// `ap-southeast-sgp` (and `s3.ap-southeast-sgp.io.cloud.ovh.net`) does not
+	// resolve at all, and `sgp.ovh` answers from Cloudflare anycast in Europe
+	// (~18 ms) — a Europe reference mislabelled as Singapore, which is exactly
+	// the failure this reference exists to prevent. `sgp.proof.ovh.net` is the
+	// real thing: 15.235.182.181, AS16276 OVH SAS, geolocated Singapore, and
+	// ~271 ms TCP from Zurich against DigitalOcean sgp1's ~333 ms.
+	//
+	// The tradeoff: proof.ovh.net is OVH's public per-datacentre speedtest node.
+	// A bare TCP handshake with no transfer is negligible load, but a speedtest
+	// node is marginally more renumber-prone than a storage endpoint — which is
+	// why this one host stays configurable while the rest of the probe shape
+	// does not.
+	DefaultRefSGPHost = "sgp.proof.ovh.net"
 )
 
 // DefaultUserAgent impersonates opencode, because MiMo's token-plan endpoint is
@@ -66,9 +69,11 @@ const DefaultSystemPrompt = "You are a helpful assistant."
 // quality is not — which the UI must say. The -asr and -tts variants the
 // endpoint also serves are not chat models and are deliberately absent.
 //
-// Configurable so a second vendor is a config change rather than an
-// architectural one, which is what makes the single-vendor scope a decision
-// rather than a limitation.
+// Not configurable. The registry still takes the list as a parameter, so adding
+// a model or a second vendor stays a small change here rather than an
+// architectural one — but it is a change to this line, reviewed with the price
+// table and the UI copy that name these two models, not a deployment-time knob
+// that can silently disagree with any of them.
 var DefaultModels = []string{"mimo-v2.5", "mimo-v2.5-pro"}
 
 // ModelPrice is one model's list price, in USD per MILLION tokens.
@@ -90,21 +95,21 @@ type ModelPrice struct {
 // openrouter/xiaomi/mimo-v2.5 and openrouter/xiaomi/mimo-v2.5-pro. Vendored
 // rather than fetched: the container is distroless and offline by design, and a
 // third party editing a number should not silently change a figure this
-// dashboard publishes as its own cost. Overridable via BACKEND_PRICES when they
-// move.
+// dashboard publishes as its own cost. Edit this table when the rates move.
 //
 // These are LIST rates for these models, not an invoice. The probe runs against
 // a token plan, which consumes credits rather than dollars, so the panel reads
 // "at list" and never claims to be a bill. It is the right order of magnitude
 // and the wrong document to argue with an accountant about.
+//
+// Every model in DefaultModels MUST have an entry here. Nothing downstream
+// tolerates a missing one any more: /api/cost prices every row it finds, so a
+// gap would quietly drop those runs out of a total that still presents itself
+// as complete. config_test.go pins the two lists against each other.
 var DefaultPrices = map[string]ModelPrice{
 	"mimo-v2.5":     {In: 0.40, Out: 2.00, Cached: 0.08},
 	"mimo-v2.5-pro": {In: 1.00, Out: 3.00, Cached: 0.20},
 }
-
-// PricesOff disables pricing outright, for a deployment that would rather show
-// nothing than show a list-rate estimate. Any other value is parsed as a table.
-const PricesOff = "none"
 
 // OffPeakCoefficient is MiMo's reduced-rate multiplier, applied to credits
 // consumed between OffPeakStartUTCHour and midnight UTC.
@@ -126,6 +131,45 @@ const OffPeakCoefficient = 0.8
 // platform is busy.
 const OffPeakStartUTCHour = 16
 
+// Retention bounds how far back raw samples are kept: 3 months, swept nightly.
+// No rollups — a sample outside this window is deleted, not aggregated.
+//
+// This is the only thing bounding database growth. At one cycle every 5 minutes
+// against two models the window holds ~110k rows, which is small; the number is
+// a decision about how much history the charts can show, not a disk budget.
+const Retention = 2160 * time.Hour
+
+// The timeout ladder.
+//
+// A single outer deadline records "slow" and "dead" identically, so each layer
+// gets its own bound and its own error class:
+//
+//	PingTimeout   ->  connect_timeout   TCP handshake to the ping targets
+//	DialTimeout   ->  connect_timeout   dial + TLS for inference
+//	HeaderTimeout ->  header_timeout    response headers
+//	TTFTTimeout   ->  ttft_timeout      no first token at all
+//	IdleTimeout   ->  stalled           silence between chunks mid-stream
+//	ProbeTimeout  ->  timeout           overall deadline
+//
+// TTFTTimeout and IdleTimeout MUST stay below ProbeTimeout or they can never
+// fire, and every failure collapses back into the single "timeout" class the
+// ladder exists to split apart. config_test.go asserts both — the check used to
+// run at boot against environment input, and became unreachable when these
+// became constants, so the invariant moved rather than disappeared.
+//
+// Raising any of these moves the point at which a slow run stops being a
+// latency sample and becomes a censored one, which the dashboard's censoring
+// note describes. That is a change to what the page measures, not a tuning
+// knob, which is why it lives here and not in the environment.
+const (
+	PingTimeout   = 5 * time.Second
+	DialTimeout   = 10 * time.Second
+	HeaderTimeout = 60 * time.Second
+	TTFTTimeout   = 150 * time.Second
+	IdleTimeout   = 45 * time.Second
+	ProbeTimeout  = 240 * time.Second
+)
+
 // Config holds all runtime settings.
 type Config struct {
 	Addr     string // HTTP listen address
@@ -138,10 +182,16 @@ type Config struct {
 	BaseURL string
 	APIKey  string
 
-	// Models probed every cycle.
+	// Models probed every cycle. Always DefaultModels — a field rather than a
+	// direct reference to the constant so the registry stays injectable in tests.
 	Models []string
 
 	// Probe targets for the TCP ping layer.
+	//
+	// MimoHost is DERIVED from BaseURL's hostname and never configured on its
+	// own: pinging one host while inferring against another would report a path
+	// nobody is using. RefSGPHost is the independent Europe->Singapore
+	// reference, and is the one host a deployment can point elsewhere.
 	MimoHost   string
 	RefSGPHost string
 
@@ -149,46 +199,21 @@ type Config struct {
 	ProbeUserAgent    string
 	ProbeSystemPrompt string
 
-	// Prices is the per-model list price, keyed by model id. DefaultPrices
-	// unless BACKEND_PRICES says otherwise, and empty when it says "none" — in
-	// which case the cost panel carries token counts with no money in them and the
-	// dashboard hides the panel.
+	// Prices is the per-model list price, keyed by model id. Always
+	// DefaultPrices, and always covering every entry in Models.
 	Prices map[string]ModelPrice
 
-	// Retention bounds how far back raw samples are kept. Swept nightly.
+	// Retention and the timeout ladder, copied from the constants above. Fields
+	// rather than package-level reads so a test can drive a scheduler or a probe
+	// at a timescale that does not take four minutes.
 	Retention time.Duration
 
-	// The timeout ladder. A single outer deadline records "slow" and "dead"
-	// identically, so each layer has its own bound and its own error class.
 	PingTimeout   time.Duration // TCP handshake
 	DialTimeout   time.Duration // dial + TLS for inference
 	HeaderTimeout time.Duration // response headers
 	TTFTTimeout   time.Duration // no first token at all
 	IdleTimeout   time.Duration // silence between chunks mid-stream
 	ProbeTimeout  time.Duration // overall deadline
-}
-
-// UnpricedModels names the probed models the price table has no entry for, in
-// the order they are probed.
-//
-// Not an error: the daemon's job is to keep probing, and a missing price costs
-// nothing but a panel. It is worth a line in the log, though — now that prices
-// ship by default, the failure mode is a cost panel that silently disappears
-// because BACKEND_MODELS named a model the shipped table has never heard of, and
-// nothing on the page can say so.
-func (c Config) UnpricedModels() []string {
-	// Nil prices is pricing turned off, which is a decision rather than an
-	// oversight and has nothing to warn about.
-	if len(c.Prices) == 0 {
-		return nil
-	}
-	var missing []string
-	for _, m := range c.Models {
-		if _, ok := c.Prices[m]; !ok {
-			missing = append(missing, m)
-		}
-	}
-	return missing
 }
 
 func env(key, def string) string {
@@ -198,27 +223,13 @@ func env(key, def string) string {
 	return def
 }
 
-// envDuration reads a Go duration (e.g. "2s", "500ms") from key, returning def
-// when unset/empty and an error on an unparseable, negative or zero value.
-// Zero is rejected rather than treated as "no limit": every duration here is a
-// timeout, and an accidentally empty-ish value must not silently disable a
-// bound that exists to stop a probe hanging forever.
-func envDuration(key string, def time.Duration) (time.Duration, error) {
-	v, ok := os.LookupEnv(key)
-	if !ok || v == "" {
-		return def, nil
-	}
-	d, err := time.ParseDuration(v)
-	if err != nil {
-		return 0, fmt.Errorf("%s must be a duration like 2s or 500ms: %w", key, err)
-	}
-	if d <= 0 {
-		return 0, fmt.Errorf("%s must be positive", key)
-	}
-	return d, nil
-}
-
 // Load reads configuration from the environment, applying defaults.
+//
+// Six variables reach this function. Everything else about how mimostats probes
+// — the model pair, the price table, the system prompt, the retention window,
+// the whole timeout ladder — is a constant above, because it describes what the
+// dashboard measures rather than where it runs. A deployment that could change
+// those could publish a differently-shaped number under the same page.
 func Load() (Config, error) {
 	cfg := Config{
 		Addr:              env("BACKEND_ADDR", ":8080"),
@@ -226,194 +237,94 @@ func Load() (Config, error) {
 		LogLevel:          env("BACKEND_LOG_LEVEL", "info"),
 		BaseURL:           env("BACKEND_MIMO_BASE_URL", DefaultBaseURL),
 		APIKey:            env("BACKEND_MIMO_API_KEY", ""),
-		MimoHost:          env("BACKEND_PING_MIMO_HOST", DefaultMimoHost),
 		RefSGPHost:        env("BACKEND_PING_REF_SGP_HOST", DefaultRefSGPHost),
 		ProbeUserAgent:    env("BACKEND_PROBE_USER_AGENT", DefaultUserAgent),
-		ProbeSystemPrompt: env("BACKEND_PROBE_SYSTEM_PROMPT", DefaultSystemPrompt),
-		Models:            splitList(env("BACKEND_MODELS", ""), DefaultModels),
-	}
-
-	var err error
-	if cfg.Prices, err = parsePrices(os.Getenv("BACKEND_PRICES")); err != nil {
-		return Config{}, err
-	}
-	if cfg.Retention, err = envDuration("BACKEND_RETENTION", 2160*time.Hour); err != nil {
-		return Config{}, err
-	}
-	if cfg.PingTimeout, err = envDuration("BACKEND_PING_TIMEOUT", 5*time.Second); err != nil {
-		return Config{}, err
-	}
-	if cfg.DialTimeout, err = envDuration("BACKEND_PROBE_DIAL_TIMEOUT", 10*time.Second); err != nil {
-		return Config{}, err
-	}
-	if cfg.HeaderTimeout, err = envDuration("BACKEND_PROBE_HEADER_TIMEOUT", 60*time.Second); err != nil {
-		return Config{}, err
-	}
-	if cfg.TTFTTimeout, err = envDuration("BACKEND_PROBE_TTFT_TIMEOUT", 150*time.Second); err != nil {
-		return Config{}, err
-	}
-	if cfg.IdleTimeout, err = envDuration("BACKEND_PROBE_IDLE_TIMEOUT", 45*time.Second); err != nil {
-		return Config{}, err
-	}
-	if cfg.ProbeTimeout, err = envDuration("BACKEND_PROBE_TIMEOUT", 240*time.Second); err != nil {
-		return Config{}, err
+		ProbeSystemPrompt: DefaultSystemPrompt,
+		Models:            append([]string(nil), DefaultModels...),
+		Prices:            defaultPrices(),
+		Retention:         Retention,
+		PingTimeout:       PingTimeout,
+		DialTimeout:       DialTimeout,
+		HeaderTimeout:     HeaderTimeout,
+		TTFTTimeout:       TTFTTimeout,
+		IdleTimeout:       IdleTimeout,
+		ProbeTimeout:      ProbeTimeout,
 	}
 
 	if cfg.APIKey == "" {
 		return Config{}, fmt.Errorf("BACKEND_MIMO_API_KEY is required")
 	}
-	if len(cfg.Models) == 0 {
-		return Config{}, fmt.Errorf("BACKEND_MODELS must name at least one model")
-	}
-	if err := validateBaseURL(cfg.BaseURL); err != nil {
+
+	// The ping target for MiMo's edge is the inference host, derived rather than
+	// configured: pinging one host while inferring against another would put a
+	// latency figure on the page for a path no request takes.
+	//
+	// This also subsumes the bare-hostname validation the old
+	// BACKEND_PING_MIMO_HOST needed. url.Hostname() on a URL that has already
+	// passed validateBaseURL cannot carry a scheme, a port, userinfo or a query
+	// — the port is stripped and the rest is rejected outright — so there is
+	// nothing left for a colon-and-slash check to catch.
+	host, err := validateBaseURL(cfg.BaseURL)
+	if err != nil {
 		return Config{}, err
 	}
-	// Whitespace-only, not just empty: MiMo's injection is suppressed by the
-	// presence of a system message, but a blank one is a configuration mistake
-	// that would ship a meaningless prompt to production. See DefaultSystemPrompt.
-	if strings.TrimSpace(cfg.ProbeSystemPrompt) == "" {
-		return Config{}, fmt.Errorf("BACKEND_PROBE_SYSTEM_PROMPT must not be empty")
-	}
-	for name, host := range map[string]string{
-		"BACKEND_PING_MIMO_HOST":    cfg.MimoHost,
-		"BACKEND_PING_REF_SGP_HOST": cfg.RefSGPHost,
-	} {
-		if host == "" {
-			return Config{}, fmt.Errorf("%s must not be empty", name)
-		}
-		// A host:port here would be dialled as "host:port:443". Catch it at boot
-		// rather than as a permanently-failing ping that reads as an outage.
-		//
-		// A bare IPv6 literal is exempted from the colon test, which would
-		// otherwise reject every one of them — the error says "hostname or IP"
-		// and .env.example documents IPs, so an operator pointing the europe
-		// reference at 2606:4700:4700::1111 would be refused at boot by a guard
-		// aimed at "example.com:443". net.ParseIP tells the two apart exactly:
-		// it accepts the literal and rejects host:port. Safe downstream because
-		// probe.Pinger resolves via net.Resolver.LookupHost and dials through
-		// net.JoinHostPort, both of which bracket a v6 address correctly.
-		if strings.Contains(host, "/") {
-			return Config{}, fmt.Errorf("%s must be a bare hostname or IP without scheme or port", name)
-		}
-		if strings.Contains(host, ":") && net.ParseIP(host) == nil {
-			return Config{}, fmt.Errorf("%s must be a bare hostname or IP without scheme or port", name)
-		}
-	}
+	cfg.MimoHost = host
 
-	// The TTFT watchdog and the idle bound are both subordinate to the overall
-	// deadline. Configured the other way round they can never fire, and every
-	// failure collapses back into the single "timeout" class the ladder exists
-	// to split apart.
-	if cfg.TTFTTimeout >= cfg.ProbeTimeout {
-		return Config{}, fmt.Errorf("BACKEND_PROBE_TTFT_TIMEOUT must be less than BACKEND_PROBE_TIMEOUT")
+	if cfg.RefSGPHost == "" {
+		return Config{}, fmt.Errorf("BACKEND_PING_REF_SGP_HOST must not be empty")
 	}
-	if cfg.IdleTimeout >= cfg.ProbeTimeout {
-		return Config{}, fmt.Errorf("BACKEND_PROBE_IDLE_TIMEOUT must be less than BACKEND_PROBE_TIMEOUT")
+	// A host:port here would be dialled as "host:port:443". Catch it at boot
+	// rather than as a permanently-failing ping that reads as an outage.
+	//
+	// A bare IPv6 literal is exempted from the colon test, which would otherwise
+	// reject every one of them — the error says "hostname or IP" and
+	// .env.example documents IPs, so an operator pointing the reference at
+	// 2606:4700:4700::1111 would be refused at boot by a guard aimed at
+	// "example.com:443". net.ParseIP tells the two apart exactly: it accepts the
+	// literal and rejects host:port. Safe downstream because probe.Pinger
+	// resolves via net.Resolver.LookupHost and dials through net.JoinHostPort,
+	// both of which bracket a v6 address correctly.
+	if strings.Contains(cfg.RefSGPHost, "/") ||
+		(strings.Contains(cfg.RefSGPHost, ":") && net.ParseIP(cfg.RefSGPHost) == nil) {
+		return Config{}, fmt.Errorf("BACKEND_PING_REF_SGP_HOST must be a bare hostname or IP without scheme or port")
 	}
 
 	return cfg, nil
 }
 
-// splitList parses a comma-separated override, trimming blanks. An override
-// that is present but yields nothing usable returns empty rather than silently
-// reverting to the default: "BACKEND_MODELS=," is a mistake worth failing on,
-// not a request for the defaults.
-// parsePrices reads BACKEND_PRICES.
-//
-// Format is one entry per model, comma separated:
-//
-//	mimo-v2.5=0.30/1.20/0.30,mimo-v2.5-pro=0.60/2.40/0.60
-//
-// The three numbers are USD per million tokens: input, output, cached-input. The
-// third is optional and defaults to the input rate, which OVERSTATES the bill on
-// a cache hit rather than flattering it — the honest direction to be wrong in,
-// and cached_tokens is required to sit near zero anyway.
-//
-// Unset means DefaultPrices — the point of shipping a table is that a
-// deployment does not have to carry one. "none" turns pricing off and the panel
-// with it. A MALFORMED value is an error, because someone tried to configure
-// prices and coming up with none would look identical to not having tried.
-//
-// A table given here REPLACES the defaults rather than merging into them: a
-// half-overridden price list is the kind of state where one model quietly keeps
-// a stale rate, and the whole table is two short lines to write.
-func parsePrices(raw string) (map[string]ModelPrice, error) {
-	trimmed := strings.TrimSpace(raw)
-	if trimmed == "" {
-		out := make(map[string]ModelPrice, len(DefaultPrices))
-		for k, v := range DefaultPrices {
-			out[k] = v
-		}
-		return out, nil
-	}
-	if trimmed == PricesOff {
-		return nil, nil
-	}
-	out := make(map[string]ModelPrice, 2)
-	for _, entry := range strings.Split(raw, ",") {
-		entry = strings.TrimSpace(entry)
-		if entry == "" {
-			continue
-		}
-		model, rates, ok := strings.Cut(entry, "=")
-		model = strings.TrimSpace(model)
-		if !ok || model == "" {
-			return nil, fmt.Errorf("BACKEND_PRICES entry %q must be model=in/out[/cached]", entry)
-		}
-		parts := strings.Split(rates, "/")
-		if len(parts) < 2 || len(parts) > 3 {
-			return nil, fmt.Errorf("BACKEND_PRICES entry %q must be model=in/out[/cached]", entry)
-		}
-		var p ModelPrice
-		for i, target := range []*float64{&p.In, &p.Out, &p.Cached} {
-			if i >= len(parts) {
-				break
-			}
-			v, err := strconv.ParseFloat(strings.TrimSpace(parts[i]), 64)
-			if err != nil {
-				return nil, fmt.Errorf("BACKEND_PRICES entry %q: %q is not a number", entry, parts[i])
-			}
-			// Negative is rejected, zero is not: a model on a free tier is a
-			// real thing to configure, and it produces a true total of nothing.
-			if v < 0 {
-				return nil, fmt.Errorf("BACKEND_PRICES entry %q: rates must not be negative", entry)
-			}
-			*target = v
-		}
-		if len(parts) == 2 {
-			p.Cached = p.In
-		}
-		out[model] = p
-	}
-	return out, nil
-}
-
-func splitList(raw string, def []string) []string {
-	if strings.TrimSpace(raw) == "" {
-		return append([]string(nil), def...)
-	}
-	out := make([]string, 0, 2)
-	for _, part := range strings.Split(raw, ",") {
-		if p := strings.TrimSpace(part); p != "" {
-			out = append(out, p)
-		}
+// defaultPrices copies DefaultPrices, so a caller holding a Config cannot reach
+// through it and mutate the package-level table every other caller shares.
+func defaultPrices() map[string]ModelPrice {
+	out := make(map[string]ModelPrice, len(DefaultPrices))
+	for k, v := range DefaultPrices {
+		out[k] = v
 	}
 	return out
 }
 
-func validateBaseURL(raw string) error {
+// validateBaseURL checks the one URL a deployment supplies and returns its
+// hostname, which is also the TCP ping target for MiMo's edge — see Load.
+//
+// The hostname comes back from here rather than being parsed again at the call
+// site so there is exactly one url.Parse of this value, and the thing that gets
+// pinged is provably the thing that passed these checks.
+func validateBaseURL(raw string) (string, error) {
 	if raw == "" {
-		return fmt.Errorf("BACKEND_MIMO_BASE_URL is required")
+		return "", fmt.Errorf("BACKEND_MIMO_BASE_URL is required")
 	}
 	u, err := url.Parse(raw)
 	if err != nil {
-		return fmt.Errorf("BACKEND_MIMO_BASE_URL is not a valid URL: %w", err)
+		return "", fmt.Errorf("BACKEND_MIMO_BASE_URL is not a valid URL: %w", err)
 	}
 	if u.Scheme != "http" && u.Scheme != "https" {
-		return fmt.Errorf("BACKEND_MIMO_BASE_URL must be an http or https URL")
+		return "", fmt.Errorf("BACKEND_MIMO_BASE_URL must be an http or https URL")
 	}
-	if u.Host == "" {
-		return fmt.Errorf("BACKEND_MIMO_BASE_URL must include a host")
+	// Hostname(), not just Host: "https://:8443/v1" parses with a non-empty Host
+	// of ":8443" and an EMPTY hostname, which would be handed back as the derived
+	// ping target. The retired BACKEND_PING_MIMO_HOST had its own non-empty
+	// guard; deriving the host is what makes this the place for it.
+	if u.Host == "" || u.Hostname() == "" {
+		return "", fmt.Errorf("BACKEND_MIMO_BASE_URL must include a host")
 	}
 	// Userinfo is a credential. "https://user:pass@host/v1" passes every other
 	// check here, so without this line a secret typed into the base URL would
@@ -422,13 +333,15 @@ func validateBaseURL(raw string) error {
 	// operator who put a secret here must be told, not silently have it dropped
 	// from one of the several places it would reach.
 	if u.User != nil {
-		return fmt.Errorf("BACKEND_MIMO_BASE_URL must not embed credentials; use BACKEND_MIMO_API_KEY")
+		return "", fmt.Errorf("BACKEND_MIMO_BASE_URL must not embed credentials; use BACKEND_MIMO_API_KEY")
 	}
 	// A query string is not a credential by construction, but it is where an
 	// API key most often ends up on an OpenAI-compatible endpoint. Same
 	// reasoning.
 	if u.RawQuery != "" {
-		return fmt.Errorf("BACKEND_MIMO_BASE_URL must not carry a query string")
+		return "", fmt.Errorf("BACKEND_MIMO_BASE_URL must not carry a query string")
 	}
-	return nil
+	// Hostname(), not Host: probe.Pinger appends :443 itself, so a port left on
+	// here would be dialled as "host:port:443".
+	return u.Hostname(), nil
 }
