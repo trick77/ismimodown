@@ -203,9 +203,10 @@ func TestClientIPCollapsesIPv6ToItsPrefix(t *testing.T) {
 
 // A Retry-After is only useful if it outlasts the block it describes.
 func TestMaxBlockCoversTheFullClimbOutOfDebt(t *testing.T) {
-	// Floor -10, one token every 30s: 11 tokens to get back to usable.
-	if got := New(1.0/30.0, 10).MaxBlock(); got != 330*time.Second {
-		t.Errorf("MaxBlock = %v, want 5m30s", got)
+	// The 404 limiter's own numbers: floor -5, one token every 30s, so 6 tokens
+	// to climb back to usable.
+	if got := New(1.0/30.0, 5).MaxBlock(); got != 180*time.Second {
+		t.Errorf("MaxBlock = %v, want 3m", got)
 	}
 	// A limiter that never refills has no honest answer, and dividing by its
 	// rate would produce an infinity in a header.

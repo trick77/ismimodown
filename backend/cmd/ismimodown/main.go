@@ -129,13 +129,13 @@ func run() error {
 	// loading a dashboard (a handful of parallel fetches), tight enough that a
 	// scraper cannot pin the process.
 	limiter := ratelimit.New(2, 20)
-	// Ten 404s free, then one forgiven every 30 seconds. A real visitor spends
+	// Five 404s free, then one forgiven every 30 seconds. A real visitor spends
 	// maybe one or two per visit (/favicon.ico, an apple-touch-icon) and never
-	// notices the budget; a wordlist scanner is cut off inside its first dozen
-	// paths and, because the bucket runs to -10 while it keeps trying, stays cut
-	// off for five and a half minutes rather than the thirty seconds a
-	// zero-floored bucket would cost it.
-	notFoundLimiter := ratelimit.New(1.0/30.0, 10)
+	// notices the budget; a wordlist scanner is cut off within its first half
+	// dozen paths and, because the bucket runs to -5 while it keeps trying, stays
+	// cut off for three minutes rather than the thirty seconds a zero-floored
+	// bucket would cost it.
+	notFoundLimiter := ratelimit.New(1.0/30.0, 5)
 
 	// Closed when shutdown begins, so long-lived SSE handlers return instead of
 	// holding http.Server.Shutdown open until its timeout expires.
