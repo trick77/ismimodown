@@ -294,13 +294,13 @@ export function buildVerdict(
   // Deliberately NOT `summary.cycles === 0`. cycles counts the fixed window;
   // recent does not. A daemon dead for longer than that window has cycles = 0
   // and a full recent block, and testing cycles here would publish "first
-  // samples within 5 minutes" over a stack of hours-old cycles — swallowing the
-  // stale branch below, which exists for precisely that case. An empty recent
+  // samples within a few minutes" over a stack of hours-old cycles — swallowing
+  // the stale branch below, which exists for precisely that case. An empty recent
   // block is the only thing that actually means "no data yet".
   if (!summary || recent.length === 0) {
     return {
       state: "unknown",
-      headline: "Collecting data — first samples within 5 minutes",
+      headline: "Collecting data — first samples within a few minutes",
       detail: [],
     };
   }
@@ -317,7 +317,7 @@ export function buildVerdict(
       state: "unknown",
       headline: "No fresh measurement — the probe itself may be down",
       detail: [
-        `The last cycle landed ${minutes} minutes ago, and they run every 5. Nothing on this page is current.`,
+        `The last cycle landed ${minutes} minutes ago, and they run every few minutes. Nothing on this page is current.`,
       ],
     };
   }

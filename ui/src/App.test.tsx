@@ -411,7 +411,9 @@ describe("App", () => {
       expect(screen.getByRole("alert")).toHaveTextContent(/rate limited/i),
     );
     // The masthead survives, so the page still explains what it is.
-    expect(screen.getByText(/mimostats/i)).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: /is xiaomi mimo down\?/i }),
+    ).toBeInTheDocument();
   });
 
   // A dashboard that has quietly stopped updating is worse than one that says

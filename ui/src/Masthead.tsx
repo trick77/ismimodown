@@ -1,11 +1,22 @@
-// The header says what the page measures. The scope shows itself — two model
-// cards, one endpoint — so it is not also spelled out in prose here.
+// The header asks the question the site exists to answer, and the verdict
+// banner directly below answers it. That pairing is the page's whole shape:
+// question, answer, then the numbers the answer rests on.
+//
+// It names Xiaomi rather than MiMo alone. "mimo" is also the antenna term and
+// also a learn-to-code app, and a reader who arrived by typing the question
+// needs one word to know they are in the right place. The same sentence is in
+// index.html's <title>, its static <h1>, and the og card — reword one, reword
+// all four.
+//
+// The scope shows itself — two model cards, one endpoint — so it is not also
+// spelled out in prose here.
 //
 // The eyebrow's arrow reads from → to, so it names both ends of the measured
 // path: we dial out of Europe, the endpoint answers in Singapore. It said only
-// "live" before, which spent the left side of the arrow on a word the "every 5
-// min" beside it already implies. A latency number means nothing without the
-// vantage it was taken from, and this is the only place that says it.
+// "live" before, which spent the left side of the arrow on a word the "every
+// few minutes" beside it already implies. A latency number means nothing
+// without the vantage it was taken from, and this is the only place that says
+// it.
 //
 // The subtitle says "the API endpoint in Singapore", not just "Singapore": the
 // eyebrow above already names the place, but on its own it reads as if that is
@@ -27,13 +38,17 @@ const CONSOLE_URL = "https://platform.xiaomimimo.com/console";
 export function Masthead() {
   return (
     <header className="pt-10 pb-6 sm:pt-16 sm:pb-7">
-      {/* Wraps rather than shrinks: below ~380px the strapline and the link do
+      {/* Wraps rather than shrinks: below ~505px the strapline and the link do
           not fit on one line, and squeezing them there clipped the link's
           label. Wrapped, it drops to its own line under the strapline and the
-          title still starts the page. */}
+          title still starts the page.
+
+          That threshold was ~410px while the strapline read "every 5 min";
+          spelling the cadence out cost it ~95px. Measured, not estimated — the
+          strapline is 344px and the pill 137px with a 24px gap. */}
       <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
         <p className="num text-micro uppercase tracking-[0.22em] text-faint">
-          europe → singapore · every 5 min
+          europe → singapore · every few minutes
         </p>
         <a
           className="pill pill-link"
@@ -45,14 +60,27 @@ export function Masthead() {
           <span aria-hidden="true">↗</span>
         </a>
       </div>
-      <h1 className="mt-3 font-serif text-[clamp(2.4rem,7vw,4rem)] font-normal leading-[0.95] tracking-tight text-ink">
-        mimostats
+      {/* The clamp ceiling drops from 4rem to 3.4rem: the old wordmark was one
+          nine-character word, this is four words, and at 4rem it wrapped to
+          three ragged lines on a laptop. */}
+      {/* The accent sits on the subject, not on the question around it: what a
+          reader scanning for "did I land on the right page" needs is the NAME,
+          and colouring it puts the answer to that in the first glance. The rest
+          of the sentence is grammar.
+
+          Not italic, unlike the accented spans in the prose below. At display
+          size the serif italic reads as a citation rather than as emphasis. */}
+      <h1 className="mt-3 font-serif text-[clamp(2.1rem,6vw,3.4rem)] font-normal leading-[0.95] tracking-tight text-balance text-ink">
+        Is <span className="text-accent-strong">Xiaomi MiMo</span> down?
       </h1>
+      {/* No longer "for Xiaomi MiMo": the heading above names it, and repeating
+          it one line later was the first thing the eye caught. Nothing here is
+          accented either — the heading carries the one accent in this block,
+          and a second one directly under it split the emphasis in two. */}
       <p className="mt-4 max-w-[52ch] font-serif text-[clamp(1rem,2vw,1.3rem)] leading-snug text-ink-dim">
-        Latency, throughput, availability and answer correctness for{" "}
-        <em className="text-accent-strong">Xiaomi MiMo</em> — separating how
-        long it takes to <em>reach</em> the API endpoint in Singapore from what
-        happens once you are there.
+        Latency, throughput, availability and answer correctness — separating
+        how long it takes to <em>reach</em> the API endpoint in Singapore from
+        what happens once you are there.
       </p>
     </header>
   );

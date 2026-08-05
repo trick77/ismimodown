@@ -12,11 +12,29 @@
     <link rel="icon" type="image/svg+xml" href="/icon.svg" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
-    <title>MiMo LLM Stats</title>
+    <!-- The title is the question the site answers, because that question is
+         what people type. It leads with "Xiaomi" deliberately: "mimo" alone is
+         claimed by MIMO the antenna term and by Mimo the learn-to-code app,
+         whose outages own most of the "is mimo down" intent. The domain cannot
+         carry that disambiguation and stay typeable, so the copy carries it.
+
+         No em dash after the question mark — "? —" stacks two terminators. No
+         "&" either: it buys nothing over "and" and needs escaping here. And
+         "Xiaomi MiMo" appears once, not twice; a title that reads as stuffed
+         gets rewritten by Google to something it likes better. -->
+    <title>Is Xiaomi MiMo down? Live API status and latency</title>
+    <!-- Availability first, measurement second, and the whole thing inside
+         ~155 characters: past that a search result truncates, and it is the
+         tail that gets cut. -->
     <meta
       name="description"
-      content="Latency, throughput, availability and answer correctness for Xiaomi MiMo, measured every five minutes from a single European egress."
+      content="Live availability for the Xiaomi MiMo API, checked periodically. Latency, throughput and answer correctness, measured from a single European egress."
     />
+    <!-- One canonical URL. www redirects here (see the redirectregex router in
+         compose.yaml), so this is belt to that redirect's braces: if the
+         redirect ever lapses, the two hostnames still resolve to one page
+         rather than to duplicate content. -->
+    <link rel="canonical" href="https://ismimodown.com/" />
 
     <!-- Link previews for iMessage, WhatsApp, Slack, Telegram and the rest.
          The card is ui/public/og.png, drawn by ui/scripts/gen-og.sh from
@@ -38,8 +56,10 @@
          current. card.html says the same thing at greater length.
 
          og:title and og:description MIRROR the <title> and description above,
-         and the card's own lede mirrors Masthead.tsx. Nothing enforces that —
-         reword any of them and reword the rest, then re-run gen-og.sh.
+         the card's own lede mirrors Masthead.tsx, and the <h1> in the body
+         below mirrors Masthead.tsx too — four places, one message. Nothing
+         enforces that. Reword any of them and reword the rest, then re-run
+         gen-og.sh.
 
          The ?v= on the image URL is what makes a re-run visible. The same
          caching that argues against baking numbers in also means a messenger
@@ -49,17 +69,17 @@
          NUMBER whenever gen-og.sh writes a new card, or the redraw reaches
          nobody who has ever shared the link. -->
     <meta property="og:type" content="website" />
-    <meta property="og:site_name" content="mimostats" />
-    <meta property="og:url" content="https://mimostats.trick77.com/" />
-    <meta property="og:title" content="MiMo LLM Stats" />
+    <meta property="og:site_name" content="ismimodown.com" />
+    <meta property="og:url" content="https://ismimodown.com/" />
+    <meta
+      property="og:title"
+      content="Is Xiaomi MiMo down? Live API status and latency"
+    />
     <meta
       property="og:description"
-      content="Latency, throughput, availability and answer correctness for Xiaomi MiMo, measured every five minutes from a single European egress."
+      content="Live availability for the Xiaomi MiMo API, checked periodically. Latency, throughput and answer correctness, measured from a single European egress."
     />
-    <meta
-      property="og:image"
-      content="https://mimostats.trick77.com/og.png?v=2"
-    />
+    <meta property="og:image" content="https://ismimodown.com/og.png?v=4" />
     <!-- Dimensions let a scraper lay the preview out before the image lands;
          without them Slack and Telegram fall back to a small thumbnail. -->
     <meta property="og:image:type" content="image/png" />
@@ -67,30 +87,147 @@
     <meta property="og:image:height" content="630" />
     <meta
       property="og:image:alt"
-      content="mimostats — latency, throughput, availability and answer correctness for Xiaomi MiMo, measured every five minutes from a single European egress."
+      content="Is Xiaomi MiMo down? — live availability, latency, throughput and answer correctness for the Xiaomi MiMo API, measured periodically from a single European egress."
     />
     <!-- summary_large_image is what makes X and the clients that copy its tags
          run the card full width instead of cropping it to a square avatar. -->
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="MiMo LLM Stats" />
+    <meta
+      name="twitter:title"
+      content="Is Xiaomi MiMo down? Live API status and latency"
+    />
     <meta
       name="twitter:description"
-      content="Latency, throughput, availability and answer correctness for Xiaomi MiMo, measured every five minutes from a single European egress."
+      content="Live availability for the Xiaomi MiMo API, checked periodically. Latency, throughput and answer correctness, measured from a single European egress."
     />
-    <meta
-      name="twitter:image"
-      content="https://mimostats.trick77.com/og.png?v=2"
-    />
+    <meta name="twitter:image" content="https://ismimodown.com/og.png?v=4" />
     <!-- X does not fall back to og:image:alt, so the alt text is repeated here
          rather than inherited; without it the card is unlabelled for anyone on
          a screen reader. -->
     <meta
       name="twitter:image:alt"
-      content="mimostats — latency, throughput, availability and answer correctness for Xiaomi MiMo, measured every five minutes from a single European egress."
+      content="Is Xiaomi MiMo down? — live availability, latency, throughput and answer correctness for the Xiaomi MiMo API, measured periodically from a single European egress."
     />
+
+    <!-- Structured data. The FAQPage answer must stay STATE-INDEPENDENT: this
+         file is static, built once by Vite, and nothing substitutes into it at
+         serve time, so an answer that said "MiMo is up" would keep saying it
+         through an outage. It says what the page reports instead, which is true
+         at every moment. It is also the same sentence as the <p> in the body
+         below — one answer, two places, worded once.
+
+         What this markup does NOT do is guarantee a rich result: Google has
+         narrowed FAQ rich results to a small set of site types. It is here
+         because it is cheap and correct. The thing that actually gives a search
+         engine an answer to show is the <h1> and paragraph in the body. -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "WebSite",
+            "@id": "https://ismimodown.com/#website",
+            "url": "https://ismimodown.com/",
+            "name": "Is Xiaomi MiMo down?",
+            "description": "Live availability for the Xiaomi MiMo API, checked periodically. Latency, throughput and answer correctness, measured from a single European egress.",
+            "inLanguage": "en"
+          },
+          {
+            "@type": "FAQPage",
+            "@id": "https://ismimodown.com/#faq",
+            "isPartOf": { "@id": "https://ismimodown.com/#website" },
+            "mainEntity": [
+              {
+                "@type": "Question",
+                "name": "Is Xiaomi MiMo down?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "This page checks the Xiaomi MiMo API periodically and reports whether it is answering right now, alongside latency, throughput and answer correctness measured from a single European egress."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "How often is Xiaomi MiMo checked?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "Every few minutes. Each cycle probes both models concurrently and records a sample even when the request times out, so an outage is counted as unavailability rather than as slow latency."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "Is this site run by Xiaomi?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "No. This is an independent project, not operated by, endorsed by or connected with Xiaomi. Xiaomi and MiMo are trademarks of their respective owner, named here only to identify what is measured."
+                }
+              }
+            ]
+          }
+        ]
+      }
+    </script>
   </head>
   <body>
-    <div id="root"></div>
+    <!-- These two elements are the ONLY content this page serves before React
+         mounts, and for a crawler that does not run JavaScript they are the
+         only content it ever sees. Without them the served <body> is an empty
+         <div> and every word of the page — the question in the masthead, the
+         verdict, the subtitle — exists only after a bundle downloads AND an API
+         call returns. A page named after a question should answer it in its
+         own HTML.
+
+         main.tsx mounts with createRoot, not hydrateRoot, so React REPLACES
+         these children on mount: no hydration mismatch, no duplicated heading.
+         Keep it that way — switching to hydrateRoot would render this markup
+         and the app's markup as the same tree and they do not match.
+
+         The <h1> mirrors Masthead.tsx and the <p> is the same sentence as the
+         FAQPage answer in the JSON-LD above. All four copies move together.
+
+         The prose is deliberately STATE-INDEPENDENT. It says what the page
+         reports, never what the current state is: this file is static, built
+         once by Vite with no serve-time substitution, so "MiMo is up" here
+         would be a lie for as long as it wasn't true.
+
+         The inline styles only have to survive the moment before mount — the
+         stylesheet may not have landed yet, and unstyled black-on-white
+         flashing to the dark ground is the one thing a reader would notice.
+
+         #root carries the ground itself, not just the type colour. body's
+         background lives in index.css, which under `npm run dev` is injected
+         from JS and in production can 404 off a stale shell — either way this
+         near-white heading would paint on the UA's white body and vanish. The
+         literal is --color-void; it stays on #root after mount, where it is
+         indistinguishable from body's own. -->
+    <div id="root" style="background: #131312; min-height: 100vh">
+      <div style="max-width: 52ch; margin: 0 auto; padding: 4rem 1.25rem">
+        <h1
+          style="
+            font-family: Georgia, &quot;Times New Roman&quot;, serif;
+            font-weight: 400;
+            font-size: 2.4rem;
+            line-height: 1.05;
+            color: #faf9f5;
+            margin: 0;
+          "
+        >
+          Is Xiaomi MiMo down?
+        </h1>
+        <p
+          style="
+            font-family: Georgia, &quot;Times New Roman&quot;, serif;
+            font-size: 1.1rem;
+            line-height: 1.45;
+            color: #9c9a92;
+            margin: 1rem 0 0;
+          "
+        >
+          This page checks the Xiaomi MiMo API periodically and reports whether
+          it is answering right now, alongside latency, throughput and answer
+          correctness measured from a single European egress.
+        </p>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

@@ -19,9 +19,16 @@
   count exists to prevent, so the card states what the page MEASURES and never
   what it currently reads.
 
-  For the same reason the footer is a legend, not a decomposition bar. A stacked
-  bar asserts a ratio between network and server-side time even with the digits
-  stripped off, and that ratio is exactly the thing that moves.
+  For the same reason there is no decomposition bar. A stacked bar asserts a
+  ratio between network and server-side time even with the digits stripped off,
+  and that ratio is exactly the thing that moves.
+
+  There is no legend either, and that is a second decision on top of the first.
+  A "● network time  ● server-side time" pair keyed the site's chart colours,
+  but a scraped preview arrives with no chart beside it — the dots key nothing,
+  and the two phrases land on a stranger as jargon. Do not reintroduce it: the
+  split between reaching the endpoint and what happens once you are there is a
+  thing the PAGE explains, not something a 1200x630 image can teach cold.
 
   Geometry is 1200x630 — the 1.91:1 that Slack, iMessage, Telegram and the
   open-graph consumers render whole.
@@ -81,8 +88,6 @@
         --color-accent: #c6613f;
         --color-accent-strong: #d97757;
         --color-s1: #3987e5;
-        --color-wire: #9c9a92;
-        --color-server: #c6613f;
       }
 
       * {
@@ -155,24 +160,55 @@
         height: 44px;
         flex: none;
       }
+      /* 0.16em here against Masthead.tsx's 0.22em, and the card is the one that
+         has to give. "every few minutes" spelled out ran the row x=279..920 at
+         0.22em, and WhatsApp's square keeps only the middle 630px (285..915) —
+         it shaved the mark's left border and the last letter, invisibly, on the
+         one client that crops. Tracking, not font-size: the row has to stay
+         optically level with the 44px mark beside it. Re-measure after any
+         change to this string:
+
+           magick og.png -crop 960x60+120+85 +repage -alpha off \
+             -colorspace gray -threshold 30% -trim -format '%w @ %X\n' info:
+
+         Add 120 to the offset for the absolute x; both ends must sit inside
+         285..915. */
       .eyebrow span {
         font-size: 19px;
-        letter-spacing: 0.22em;
+        letter-spacing: 0.16em;
         text-transform: uppercase;
         color: var(--color-faint);
         /* Uppercase tracking adds a trailing space the eye reads as a gap;
            pulling it back keeps the mark and the text optically even. */
-        margin-right: -0.22em;
+        margin-right: -0.16em;
       }
 
+      /* 76px, down from the 116px a one-word wordmark could carry. The heading
+         is a four-word question now, and at 116px it ran to roughly twice the
+         630px the square crop keeps — see the wordmark assertion in gen-og.sh.
+         76px sets the longer of the two lines to 527px, inside that limit with
+         room to spare, and holds a clear step over the 34px lede.
+
+         Measured, not guessed: 84px was tried first, and its two lines pushed
+         the lede far enough down to unbalance the column. */
       h1 {
         margin-top: 34px;
         font-family: "Anthropic Serif", serif;
-        font-size: 116px;
+        font-size: 76px;
         font-weight: 400;
-        line-height: 0.9;
+        line-height: 0.95;
         letter-spacing: -0.03em;
         color: var(--color-ink);
+      }
+      /* The subject, accented. Not italic: at this size the serif italic reads
+         as a citation rather than as emphasis. Mirrors the <span> in
+         Masthead.tsx.
+
+         This colour is why the width assertion in gen-og.sh thresholds at 45%
+         rather than 60%. #d97757 is about 57% grey, so a 60% cut dropped these
+         two words from the mask entirely and measured "Is" alone. */
+      h1 .mark {
+        color: var(--color-accent-strong);
       }
 
       .lede {
@@ -185,40 +221,30 @@
         line-height: 1.3;
         color: var(--color-ink-dim);
       }
+      /* Currently unused — the lede carries no accent, the heading does. Kept
+         as the contract for any future emphasis here: italic, accented, and
+         never broken across lines, since an accented phrase split over two
+         rows reads as two list items rather than one. */
       .lede em {
         font-style: italic;
         color: var(--color-accent-strong);
-        /* "Xiaomi MiMo" is a name and breaks across lines at this measure
-           otherwise. It is the only two-word em here; "reach" is unaffected. */
         white-space: nowrap;
       }
 
       /* Spaced from the lede rather than pinned to the floor. Pinning it left a
          short lede stranded halfway up with a band of empty card beneath it;
          the whole column is centred instead, so the composition stays balanced
-         whatever length the lede runs to. */
-      .legend {
-        margin-top: 52px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 30px;
-        font-size: 20px;
-        color: var(--color-faint);
-      }
-      .key {
-        display: flex;
-        align-items: center;
-        gap: 11px;
-      }
-      .dot {
-        width: 13px;
-        height: 13px;
-        border-radius: 999px;
-        flex: none;
-      }
+         whatever length the lede runs to.
+
+         93px = the 52px the removed legend sat below the lede, plus its own
+         25px of rendered height, plus the 16px the host sat below it. Measured
+         in the browser, not guessed. The column is vertically centred, so any
+         shortfall here shifts EVERY line down by half of it — at 68px the
+         heading slid 12px and gen-og.sh's y=135..325 window started measuring
+         the lede instead, reporting 564px for a 527px heading and still
+         passing. Keep the total, or re-derive the band. */
       .host {
-        margin-top: 16px;
+        margin-top: 93px;
         font-size: 19px;
         letter-spacing: 0.04em;
         color: var(--color-ghost);
@@ -249,38 +275,40 @@
             </g>
           </g>
         </svg>
-        <span>europe → singapore · every 5 min</span>
+        <span>europe → singapore · every few minutes</span>
       </div>
 
-      <h1>mimostats</h1>
+      <!-- The break is explicit, not left to the measure. Two reasons. It keeps
+           "Xiaomi MiMo" whole — a product name split across lines reads as a
+           typo — and it makes the wordmark width in gen-og.sh a measurement of
+           the FONT rather than of where a line happened to wrap. Left to wrap,
+           a fallback face re-broke the question one word later and measured
+           WIDER than the real one, which is the one thing that assertion must
+           never accept. -->
+      <h1>Is <span class="mark">Xiaomi MiMo</span><br />down?</h1>
 
       <!-- The masthead's leading clause, verbatim. Its second clause — the one
            about separating reaching the endpoint from what happens once you are
-           there — is dropped: at this measure it runs to seven lines and pushes
-           the legend off the card. The legend below carries that idea instead,
-           which is the part a reader can take in at preview size. Reword
-           Masthead.tsx and reword this, then re-run gen-og.sh. -->
+           there — is dropped: at this measure it runs to seven lines, and it is
+           an idea that needs the page's charts to mean anything. The card names
+           what is measured and stops there. Reword Masthead.tsx and reword
+           this, then re-run gen-og.sh.
+
+           It no longer names Xiaomi MiMo: the heading above does that now, and
+           at preview size the same two words twice in three lines was the most
+           conspicuous thing on the card. Nothing here is accented either — the
+           heading holds the card's one accent, and a second one immediately
+           under it split the emphasis in two. -->
       <p class="lede">
-        Latency, throughput, availability and answer correctness for
-        <em>Xiaomi MiMo</em>.
+        Latency, throughput, availability and answer correctness.
       </p>
 
-      <div class="legend">
-        <div class="key">
-          <span class="dot" style="background: var(--color-wire)"></span>
-          network time
-        </div>
-        <div class="key">
-          <span class="dot" style="background: var(--color-server)"></span>
-          server-side time
-        </div>
-      </div>
       <!-- The domain, printed INTO the picture. It is the one copy that a
            deploy cannot fix on its own: moving the host means editing
            compose.yaml's Host() rule and index.html's og: URLs AND this line,
            then re-running gen-og.sh, or the card keeps advertising an address
            that no longer answers. -->
-      <div class="host">mimostats.trick77.com</div>
+      <div class="host">ismimodown.com</div>
     </div>
   </body>
 </html>

@@ -26,7 +26,7 @@ const MIN_RUNS = 10;
 // with no entry here simply gets no cadence, which is the honest outcome for a
 // probe this card has never heard of.
 const PROBE_HINTS: Record<string, string> = {
-  short: "every 5 min",
+  short: "every few minutes",
   wide: "hourly",
 };
 
@@ -44,7 +44,7 @@ export function CostPanel({ cost }: { cost: CostBreakdown | null }) {
   return (
     <Card
       title="What this dashboard costs to run"
-      subtitle="Every probe mimostats sends, priced from the usage MiMo reported on it — both models, both probe kinds. The plan bills in credits, so these are list rates rather than an invoice."
+      subtitle="Every probe this page sends, priced from the usage MiMo reported on it — both models, both probe kinds. The plan bills in credits, so these are list rates rather than an invoice."
       right={
         <span
           className={`num rounded-full border px-2 py-[2px] text-micro uppercase tracking-wider ${
@@ -95,7 +95,7 @@ export function CostPanel({ cost }: { cost: CostBreakdown | null }) {
         <EChart option={option} ariaLabel="Inference cost over time" />
       ) : (
         <p className="font-serif italic text-faint">
-          Not enough data yet — first samples within 5 minutes.
+          Not enough data yet — first samples within a few minutes.
         </p>
       )}
 

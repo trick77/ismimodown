@@ -14,6 +14,7 @@ import { AvailabilityStrip } from "./AvailabilityStrip";
 import { PulseStrip } from "./PulseStrip";
 import { SamplesTable } from "./SamplesTable";
 import { CostPanel } from "./CostPanel";
+import { Footer } from "./Footer";
 import { buildVerdict } from "./verdict";
 
 // Mirrors samples.Windows on the daemon. 1h is absent for the reason documented
@@ -298,6 +299,9 @@ export default function App() {
           <CostPanel cost={data?.cost ?? null} />
           <SamplesTable perGroup={data?.samples.map((g) => g.samples) ?? []} />
         </div>
+        {/* Outside the panel grid: it is not a panel, and inside the grid it
+            picked up the gap-6 rhythm and read as one more finding. */}
+        <Footer />
       </div>
     </>
   );

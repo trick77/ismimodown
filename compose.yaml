@@ -102,10 +102,28 @@ services:
     labels:
       traefik.enable: "true"
       traefik.docker.network: traefik
-      # Host rule for this deployment; change if the domain moves.
-      traefik.http.routers.ismimodown.rule: Host(`mimostats.trick77.com`)
+      # Host rule for this deployment; change if the domain moves. The same
+      # string is in index.html's og:/twitter: URLs, its canonical link,
+      # robots.txt, sitemap.xml and — printed into the pixels — the .host line
+      # of assets/og/card.html. Move the host and move all of them, then re-run
+      # ui/scripts/gen-og.sh.
+      traefik.http.routers.ismimodown.rule: Host(`ismimodown.com`)
       traefik.http.routers.ismimodown.entrypoints: websecure
-      traefik.http.routers.ismimodown.tls: "true"
+      # certresolver, not a bare `tls: "true"`. On the old host this router got
+      # its certificate from the wildcard Traefik already held for
+      # *.trick77.com, so naming a resolver was unnecessary. A separate apex
+      # inherits nothing: without this label Traefik serves its own self-signed
+      # default certificate and every visitor meets an interstitial. Setting a
+      # resolver implies tls, so the boolean is gone rather than sitting beside
+      # it.
+      #
+      # `letsencrypt` is the resolver in the external Traefik's static config,
+      # and it is configured with tlsChallenge — TLS-ALPN-01, which is answered
+      # on 443 through the websecure entrypoint above. No port 80 is involved
+      # and there is no /.well-known/acme-challenge/ route to expose. DNS must
+      # resolve BEFORE this deploys, or the ACME order fails against a rate
+      # limit that then has to be waited out.
+      traefik.http.routers.ismimodown.tls.certresolver: letsencrypt
       traefik.http.services.ismimodown.loadbalancer.server.port: "8080"
       # HSTS is set HERE and not in the Go handler, because only the TLS
       # terminator knows the site is reachable over TLS at all: the container
@@ -115,9 +133,13 @@ services:
       # from the binary instead, so it travels with the app — see
       # httpapi.securityHeaders.
       #
-      # No `preload`: that submits the parent domain to the browser preload
-      # list, which is effectively irreversible and is not this service's call
-      # to make for trick77.com.
+      # No `preload`, though the reason has changed. On trick77.com the answer
+      # was that preloading a shared parent domain — irreversible in practice —
+      # was not this service's call to make. ismimodown.com is this service's
+      # own apex with nothing else under it, so that objection is gone and
+      # preloading is now merely a decision nobody has taken. Left off
+      # deliberately: it is hard to undo and buys little for a site whose
+      # visitors arrive by search rather than by typing the bare host.
       traefik.http.middlewares.ismimodown-hsts.headers.stsSeconds: "31536000"
       traefik.http.middlewares.ismimodown-hsts.headers.stsIncludeSubdomains: "true"
       # Compression belongs to the terminator, not the binary — the app should
@@ -134,6 +156,29 @@ services:
       # Order matters: hsts first, so the header is attached whatever the
       # encoding negotiation does.
       traefik.http.routers.ismimodown.middlewares: ismimodown-hsts@docker,ismimodown-compress@docker
+
+      # www exists only to send people to the apex. Someone will type it, and a
+      # hostname that resolves to nothing looks like the outage this site is
+      # supposed to report on.
+      #
+      # A SECOND router rather than a second Host() clause on the first: the
+      # ACME challenge here is TLS-ALPN-01, which is answered per hostname, so
+      # www needs a certificate of its own — and the redirect middleware has to
+      # apply to www without applying to the apex it redirects TO.
+      #
+      # permanent: true, i.e. 301. A 302 tells a search engine the split is
+      # temporary and it keeps both hostnames in the index, which is the
+      # duplicate content this exists to prevent. The canonical link in
+      # index.html says the same thing a second way, for the case where this
+      # router is missing entirely.
+      traefik.http.routers.ismimodown-www.rule: Host(`www.ismimodown.com`)
+      traefik.http.routers.ismimodown-www.entrypoints: websecure
+      traefik.http.routers.ismimodown-www.tls.certresolver: letsencrypt
+      traefik.http.routers.ismimodown-www.service: ismimodown
+      traefik.http.middlewares.ismimodown-www-redirect.redirectregex.regex: ^https://www\.ismimodown\.com/(.*)
+      traefik.http.middlewares.ismimodown-www-redirect.redirectregex.replacement: https://ismimodown.com/$${1}
+      traefik.http.middlewares.ismimodown-www-redirect.redirectregex.permanent: "true"
+      traefik.http.routers.ismimodown-www.middlewares: ismimodown-www-redirect@docker
 
 networks:
   traefik:
