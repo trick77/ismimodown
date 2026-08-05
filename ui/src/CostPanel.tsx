@@ -26,7 +26,7 @@ const MIN_RUNS = 10;
 // with no entry here simply gets no cadence, which is the honest outcome for a
 // probe this card has never heard of.
 const PROBE_HINTS: Record<string, string> = {
-  short: "every 5 min",
+  short: "every few minutes",
   wide: "hourly",
 };
 
@@ -95,7 +95,7 @@ export function CostPanel({ cost }: { cost: CostBreakdown | null }) {
         <EChart option={option} ariaLabel="Inference cost over time" />
       ) : (
         <p className="font-serif italic text-faint">
-          Not enough data yet — first samples within 5 minutes.
+          Not enough data yet — first samples within a few minutes.
         </p>
       )}
 

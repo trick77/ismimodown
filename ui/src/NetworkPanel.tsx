@@ -55,7 +55,7 @@ export function NetworkPanel({ series }: { series: NetSeries | null }) {
         />
       ) : (
         <p className="font-serif italic text-faint">
-          Not enough data yet — first samples within 5 minutes.
+          Not enough data yet — first samples within a few minutes.
         </p>
       )}
       <ul className="mt-3 flex flex-wrap gap-4">

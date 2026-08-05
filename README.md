@@ -7,7 +7,7 @@ The repository, the Go module, the container image and the database file are sti
 images for no gain.
 
 A continuous monitor for Xiaomi MiMo — latency, throughput, availability and answer correctness —
-measured from a single European egress every five minutes. It separates how long it takes to
+measured periodically from a single European egress. It separates how long it takes to
 *reach* the endpoint from what happens once you're there, and says, in plain English, whether
 anything is wrong.
 

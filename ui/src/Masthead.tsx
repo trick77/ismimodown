@@ -13,9 +13,10 @@
 //
 // The eyebrow's arrow reads from → to, so it names both ends of the measured
 // path: we dial out of Europe, the endpoint answers in Singapore. It said only
-// "live" before, which spent the left side of the arrow on a word the "every 5
-// min" beside it already implies. A latency number means nothing without the
-// vantage it was taken from, and this is the only place that says it.
+// "live" before, which spent the left side of the arrow on a word the "every
+// few minutes" beside it already implies. A latency number means nothing
+// without the vantage it was taken from, and this is the only place that says
+// it.
 //
 // The subtitle says "the API endpoint in Singapore", not just "Singapore": the
 // eyebrow above already names the place, but on its own it reads as if that is
@@ -37,13 +38,17 @@ const CONSOLE_URL = "https://platform.xiaomimimo.com/console";
 export function Masthead() {
   return (
     <header className="pt-10 pb-6 sm:pt-16 sm:pb-7">
-      {/* Wraps rather than shrinks: below ~380px the strapline and the link do
+      {/* Wraps rather than shrinks: below ~505px the strapline and the link do
           not fit on one line, and squeezing them there clipped the link's
           label. Wrapped, it drops to its own line under the strapline and the
-          title still starts the page. */}
+          title still starts the page.
+
+          That threshold was ~410px while the strapline read "every 5 min";
+          spelling the cadence out cost it ~95px. Measured, not estimated — the
+          strapline is 344px and the pill 137px with a 24px gap. */}
       <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
         <p className="num text-micro uppercase tracking-[0.22em] text-faint">
-          europe → singapore · every 5 min
+          europe → singapore · every few minutes
         </p>
         <a
           className="pill pill-link"

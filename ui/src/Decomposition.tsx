@@ -40,7 +40,7 @@ export function Decomposition({
         />
       ) : (
         <p className="font-serif italic text-faint">
-          Not enough data yet — first samples within 5 minutes.
+          Not enough data yet — first samples within a few minutes.
         </p>
       )}
       <p className="mt-4 border-l-2 border-accent/60 bg-accent/5 px-4 py-3 text-label text-muted">

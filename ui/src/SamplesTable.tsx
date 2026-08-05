@@ -180,7 +180,7 @@ export function SamplesTable({ perGroup }: { perGroup: Sample[][] }) {
         </div>
       ) : (
         <p className="font-serif italic text-faint">
-          Not enough data yet — first samples within 5 minutes.
+          Not enough data yet — first samples within a few minutes.
         </p>
       )}
     </Card>
