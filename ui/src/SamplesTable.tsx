@@ -87,10 +87,17 @@ export function newestFirst(perGroup: Sample[][]): Sample[] {
 // measurements, and the model cards are where a breach of either surfaces.
 export function SamplesTable({ perGroup }: { perGroup: Sample[][] }) {
   const rows = newestFirst(perGroup).slice(0, ROWS);
-  // "At most" rather than a flat count: a fresh database has two cycles, and a
-  // subtitle claiming twenty while showing two is wrong in exactly the
-  // situation where the reader is least sure what they are looking at.
-  const subtitle = `The last ${ROWS} inference calls at most — every model, short and wide, unaggregated. Failed runs show their error class.`;
+  // No count at all, so there is nothing to hedge.
+  //
+  // It used to name ROWS and qualify it with "at most" — the qualifier was
+  // load-bearing, because a fresh database holds two cycles and a subtitle
+  // claiming twenty while showing two is wrong in exactly the situation where
+  // the reader is least sure what they are looking at. But it read like a typo,
+  // and the number was never the thing worth saying: the cap is this card's own
+  // housekeeping, while what a reader needs to know is which runs are here.
+  // Dropping it removes the hedge and the thing being hedged together.
+  const subtitle =
+    "The most recent inference calls — every model, short and wide, unaggregated. Failed runs show their error class.";
   return (
     <Card title="Raw cycles" subtitle={subtitle}>
       {rows.length > 0 ? (
