@@ -8,19 +8,21 @@ import { formatInt, formatMs, formatTime, formatTps } from "./format";
 // scrolls to the end of does not answer it better than a screenful does — the
 // pulse strip above is what covers the whole day.
 //
-// 20 → 40 when the table started drawing every model rather than one. The cap
-// is a number of ROWS, but what a reader takes from it is a stretch of TIME,
+// A screenful, and deliberately still 20 now that the table draws every model
+// rather than one.
+//
+// The cap counts ROWS, but what a reader takes from it is a stretch of TIME,
 // and those two only track each other while the row rate is fixed. Two models
 // at 12 short runs an hour each, plus a wide run an hour each, is ~26 rows an
-// hour: holding the cap at 20 would have halved the reach to ~45 minutes and
-// left ONE wide run visible — fewer than before the panel was fixed, which is
-// the opposite of the complaint it answers. 40 restores the old ~90 minutes,
-// so roughly three wide runs are on screen.
+// hour, so 20 rows is ~45 minutes with one wide run in it — where the same cap
+// covered ~90 minutes when the table held a single model. That halving is the
+// price of showing every call, and it is the one being paid: the card answers
+// "what happened just now", and the pulse strip above is what covers the day.
 //
-// App asks the server for TABLE_ROWS per model and probe, which is more than
+// App asks the server for TABLE_ROWS per model and probe, which is four times
 // this in total, so the slice below does real work rather than being the no-op
-// it was when the two numbers matched.
-const ROWS = 40;
+// it was when the table fetched one series.
+const ROWS = 20;
 
 // newestFirst merges one array of samples per model and probe kind into the
 // single ordering the table draws.
@@ -86,8 +88,8 @@ export function newestFirst(perGroup: Sample[][]): Sample[] {
 export function SamplesTable({ perGroup }: { perGroup: Sample[][] }) {
   const rows = newestFirst(perGroup).slice(0, ROWS);
   // "At most" rather than a flat count: a fresh database has two cycles, and a
-  // subtitle claiming forty while showing two is wrong in exactly the situation
-  // where the reader is least sure what they are looking at.
+  // subtitle claiming twenty while showing two is wrong in exactly the
+  // situation where the reader is least sure what they are looking at.
   const subtitle = `The last ${ROWS} inference calls at most — every model, short and wide, unaggregated. Failed runs show their error class.`;
   return (
     <Card title="Raw cycles" subtitle={subtitle}>
