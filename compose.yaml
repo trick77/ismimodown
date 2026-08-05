@@ -36,7 +36,8 @@ services:
       # 3 months of raw samples, swept nightly.
       BACKEND_RETENTION: "${BACKEND_RETENTION:-2160h}"
       # Ping targets. Overridable because the right reference host depends on
-      # where this is deployed — see AGENTS.md for what each answers.
+      # where this is deployed — see the DefaultRefSGPHost comment in
+      # backend/internal/config/config.go for what each answers.
       BACKEND_PING_MIMO_HOST: "${BACKEND_PING_MIMO_HOST:-token-plan-sgp.xiaomimimo.com}"
       BACKEND_PING_REF_SGP_HOST: "${BACKEND_PING_REF_SGP_HOST:-sgp1.digitaloceanspaces.com}"
 

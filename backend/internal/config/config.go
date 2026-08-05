@@ -33,7 +33,8 @@ const (
 	// would be a Europe reference mislabelled as Singapore — exactly the failure
 	// the reference exists to prevent. DigitalOcean's Singapore endpoint is a
 	// genuine SGP target (~268 ms from Zurich), at the cost of the same-carrier
-	// argument, which the site's own copy discloses.
+	// argument: an operator-specific backbone fault on MiMo's own path may not
+	// show up here.
 	DefaultRefSGPHost = "sgp1.digitaloceanspaces.com"
 )
 
