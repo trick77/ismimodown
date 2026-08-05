@@ -9,6 +9,7 @@ import (
 
 	"github.com/trick77/ismimodown/internal/ratelimit"
 	"github.com/trick77/ismimodown/internal/samples"
+	"github.com/trick77/ismimodown/web"
 )
 
 // The logging middleware wraps the ResponseWriter, and a wrapper that swallows
@@ -192,12 +193,12 @@ func scannerServer(t *testing.T) http.Handler {
 func TestNotFoundsThrottleTheCaller(t *testing.T) {
 	h := scannerServer(t)
 
-	for i, path := range []string{"/wp-login.php", "/.env", "/.git/config"} {
+	for i, path := range []string{"/wp-login.php", "/.env", "/config.json"} {
 		if code := getFrom(t, h, path, "9.9.9.9").Code; code != http.StatusNotFound {
 			t.Fatalf("probe %d (%s) = %d, want 404 while the budget lasts", i, path, code)
 		}
 	}
-	if code := getFrom(t, h, "/phpmyadmin/", "9.9.9.9").Code; code != http.StatusTooManyRequests {
+	if code := getFrom(t, h, "/wp-config.php.bak", "9.9.9.9").Code; code != http.StatusTooManyRequests {
 		t.Errorf("the fourth probe = %d, want 429", code)
 	}
 	// And being cut off means cut off, not merely barred from more 404s.
@@ -280,12 +281,12 @@ func TestThrottledResponseShape(t *testing.T) {
 	if !strings.Contains(api.Body.String(), `"error"`) {
 		t.Errorf("/api/* body = %q, want JSON", api.Body.String())
 	}
-	// The header names the limiter's own worst case, not a constant that would
-	// send an obedient client back into a second 429: burst 3 at 0.0001/s is a
-	// very long block indeed.
-	want := strconv.Itoa(int(ratelimit.New(0.0001, 3).MaxBlock().Seconds()))
-	if got := api.Header().Get("Retry-After"); got != want {
-		t.Errorf("Retry-After = %q, want %q — the limiter's real recovery time", got, want)
+	// The header carries the limiter's own answer, not a constant that would
+	// send an obedient client back into a second 429: at 0.0001/s the wait is a
+	// very long one indeed.
+	if secs, err := strconv.Atoi(api.Header().Get("Retry-After")); err != nil || secs < 1 {
+		t.Errorf("Retry-After = %q, want a positive number of seconds",
+			api.Header().Get("Retry-After"))
 	}
 	if api.Header().Get("Content-Security-Policy") == "" {
 		t.Error("a 429 must still carry the security headers")
@@ -294,6 +295,99 @@ func TestThrottledResponseShape(t *testing.T) {
 	page := getFrom(t, h, "/wp-login.php", "9.9.9.9")
 	if ct := page.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/plain") {
 		t.Errorf("page Content-Type = %q, want text/plain", ct)
+	}
+}
+
+// The debt has to be reachable THROUGH the middleware, not only by calling
+// Charge directly. The gate needs a whole token to let a request through, so a
+// charge levied after the response can never take the bucket below zero: unless
+// a blocked request is charged too, the block is one refill long no matter how
+// long the spraying goes on, and every mention of debt is describing a state
+// nothing can produce.
+func TestKnockingWhileBlockedDeepensTheBlock(t *testing.T) {
+	h := NewServer(Deps{
+		Version:         "test",
+		DB:              openTestDB(t),
+		NotFoundLimiter: ratelimit.New(1, 2), // a token a second, floor -2
+	})
+
+	// Spend the budget on 404s, which lands the bucket at exactly zero.
+	getFrom(t, h, "/wp-login.php", "9.9.9.9")
+	getFrom(t, h, "/.env", "9.9.9.9")
+
+	first := retryAfter(t, getFrom(t, h, "/one.php", "9.9.9.9"))
+	second := retryAfter(t, getFrom(t, h, "/two.php", "9.9.9.9"))
+
+	if second <= first {
+		t.Errorf("Retry-After went %d -> %d; a caller that keeps knocking must "+
+			"wait longer, or the debt floor and the refill rate are decoration",
+			first, second)
+	}
+}
+
+// retryAfter reads the header off a response that must be a 429.
+func retryAfter(t *testing.T, rec *httptest.ResponseRecorder) int {
+	t.Helper()
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("status = %d, want 429", rec.Code)
+	}
+	secs, err := strconv.Atoi(rec.Header().Get("Retry-After"))
+	if err != nil {
+		t.Fatalf("Retry-After = %q: %v", rec.Header().Get("Retry-After"), err)
+	}
+	return secs
+}
+
+// A limiter that never refills has no wait to report, and "Retry-After: 0"
+// reads as "retry immediately" — the opposite of a block that never lifts.
+func TestRetryAfterIsNeverZero(t *testing.T) {
+	h := NewServer(Deps{
+		Version:         "test",
+		DB:              openTestDB(t),
+		NotFoundLimiter: ratelimit.New(0, 1), // no refill at all
+	})
+
+	getFrom(t, h, "/wp-login.php", "9.9.9.9") // spends the only token
+	if secs := retryAfter(t, getFrom(t, h, "/.env", "9.9.9.9")); secs < 1 {
+		t.Errorf("Retry-After = %d, want at least 1", secs)
+	}
+}
+
+// Against the REAL SPA handler rather than a nil Static, because the two do not
+// answer the same way and only one of them ships.
+//
+// web.spaHandler 404s a missing file with an extension and serves the shell for
+// anything without one, so an extensionless probe — /admin, /.git/config — is a
+// 200 that costs a scanner nothing. That is the SPA's deep-link fallback doing
+// its job, and it is the boundary of what this limiter can see: pinned here so
+// the next person to widen the throttle knows where to look.
+func TestChargingFollowsTheRealSPAHandler(t *testing.T) {
+	static, err := web.Handler()
+	if err != nil {
+		t.Fatalf("web.Handler: %v", err)
+	}
+	h := NewServer(Deps{
+		Version:         "test",
+		DB:              openTestDB(t),
+		Static:          static,
+		NotFoundLimiter: ratelimit.New(0.0001, 2),
+	})
+
+	// Extensionless: the shell, and no charge however many arrive.
+	for i := 0; i < 20; i++ {
+		if code := getFrom(t, h, "/admin", "9.9.9.9").Code; code != http.StatusOK {
+			t.Fatalf("extensionless probe %d = %d, want the SPA shell", i, code)
+		}
+	}
+
+	// Extensioned: a real 404, and the budget is gone in two.
+	for i, path := range []string{"/wp-login.php", "/.env"} {
+		if code := getFrom(t, h, path, "9.9.9.9").Code; code != http.StatusNotFound {
+			t.Fatalf("probe %d (%s) = %d, want 404", i, path, code)
+		}
+	}
+	if code := getFrom(t, h, "/xmlrpc.php", "9.9.9.9").Code; code != http.StatusTooManyRequests {
+		t.Errorf("third extensioned probe = %d, want 429", code)
 	}
 }
 

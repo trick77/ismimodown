@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"log/slog"
+	"math"
 	"net/http"
 	"runtime/debug"
 	"strconv"
@@ -173,7 +174,19 @@ func notFoundPenalty(l *ratelimit.Limiter, next http.Handler) http.Handler {
 
 		key := ratelimit.ClientIP(r)
 		if !l.Permitted(key) {
-			writeTooManyRequests(w, r, l.MaxBlock())
+			// Knocking while blocked costs a token too, and this is the only
+			// path that can put a caller into debt at all: the gate needs a
+			// whole token to let a request through, so a charge levied after
+			// the response can never take the bucket below zero. Without this
+			// the block would be one refill long however long the spraying went
+			// on, and the floor, the debt and this header would all be
+			// describing a state nothing could reach.
+			//
+			// It cannot lock anyone out: the debt stops at -burst, so the worst
+			// case is one bounded block, and a client that backs off at all
+			// gains more from the refill than it loses by asking.
+			l.Charge(key, 1)
+			writeTooManyRequests(w, r, l.RetryAfter(key))
 			return
 		}
 
@@ -189,17 +202,20 @@ func notFoundPenalty(l *ratelimit.Limiter, next http.Handler) http.Handler {
 // implies: a client that parses every /api/* response as JSON must not be
 // handed text/plain, and a browser asking for a page gains nothing from JSON.
 //
-// Retry-After comes from the limiter rather than a number written here, so it
-// cannot promise a recovery the limiter will not grant: a caller that spent its
-// budget and kept going sits at the debt floor, and the climb back to one token
-// is minutes, not the request limiter's one second. A short constant would be
-// obeyed and answered with another 429.
-//
-// Coming back early is not itself punished. Only a 404 charges, and a throttled
-// request never reaches a handler, so an impatient client is merely early, not
-// deeper in debt.
+// Retry-After is this caller's own wait, taken from the limiter rather than
+// written here as a constant: someone who has just run out is told one refill,
+// someone who kept knocking is told the length of the debt it dug. A constant
+// would be obeyed and answered with another 429.
 func writeTooManyRequests(w http.ResponseWriter, r *http.Request, retryAfter time.Duration) {
-	w.Header().Set("Retry-After", strconv.Itoa(int(retryAfter.Seconds())))
+	// Rounded UP, and never below one second: truncating a 179.5s block to 179
+	// sends an obedient client back half a second early into a second 429, and
+	// a limiter that cannot answer (RetryAfter is 0 when it never refills) must
+	// not emit "Retry-After: 0", which reads as "retry immediately".
+	secs := int(math.Ceil(retryAfter.Seconds()))
+	if secs < 1 {
+		secs = 1
+	}
+	w.Header().Set("Retry-After", strconv.Itoa(secs))
 	if strings.HasPrefix(r.URL.Path, "/api/") {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusTooManyRequests)

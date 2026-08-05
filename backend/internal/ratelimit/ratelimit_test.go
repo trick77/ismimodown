@@ -201,17 +201,49 @@ func TestClientIPCollapsesIPv6ToItsPrefix(t *testing.T) {
 	}
 }
 
-// A Retry-After is only useful if it outlasts the block it describes.
-func TestMaxBlockCoversTheFullClimbOutOfDebt(t *testing.T) {
-	// The 404 limiter's own numbers: floor -5, one token every 30s, so 6 tokens
-	// to climb back to usable.
-	if got := New(1.0/30.0, 5).MaxBlock(); got != 180*time.Second {
-		t.Errorf("MaxBlock = %v, want 3m", got)
+// A Retry-After is only worth obeying if it covers the block it describes, and
+// a caller in debt is blocked for longer than one refill.
+func TestRetryAfterGrowsWithTheDebt(t *testing.T) {
+	// The 404 limiter's own numbers: one token every 30s, floor -5.
+	l := New(1.0/30.0, 5)
+	l.now = func() time.Time { return time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC) }
+
+	if got := l.RetryAfter("caller"); got != 0 {
+		t.Errorf("RetryAfter with budget left = %v, want 0", got)
 	}
+
+	l.Charge("caller", 5) // exactly spent, nothing owed
+	if got := l.RetryAfter("caller"); got != 30*time.Second {
+		t.Errorf("RetryAfter at zero = %v, want one refill (30s)", got)
+	}
+
+	l.Charge("caller", 5) // floored at -5: six tokens back to usable
+	if got := l.RetryAfter("caller"); got != 180*time.Second {
+		t.Errorf("RetryAfter at the floor = %v, want 3m", got)
+	}
+
 	// A limiter that never refills has no honest answer, and dividing by its
-	// rate would produce an infinity in a header.
-	if got := New(0, 1).MaxBlock(); got != 0 {
-		t.Errorf("MaxBlock with no refill = %v, want 0", got)
+	// rate would put an infinity in a header.
+	nr := New(0, 1)
+	nr.now = l.now
+	nr.Charge("caller", 1)
+	if got := nr.RetryAfter("caller"); got != 0 {
+		t.Errorf("RetryAfter with no refill = %v, want 0", got)
+	}
+}
+
+// Sweeping on the refill check alone would keep every bucket of a limiter that
+// never refills — the unbounded map the sweep exists to prevent.
+func TestSweepDropsIdleBucketsWithoutRefill(t *testing.T) {
+	l := New(0, 1)
+	now := time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC)
+	l.now = func() time.Time { return now }
+
+	l.Allow("spent")
+	now = now.Add(time.Hour)
+
+	if dropped := l.Sweep(30 * time.Minute); dropped != 1 {
+		t.Errorf("swept %d buckets, want 1; a limiter that cannot refill must still be bounded", dropped)
 	}
 }
 

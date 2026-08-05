@@ -116,6 +116,11 @@ func (l *Limiter) refilled(key string) *bucket {
 // indistinguishable from a new one, so dropping it loses nothing — but a bucket
 // still in debt is NOT, and deleting one would hand a scanner a clean slate
 // simply for pausing. Hence the refill check rather than age alone.
+//
+// A limiter with no refill is swept on age alone. Its buckets never come back,
+// so the check above would keep every one of them forever and reinstate exactly
+// the unbounded allocation this exists to prevent — bounding the map wins over
+// remembering a caller that has been silent for the whole idle window.
 func (l *Limiter) Sweep(idle time.Duration) int {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -127,7 +132,7 @@ func (l *Limiter) Sweep(idle time.Duration) int {
 		if !b.last.Before(cutoff) {
 			continue
 		}
-		if b.tokens+now.Sub(b.last).Seconds()*l.rate < l.burst {
+		if l.rate > 0 && b.tokens+now.Sub(b.last).Seconds()*l.rate < l.burst {
 			continue
 		}
 		delete(l.buckets, k)
@@ -136,18 +141,25 @@ func (l *Limiter) Sweep(idle time.Duration) int {
 	return n
 }
 
-// MaxBlock is the longest a caller can be denied: the time it takes a bucket at
-// the debt floor to climb back to one token.
+// RetryAfter reports how long key must wait for its next token: zero if it has
+// one now, and longer the deeper into debt it is.
 //
-// It exists so a Retry-After can be honest without repeating the limiter's
-// numbers somewhere else, where the two would drift apart the first time one of
-// them was tuned. A caller told to come back sooner than this comes back to
-// another rejection.
-func (l *Limiter) MaxBlock() time.Duration {
-	if l.rate <= 0 {
+// Per caller rather than a worst case, so the number is the truth for whoever
+// is being told it. A caller that has just run out waits one refill; one that
+// kept knocking waits for its whole debt, which is what makes the header worth
+// obeying.
+//
+// A limiter that never refills has nothing honest to promise and returns zero;
+// callers turning this into a Retry-After must not emit that verbatim.
+func (l *Limiter) RetryAfter(key string) time.Duration {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	b := l.refilled(key)
+	if b.tokens >= 1 || l.rate <= 0 {
 		return 0
 	}
-	return time.Duration((l.burst + 1) / l.rate * float64(time.Second))
+	return time.Duration((1 - b.tokens) / l.rate * float64(time.Second))
 }
 
 // Len reports how many buckets are tracked, for tests and diagnostics.
