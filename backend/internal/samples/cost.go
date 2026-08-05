@@ -22,6 +22,32 @@ const (
 	offPeakStartSecond = config.OffPeakStartUTCHour * 3600
 )
 
+// CycleSeconds mirrors scheduler.CycleInterval, and halfCycleSeconds is the
+// offset that turns a floor into a round.
+//
+// Restated rather than imported: `samples` is the layer the scheduler writes
+// into, and a dependency the other way would make the store aware of the loop
+// that fills it. The value is also a property of the rows already in the table
+// — the cadence they were written at — rather than of the process running now.
+//
+// Exported only so the restatement can be CHECKED. A restated constant that
+// silently disagrees with the one it mirrors is the whole hazard, so the
+// scheduler asserts the two are equal at compile time; nothing reads this to
+// decide anything.
+//
+// They exist because the cost series SUMS per bucket, and every bucket width is
+// a multiple of the cadence, so bucket boundaries land exactly on cycle ticks.
+// The scheduler jitters each cycle by ±30 s around its aligned tick, which puts
+// the boundary cycle on either side of the line at random: buckets end up
+// holding two, three or four cycles instead of three, and the line saws by ±50%
+// for reasons that have nothing to do with what was spent. Rounding each run to
+// the tick it belongs to before flooring it into a bucket removes the straddle
+// and leaves the money untouched.
+const (
+	CycleSeconds     = 300
+	halfCycleSeconds = CycleSeconds / 2
+)
+
 // PhaseFull and PhaseOffPeak name the two billing phases.
 //
 // Served as strings rather than as a boolean, so the client renders a label it
@@ -218,7 +244,11 @@ func (s *Store) Cost(ctx context.Context, w Window, prices map[string]config.Mod
 	}
 
 	rows, err := s.db.QueryContext(ctx, fmt.Sprintf(`
-		SELECT unixepoch(c.started_at) / %[1]d * %[1]d AS bucket,
+		SELECT -- Rounded to the cycle tick the run belongs to, THEN floored into
+		       -- the bucket. Flooring the raw instant lets the ±30 s scheduling
+		       -- jitter carry a boundary cycle across the line, which shows up
+		       -- as a sawtooth in a series that sums. See cycleSeconds.
+		       ((unixepoch(c.started_at) + %[4]d) / %[5]d * %[5]d) / %[1]d * %[1]d AS bucket,
 		       i.model_id,
 		       i.probe,
 		       -- The billing phase, decided per run from its own timestamp
@@ -246,7 +276,7 @@ func (s *Store) Cost(ctx context.Context, w Window, prices map[string]config.Mod
 		  AND COALESCE(i.prompt_tokens, 0) > 0
 		GROUP BY bucket, i.model_id, i.probe, offpeak
 		ORDER BY bucket`,
-		bucketSecs, secondsPerDay, offPeakStartSecond),
+		bucketSecs, secondsPerDay, offPeakStartSecond, halfCycleSeconds, CycleSeconds),
 		since.UTC().Format(time.RFC3339Nano))
 	if err != nil {
 		return CostBreakdown{}, fmt.Errorf("cost query: %w", err)

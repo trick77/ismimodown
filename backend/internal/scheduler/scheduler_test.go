@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"log/slog"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -243,6 +244,18 @@ func TestOnlyWrongAnswersAreLogged(t *testing.T) {
 	}
 }
 
+// wideOrder is the models that went wide, in the order they were dispatched. The
+// stagger is a statement about sequence, not just about counts.
+func wideOrder(prober *fakeProber) []string {
+	var out []string
+	for _, r := range prober.requests() {
+		if r.Probe == probe.ProbeWide {
+			out = append(out, r.ModelID)
+		}
+	}
+	return out
+}
+
 func TestRunCycleProbesEveryTargetAndModel(t *testing.T) {
 	pinger := &fakePinger{}
 	prober := &fakeProber{}
@@ -261,16 +274,17 @@ func TestRunCycleProbesEveryTargetAndModel(t *testing.T) {
 		t.Errorf("net_probes = %d, want 2", nNet)
 	}
 	// The first cycle carries wide because no wide sample exists yet — a fresh
-	// deploy should not show an empty prefill panel for an hour. 2 models x
-	// (infer + wide).
-	if nInfer != 4 {
-		t.Errorf("infer_probes = %d, want 4 on a wide cycle", nInfer)
+	// deploy should not show an empty prefill panel for an hour. One model at a
+	// time, so 2 infer plus 1 wide rather than a wide run each.
+	if nInfer != 3 {
+		t.Errorf("infer_probes = %d, want 3 on a wide cycle", nInfer)
 	}
 }
 
-// wide runs hourly, landing ON a cycle so it gets its own network reading and
-// its TTFT is decomposable exactly like infer's.
-func TestWideRunsHourlyNotEveryNthCycle(t *testing.T) {
+// wide runs hourly PER MODEL, landing ON a cycle so it gets its own network
+// reading and its TTFT is decomposable exactly like infer's — and one model at a
+// time, so the fleet produces a wide run every WideInterval/N.
+func TestWideRunsHourlyPerModelStaggeredAcrossThem(t *testing.T) {
 	prober := &fakeProber{}
 	db := openTestDB(t)
 	now := time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC)
@@ -291,9 +305,52 @@ func TestWideRunsHourlyNotEveryNthCycle(t *testing.T) {
 	if inferCount != 13*2 {
 		t.Errorf("infer runs = %d, want %d", inferCount, 13*2)
 	}
-	// The first cycle and the one an hour later, two models each.
-	if got := wideRuns(prober); got != 2*2 {
-		t.Errorf("wide runs = %d, want %d over 65 minutes", got, 2*2)
+	// Two models over 65 minutes: :00, :30 and :60, alternating. Each model is
+	// still an hour apart from ITSELF, which is what keeps the sample rate and
+	// the bill where they were.
+	want := []string{"mimo-v2.5", "mimo-v2.5-pro", "mimo-v2.5"}
+	if got := wideOrder(prober); !slices.Equal(got, want) {
+		t.Errorf("wide order = %v, want %v", got, want)
+	}
+}
+
+// No cycle may carry wide for more than one model. Two ~3800-token prefills
+// dispatched together contend on the endpoint and the uplink, and each measures
+// a share of the other's queueing — the same confound the within-model
+// sequencing exists to avoid, which does not stop being one because the runs are
+// aimed at different models.
+func TestWideNeverRunsTwoModelsInOneCycle(t *testing.T) {
+	prober := &fakeProber{}
+	db := openTestDB(t)
+	now := time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC)
+	s := newSchedulerOn(db, prober, &fakePinger{}, &now)
+
+	// A full day, so every slot boundary and both models' hours are crossed many
+	// times over.
+	for i := 0; i < 288; i++ {
+		before := wideRuns(prober)
+		s.RunCycle(context.Background())
+		if got := wideRuns(prober) - before; got > 1 {
+			t.Fatalf("cycle %d dispatched %d wide runs, want at most 1", i, got)
+		}
+		now = now.Add(CycleInterval)
+	}
+
+	// And the day buys the same number of wide runs it always did: one per model
+	// per hour, so the stagger costs nothing and hides nothing.
+	if got := wideRuns(prober); got != 48 {
+		t.Errorf("wide runs in a day = %d, want 48", got)
+	}
+	for _, model := range []string{"mimo-v2.5", "mimo-v2.5-pro"} {
+		n := 0
+		for _, m := range wideOrder(prober) {
+			if m == model {
+				n++
+			}
+		}
+		if n != 24 {
+			t.Errorf("%s went wide %d times in a day, want 24", model, n)
+		}
 	}
 }
 
@@ -307,8 +364,8 @@ func TestWideCadenceSurvivesARestart(t *testing.T) {
 
 	first := &fakeProber{}
 	newSchedulerOn(db, first, &fakePinger{}, &now).RunCycle(context.Background())
-	if got := wideRuns(first); got != 2 {
-		t.Fatalf("wide runs before restart = %d, want 2 (one per model)", got)
+	if got := wideRuns(first); got != 1 {
+		t.Fatalf("wide runs before restart = %d, want 1 (one model at a time)", got)
 	}
 
 	// Restart: a brand new scheduler, zeroed counters, same database.
@@ -321,11 +378,13 @@ func TestWideCadenceSurvivesARestart(t *testing.T) {
 		t.Errorf("wide runs = %d five minutes after a restart, want 0", got)
 	}
 
-	// And it still fires once the hour is actually up.
-	now = now.Add(WideInterval)
+	// And the next slot still arrives on schedule. Half an hour after the first
+	// wide run — not an hour — because the OTHER model is due, and its own hour
+	// is not what the restart could have disturbed.
+	now = now.Add(s.WideSlot() - CycleInterval)
 	s.RunCycle(context.Background())
-	if got := wideRuns(restarted); got != 2 {
-		t.Errorf("wide runs = %d an hour later, want 2", got)
+	if got := wideOrder(restarted); !slices.Equal(got, []string{"mimo-v2.5-pro"}) {
+		t.Errorf("wide order = %v a slot later, want [mimo-v2.5-pro]", got)
 	}
 }
 
@@ -338,21 +397,28 @@ func TestWideAcceptsACycleThatLandsJustShortOfTheHour(t *testing.T) {
 	prober := &fakeProber{}
 	s := newSchedulerOn(db, prober, &fakePinger{}, &now)
 
+	// Both models first, a slot apart, so the model under test has a real
+	// timestamp to be measured against rather than the "never ran" shortcut.
 	s.RunCycle(context.Background())
+	now = now.Add(s.WideSlot())
+	s.RunCycle(context.Background())
+	if got := wideRuns(prober); got != 2 {
+		t.Fatalf("wide runs = %d after two slots, want 2", got)
+	}
 
-	// A minute shy of the hour: inside the slack, so it counts.
-	now = now.Add(WideInterval - time.Minute)
+	// A minute shy of ITS hour: inside the slack, so it counts.
+	now = now.Add(WideInterval - s.WideSlot() - time.Minute)
 	s.RunCycle(context.Background())
-	if got := wideRuns(prober); got != 4 {
-		t.Errorf("wide runs = %d at 59 minutes, want 4 — the slack window must accept it", got)
+	if got := wideRuns(prober); got != 3 {
+		t.Errorf("wide runs = %d at 59 minutes, want 3 — the slack window must accept it", got)
 	}
 
 	// But the very next cycle must NOT: one full interval after a wide run is
 	// always outside the window, which is what keeps the slack from double-firing.
 	now = now.Add(CycleInterval)
 	s.RunCycle(context.Background())
-	if got := wideRuns(prober); got != 4 {
-		t.Errorf("wide runs = %d one cycle later, want 4 — the slack must not double-fire", got)
+	if got := wideRuns(prober); got != 3 {
+		t.Errorf("wide runs = %d one cycle later, want 3 — the slack must not double-fire", got)
 	}
 }
 
@@ -368,8 +434,8 @@ func TestWideDoesNotRefireWhenTheDispatchWasNeverPersisted(t *testing.T) {
 	s := newSchedulerOn(db, prober, &fakePinger{}, &now)
 
 	s.RunCycle(context.Background())
-	if got := wideRuns(prober); got != 2 {
-		t.Fatalf("wide runs = %d on the first cycle, want 2", got)
+	if got := wideRuns(prober); got != 1 {
+		t.Fatalf("wide runs = %d on the first cycle, want 1", got)
 	}
 
 	// Everything the cycle wrote is gone, exactly as if the write had failed.
@@ -381,15 +447,16 @@ func TestWideDoesNotRefireWhenTheDispatchWasNeverPersisted(t *testing.T) {
 		now = now.Add(CycleInterval)
 		s.RunCycle(context.Background())
 	}
-	if got := wideRuns(prober); got != 2 {
-		t.Errorf("wide runs = %d within the hour, want 2 — an unpersisted dispatch still counts", got)
+	if got := wideRuns(prober); got != 1 {
+		t.Errorf("wide runs = %d within the slot, want 1 — an unpersisted dispatch still counts", got)
 	}
 
-	// The hour still arrives on schedule.
+	// The hour still arrives on schedule, and the model whose dispatch vanished
+	// is not owed a second one: the floor is the dispatch, not the row.
 	now = now.Add(WideInterval)
 	s.RunCycle(context.Background())
-	if got := wideRuns(prober); got != 4 {
-		t.Errorf("wide runs = %d an hour later, want 4", got)
+	if got := wideRuns(prober); got != 2 {
+		t.Errorf("wide runs = %d an hour later, want 2", got)
 	}
 }
 

@@ -710,8 +710,9 @@ type Sample struct {
 	ErrorClass *string   `json:"error_class"`
 }
 
-// LastProbeAt returns when a probe kind last RAN for any model, and whether it
-// ever has.
+// LastProbeAtByModel returns when a probe kind last RAN for each model. A model
+// that has never run it is absent from the map rather than present with a zero
+// time, so "never" stays distinguishable from "at the epoch".
 //
 // The scheduler asks this rather than counting cycles, because a counter only
 // knows about the process holding it: restart the daemon and a memory-resident
@@ -719,28 +720,50 @@ type Sample struct {
 // that has been up for three minutes. The database remembers across restarts;
 // nothing else here does.
 //
+// Per MODEL, not one timestamp for the kind. The wide probe runs for one model
+// at a time and each model is due on its own hour, so a single MAX across all of
+// them would answer a question no longer being asked: it would report the OTHER
+// model's recent run and hold this one back indefinitely.
+//
 // Attempts, not successes: a failed wide probe still cost the endpoint the
 // request, and retrying it every five minutes until one succeeds is exactly the
 // behaviour this exists to prevent. `skipped_runs` carries overruns, which were
 // never sent, so they are correctly absent here.
-func (s *Store) LastProbeAt(ctx context.Context, probeKind string) (time.Time, bool, error) {
-	var at sql.NullString
-	err := s.db.QueryRowContext(ctx, `
-		SELECT MAX(c.started_at)
+func (s *Store) LastProbeAtByModel(ctx context.Context, probeKind string) (map[string]time.Time, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT i.model_id, MAX(c.started_at)
 		FROM infer_probes i
 		JOIN cycles c ON c.id = i.cycle_id
-		WHERE i.probe = ?`, probeKind).Scan(&at)
+		WHERE i.probe = ?
+		GROUP BY i.model_id`, probeKind)
 	if err != nil {
-		return time.Time{}, false, err
+		return nil, err
 	}
-	if !at.Valid {
-		return time.Time{}, false, nil
+	defer func() { _ = rows.Close() }()
+
+	out := map[string]time.Time{}
+	for rows.Next() {
+		var model string
+		var at sql.NullString
+		if err := rows.Scan(&model, &at); err != nil {
+			return nil, err
+		}
+		// MAX over a grouped set cannot be NULL when the group exists, but the
+		// column is nullable and a scan that assumed otherwise would panic on a
+		// schema change rather than skip a row.
+		if !at.Valid {
+			continue
+		}
+		t, err := time.Parse(time.RFC3339Nano, at.String)
+		if err != nil {
+			return nil, err
+		}
+		out[model] = t
 	}
-	t, err := time.Parse(time.RFC3339Nano, at.String)
-	if err != nil {
-		return time.Time{}, false, err
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
-	return t, true, nil
+	return out, nil
 }
 
 // MaxSampleLimit clamps the raw-sample endpoint server-side.
