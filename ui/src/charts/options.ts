@@ -19,14 +19,33 @@ import {
 export const SERIES_COLORS = ["#3987e5", "#d95926"] as const;
 // The network is drawn in neutral ink because it is not a model.
 export const WIRE_COLOR = "#9c9a92";
+// MiMo's own edge in "The wire itself". Both lines there were neutral ink at
+// first, on the reasoning that neither of them is a model and a series hue is
+// how a line ends up read as one. That held while the pair was ink against
+// grey; it stopped being the best trade once the reference went darker, since
+// two greys separated only by lightness is the hardest pair to tell apart at a
+// glance.
+//
+// This is --color-online, the page's one green, and the overlap is known: the
+// pulse strip, the availability strip and FAULT_COLORS.ok all use it to mean
+// "up". Accepted because nothing in this chart encodes health — both series are
+// handshake milliseconds, and the panel has a legend naming each line. Do NOT
+// extend the green to anything that could be read as a verdict.
+export const MIMO_EDGE_COLOR = "#5aa06a";
 // The Singapore reference host, one step darker than the neutral above. It is
 // the control, not the measurement — the line the reader checks against rather
 // than reads — so it recedes behind MiMo's own edge. Its own constant rather
 // than a darker WIRE_COLOR: that value is also the decomposition's "to the
 // edge" segment, where it is paired with SERVER_COLOR and its contrast is
-// already spent. Against #1f1f1e this sits near 3.6:1, above the 3:1 a chart
-// line needs to stay a line.
-export const REFERENCE_COLOR = "#6f6d67";
+// already spent.
+//
+// #6b6963 (= --color-faint) against #1f1f1e is 3.005:1 — the darkest this can
+// go and still clear the 3:1 a chart line needs to stay a line. It was #6f6d67,
+// which this comment claimed was "near 3.6:1" and is in fact 3.19:1; there is
+// no headroom left below, so any further darkening is a contrast decision, not
+// a styling one. Measured against the panel, not the page: .card is a gradient
+// from #1f1f1e, and the lighter end is the one to check.
+export const REFERENCE_COLOR = "#6b6963";
 
 // The server-side remainder in the decomposition. Deliberately NOT
 // SERIES_COLORS[0]: that hue is mimo-v2.5's identity, and the decomposition

@@ -2,19 +2,25 @@ import type { NetSeries } from "./api/types";
 import { TARGET_MIMO, TARGET_REF_SGP } from "./api/types";
 import { Card, LogScaleChip } from "./ui";
 import { EChart } from "./charts/EChart";
-import { buildLineOption, REFERENCE_COLOR, WIRE_COLOR } from "./charts/options";
+import {
+  buildLineOption,
+  MIMO_EDGE_COLOR,
+  REFERENCE_COLOR,
+  WIRE_COLOR,
+} from "./charts/options";
 
 const LABELS: Record<string, string> = {
   [TARGET_MIMO]: "MiMo edge (Singapore)",
   [TARGET_REF_SGP]: "Reference (Singapore)",
 };
 
-// The reference line is faint; MiMo's own edge is the one being read. Both are
-// drawn in neutral ink rather than series colours, because neither of them is
-// a model — and the reference gets the darker of the two neutrals, so the two
-// lines separate on sight rather than on the legend.
+// The reference line is faint; MiMo's own edge is the one being read. The edge
+// carries a hue and the reference stays neutral, so the two separate on sight
+// rather than on the legend — see MIMO_EDGE_COLOR for why a green is acceptable
+// on a chart that measures no health, and REFERENCE_COLOR for the contrast
+// floor that stops the reference going darker still.
 const COLORS: Record<string, string> = {
-  [TARGET_MIMO]: "#faf9f5",
+  [TARGET_MIMO]: MIMO_EDGE_COLOR,
   [TARGET_REF_SGP]: REFERENCE_COLOR,
 };
 
