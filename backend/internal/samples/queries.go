@@ -698,16 +698,23 @@ func checkSeriesColumn(column string) error {
 // error body can echo request fragments, and a test asserts it never appears in
 // any public payload.
 type Sample struct {
-	At         time.Time `json:"at"`
-	ModelID    string    `json:"model_id"`
-	Probe      string    `json:"probe"`
-	TTFTMs     *float64  `json:"ttft_ms"`
-	TotalMs    *float64  `json:"total_ms"`
-	ITLP50Ms   *float64  `json:"itl_p50_ms"`
-	OutputTPS  *float64  `json:"output_tps"`
-	OK         bool      `json:"ok"`
-	AnswerOK   *bool     `json:"answer_ok"`
-	ErrorClass *string   `json:"error_class"`
+	At        time.Time `json:"at"`
+	ModelID   string    `json:"model_id"`
+	Probe     string    `json:"probe"`
+	TTFTMs    *float64  `json:"ttft_ms"`
+	TotalMs   *float64  `json:"total_ms"`
+	ITLP50Ms  *float64  `json:"itl_p50_ms"`
+	OutputTPS *float64  `json:"output_tps"`
+	// The completion tokens the model actually generated. output_tps is this
+	// count over the decode window, so a row with a fast tok/s and a tiny answer
+	// reads very differently from the same rate over a long one — the rate alone
+	// cannot tell those apart. Prompt, cached and reasoning tokens are recorded
+	// too but stay out: they say what the run cost, not what it produced, and
+	// /api/cost already sums them.
+	OutputTokens *int64  `json:"output_tokens"`
+	OK           bool    `json:"ok"`
+	AnswerOK     *bool   `json:"answer_ok"`
+	ErrorClass   *string `json:"error_class"`
 }
 
 // LastProbeAtByModel returns when a probe kind last RAN for each model. A model
@@ -780,7 +787,8 @@ func (s *Store) RecentSamples(ctx context.Context, modelID, probeKind string, li
 
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT c.started_at, i.model_id, i.probe, i.ttft_ms, i.total_ms,
-		       i.itl_p50_ms, i.output_tps, i.ok, i.answer_ok, i.error_class
+		       i.itl_p50_ms, i.output_tps, i.output_tokens, i.ok, i.answer_ok,
+		       i.error_class
 		FROM infer_probes i
 		JOIN cycles c ON c.id = i.cycle_id
 		WHERE i.model_id = ? AND i.probe = ?
@@ -798,11 +806,12 @@ func (s *Store) RecentSamples(ctx context.Context, modelID, probeKind string, li
 		var okInt int
 		var answerOK sql.NullInt64
 		var ttft, total, itl, tps sql.NullFloat64
+		var outTokens sql.NullInt64
 		// question_id is recorded but never selected here: it names what is
 		// being asked, and this row is served publicly.
 		var class sql.NullString
 		if err := rows.Scan(&at, &s.ModelID, &s.Probe, &ttft, &total, &itl, &tps,
-			&okInt, &answerOK, &class); err != nil {
+			&outTokens, &okInt, &answerOK, &class); err != nil {
 			return nil, err
 		}
 		s.At, _ = time.Parse(time.RFC3339Nano, at)
@@ -811,6 +820,7 @@ func (s *Store) RecentSamples(ctx context.Context, modelID, probeKind string, li
 		s.TotalMs = nullF(total)
 		s.ITLP50Ms = nullF(itl)
 		s.OutputTPS = nullF(tps)
+		s.OutputTokens = nullI(outTokens)
 		if answerOK.Valid {
 			b := answerOK.Int64 == 1
 			s.AnswerOK = &b
@@ -969,6 +979,14 @@ func nullF(v sql.NullFloat64) *float64 {
 	}
 	f := v.Float64
 	return &f
+}
+
+func nullI(v sql.NullInt64) *int64 {
+	if !v.Valid {
+		return nil
+	}
+	n := v.Int64
+	return &n
 }
 
 func nullS(v sql.NullString) *string {

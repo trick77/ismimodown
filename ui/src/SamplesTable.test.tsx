@@ -12,6 +12,7 @@ const sample = (over: Partial<Sample> = {}): Sample => ({
   total_ms: 1700,
   itl_p50_ms: 24,
   output_tps: 41,
+  output_tokens: 59,
   ok: true,
   answer_ok: true,
   error_class: null,
@@ -136,6 +137,35 @@ describe("SamplesTable", () => {
     );
     expect(screen.getByText("—")).toBeInTheDocument();
     expect(screen.queryByText("wrong")).not.toBeInTheDocument();
+  });
+
+  // The count is what makes the rate beside it readable: tok/s is measured over
+  // the decode window, so two runs of very different lengths can post the same
+  // throughput. Grouped with the row, not asserted positionally on its own, so
+  // the pairing is what breaks if the column is ever moved away from it.
+  it("shows how many tokens a run generated, next to the rate", () => {
+    render(
+      <SamplesTable
+        perProbe={[[sample({ output_tokens: 1234, output_tps: 41 })]]}
+      />,
+    );
+    const cells = cellsOfFirstRow();
+    expect(cells).toContain("1,234");
+    expect(cells[cells.indexOf("1,234") + 1]).toBe("41 tok/s");
+  });
+
+  // A failed run generated nothing measurable. A dash, not a 0: zero tokens is
+  // a claim about an answer that was never produced.
+  it("dashes the token count on a run that failed", () => {
+    render(
+      <SamplesTable
+        perProbe={[
+          [sample({ ok: false, error_class: "timeout", output_tokens: null })],
+        ]}
+      />,
+    );
+    expect(cellsOfFirstRow()).toContain("—");
+    expect(screen.queryByText("0")).not.toBeInTheDocument();
   });
 
   // The tick is decoration; assistive tech still has to hear the outcome.
