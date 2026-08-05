@@ -1,6 +1,13 @@
+import { useEffect, useState } from "react";
 import type { Sample } from "./api/types";
 import { Card } from "./ui";
-import { formatInt, formatMs, formatTime, formatTps } from "./format";
+import {
+  formatAgo,
+  formatDateTime,
+  formatInt,
+  formatMs,
+  formatTps,
+} from "./format";
 
 // How many runs the table renders.
 //
@@ -76,7 +83,7 @@ export function newestFirst(perGroup: Sample[][]): Sample[] {
 // record showed one probe of one model on a page about two of each.
 //
 // Three consequences are shown rather than hidden. Models run concurrently
-// within a cycle, so Time repeats down the column and Model and Probe beside it
+// within a cycle, so When repeats down the column and Model and Probe beside it
 // are what tell the rows apart. Wide has no single assertable answer, so it is
 // never graded and its Answer cell is a dash. And In jumps ~200x between the
 // probes — that step IS the difference between them, not an anomaly.
@@ -89,8 +96,33 @@ export function newestFirst(perGroup: Sample[][]): Sample[] {
 // times, and only the counts say which happened. Cached and reasoning tokens
 // stay out: both are invariants pinned at zero rather than per-run
 // measurements, and the model cards are where a breach of either surfaces.
+
+// How often the ages are recomputed.
+//
+// The rows themselves only change when a cycle completes, five minutes apart,
+// and a column of distances that only moves when new data arrives would sit
+// there reading "3 min ago" for the whole gap. Half a minute is under the
+// resolution the column prints, so no row is ever visibly stale by a unit it
+// could have shown.
+const TICK_MS = 30_000;
+
 export function SamplesTable({ perGroup }: { perGroup: Sample[][] }) {
   const rows = newestFirst(perGroup).slice(0, ROWS);
+  // The clock the ages are measured against, re-read on the timer above.
+  //
+  // The browser's, not the daemon's generated_at, and this is the one place
+  // that choice goes the other way from isStale in verdict.ts. That function
+  // refuses the client clock on purpose — a skewed browser must not be able to
+  // manufacture an outage — but "ago" is a statement about the reader's own
+  // now, and measuring it from a payload instant would freeze every row at the
+  // age it had when the page loaded. Skew costs a minute of accuracy in a
+  // column whose smallest unit is a minute; the alternative costs the column
+  // its meaning.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), TICK_MS);
+    return () => clearInterval(id);
+  }, []);
   // No count at all, so there is nothing to hedge.
   //
   // It used to name ROWS and qualify it with "at most" — the qualifier was
@@ -113,7 +145,10 @@ export function SamplesTable({ perGroup }: { perGroup: Sample[][] }) {
           <table className="w-full min-w-[860px] text-label">
             <thead>
               <tr className="text-micro uppercase tracking-wider text-ghost">
-                <th className="py-2 pr-4 text-left font-medium">Time</th>
+                {/* "When", not "Time": the column stopped being a clock
+                    reading and a header promising one would be the only thing
+                    on the card still saying so. */}
+                <th className="py-2 pr-4 text-left font-medium">When</th>
                 <th className="py-2 pr-4 text-left font-medium">Model</th>
                 <th className="py-2 pr-4 text-left font-medium">Probe</th>
                 <th className="py-2 pr-4 text-right font-medium">TTFT</th>
@@ -131,7 +166,16 @@ export function SamplesTable({ perGroup }: { perGroup: Sample[][] }) {
                   key={`${s.at}-${s.model_id}-${s.probe}-${i}`}
                   className="border-t border-border-soft text-muted"
                 >
-                  <td className="num py-2 pr-4">{formatTime(s.at)}</td>
+                  <td className="num py-2 pr-4">
+                    {/* dateTime carries the instant machine-readably; title
+                        carries it for a reader who wants the clock reading the
+                        cell no longer prints. Both are the raw stamp's job —
+                        the visible text is a distance, and a distance cannot
+                        be matched against a log line somewhere else. */}
+                    <time dateTime={s.at} title={formatDateTime(s.at)}>
+                      {formatAgo(s.at, now)}
+                    </time>
+                  </td>
                   <td className="num py-2 pr-4">{s.model_id}</td>
                   <td className="num py-2 pr-4">{s.probe}</td>
                   <td className="num py-2 pr-4 text-right">

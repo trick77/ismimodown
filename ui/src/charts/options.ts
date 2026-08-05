@@ -383,12 +383,13 @@ export function buildLineOption({
       axisLabel: {
         color: AXIS,
         fontSize: 10,
-        // Every tick is stamped in Europe/Zurich, the zone the probe host runs
-        // in and the one the samples table already uses. ECharts has no
-        // per-axis timezone — only a global useUTC — so the label is formatted
-        // here instead. Without this the axis silently followed the viewer's
-        // machine, so a reader outside Switzerland got one clock on the plot
-        // and another in the table below it.
+        // Every tick is stamped in the reader's own zone, like every other time
+        // on the page — see format.ts. ECharts has no per-axis timezone, only a
+        // global useUTC, so the label goes through our formatters here rather
+        // than being left to the library. What an axis must never do is
+        // disagree with the other times on the card — the tooltip header, the
+        // cost axis, the pulse strip's hover titles — and routing all of them
+        // through the same formatters is what guarantees it cannot.
         // A Date, not the raw number — see the tooltip header.
         formatter: (value: number) => stamp(new Date(value)),
         // ECharts adds a tick at each month boundary on top of its regular
@@ -648,7 +649,7 @@ export function buildCostOption(
       axisLabel: {
         color: AXIS,
         fontSize: 10,
-        // Europe/Zurich, like every other axis on the page — ECharts has no
+        // The reader's zone, like every other axis on the page — ECharts has no
         // per-axis timezone, so the label is formatted here.
         formatter: (value: number) => stamp(new Date(value)),
         hideOverlap: true,

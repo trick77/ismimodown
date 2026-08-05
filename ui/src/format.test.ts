@@ -1,7 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   dynamicRange,
   formatAxisMs,
+  formatDate,
+  formatAgo,
+  formatDateTime,
   formatInt,
   formatMs,
   formatPct,
@@ -12,6 +15,7 @@ import {
   shouldUseLogScale,
   formatUSD,
   formatUSDPrecise,
+  zoneLabel,
 } from "./format";
 
 describe("plural", () => {
@@ -102,14 +106,126 @@ describe("formatPct / formatTps / formatInt", () => {
 });
 
 describe("formatTime", () => {
-  // Europe/Zurich, 24-hour, per the locale decision.
-  it("renders in Zurich time on a 24-hour clock", () => {
-    // 2026-08-04T12:00:00Z is 14:00 in Zurich (CEST).
+  // The suite runs under TZ=Europe/Zurich (see package.json), so these assert
+  // the ambient zone rather than a pinned one — which is now the rule.
+  it("renders the reader's zone on a 24-hour clock", () => {
+    // 2026-08-04T12:00:00Z is 14:00 in Zurich, on summer time.
     expect(formatTime("2026-08-04T12:00:00Z")).toBe("14:00");
+  });
+
+  // The other side of the DST flip. An offset applied by hand would be right in
+  // one of these two tests and wrong in the other; Intl is right in both.
+  it("follows the zone across a DST boundary", () => {
+    // The same UTC hour in January is 13:00 in Zurich, on winter time.
+    expect(formatTime("2026-01-04T12:00:00Z")).toBe("13:00");
   });
 
   it("handles an unparseable timestamp", () => {
     expect(formatTime("not a date")).toBe("—");
+  });
+});
+
+describe("formatDate / formatDateTime", () => {
+  it("renders a date without a time, for a day-spaced axis", () => {
+    expect(formatDate("2026-08-04T12:00:00Z")).toBe("04 Aug");
+  });
+
+  it("renders day, month and time together for a tooltip", () => {
+    expect(formatDateTime("2026-08-04T12:00:00Z")).toBe("04 Aug, 14:00");
+  });
+
+  it("handles an unparseable timestamp", () => {
+    expect(formatDate("not a date")).toBe("—");
+    expect(formatDateTime("not a date")).toBe("—");
+  });
+
+  // A bare number is epoch SECONDS — the cost payload's shape. The chart code
+  // wraps its millisecond axis values in a Date to opt out of this, so the rule
+  // is asserted here rather than left as a comment for the next caller to miss.
+  it("reads a bare number as epoch seconds", () => {
+    expect(formatDateTime(Date.parse("2026-08-04T12:00:00Z") / 1000)).toBe(
+      "04 Aug, 14:00",
+    );
+  });
+});
+
+// The regression guard for the whole change, and it asserts the CONSTRUCTION
+// rather than the output on purpose. The suite is pinned to TZ=Europe/Zurich,
+// so a formatter re-pinned to Europe/Zurich would produce byte-identical output
+// here and every value-based test above would still pass. Only the absence of
+// the option itself distinguishes "follows the reader" from "happens to agree
+// with the runner", and that holds under any TZ the suite is ever run in.
+describe("the formatters are not pinned to a zone", () => {
+  it("builds every formatter without a timeZone", async () => {
+    // Given the formatters are built once at module load, the spy has to be in
+    // place before the import — hence the dynamic import and the reset.
+    const spy = vi.spyOn(Intl, "DateTimeFormat");
+    vi.resetModules();
+
+    // When
+    let options: (Intl.DateTimeFormatOptions | undefined)[];
+    try {
+      await import("./format");
+    } finally {
+      // Restored before the first assertion, never after: a failing expect
+      // throws, and a spy left on Intl.DateTimeFormat then breaks every later
+      // test in this file — so the run would report the guard's failure plus a
+      // trail of casualties pointing at innocent code.
+      options = spy.mock.calls.map((call) => call[1]);
+      spy.mockRestore();
+    }
+
+    // Then
+    expect(options.length).toBeGreaterThan(0);
+    for (const opts of options) {
+      expect(opts ?? {}).not.toHaveProperty("timeZone");
+    }
+  });
+});
+
+describe("formatAgo", () => {
+  const now = Date.parse("2026-08-04T12:00:00Z");
+
+  // Every minute counts, unlike verdict.ts's agoWords: cycles are five minutes
+  // apart, and a formatter that said "just now" up to five would print it
+  // against the newest rows of the table this exists for.
+  it("counts single minutes", () => {
+    expect(formatAgo(new Date(now - 30_000), now)).toBe("just now");
+    expect(formatAgo(new Date(now - 60_000), now)).toBe("1 min ago");
+    expect(formatAgo(new Date(now - 25 * 60_000), now)).toBe("25 min ago");
+    expect(formatAgo(new Date(now - 59 * 60_000), now)).toBe("59 min ago");
+  });
+
+  it("steps up to hours and then days", () => {
+    expect(formatAgo(new Date(now - 3 * 3_600_000), now)).toBe("3 h ago");
+    expect(formatAgo(new Date(now - 30 * 3_600_000), now)).toBe("1 d ago");
+  });
+
+  // A stamp a second into the future is a client clock a second behind the
+  // daemon's, not a measurement from the future.
+  it("clamps a future stamp rather than counting backwards", () => {
+    expect(formatAgo(new Date(now + 30_000), now)).toBe("just now");
+  });
+
+  it("handles an unparseable timestamp", () => {
+    expect(formatAgo("not a date", now)).toBe("—");
+  });
+
+  // The seconds/milliseconds trap toDate carries: a bare number is epoch
+  // SECONDS, and the row stamps that reach this are ISO strings either way.
+  it("reads a bare number as epoch seconds, like the other formatters", () => {
+    expect(formatAgo(now / 1000 - 600, now)).toBe("10 min ago");
+  });
+});
+
+describe("zoneLabel", () => {
+  // The footer's line. The IANA name is the part a reader can act on, so it is
+  // what is asserted; the abbreviation beside it is whatever Intl reports for
+  // the current offset and is not worth pinning to a season.
+  it("names the resolved zone", () => {
+    expect(zoneLabel()).toContain(
+      Intl.DateTimeFormat().resolvedOptions().timeZone,
+    );
   });
 });
 

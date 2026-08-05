@@ -86,12 +86,22 @@ function round(v: number, digits: number): string {
   return Number(v.toFixed(digits)).toString();
 }
 
-// Europe/Zurich, 24-hour, per the locale decision.
+// The reader's own zone, 24-hour, per the locale decision.
+//
+// No timeZone option, deliberately: every instant the API serves is an instant —
+// RFC3339Nano in UTC, or unix seconds — so Intl resolves each of these against
+// the browser's zone and a reader in Tokyo sees Tokyo hours. These formatters
+// were pinned to Europe/Zurich, the probe host's zone, which put Swiss
+// wall-clock times in front of every reader on earth without a word saying so.
+//
+// The LOCALE stays fixed at en-GB while the zone follows the reader. The two
+// decide different things: the locale sets the shape — 24-hour, "04 Aug" — and
+// that shape is what the page's columns, axes and copy are written around. Only
+// the zone is a fact about the reader.
 const timeFmt = new Intl.DateTimeFormat("en-GB", {
   hour: "2-digit",
   minute: "2-digit",
   hour12: false,
-  timeZone: "Europe/Zurich",
 });
 const dateTimeFmt = new Intl.DateTimeFormat("en-GB", {
   day: "2-digit",
@@ -99,7 +109,6 @@ const dateTimeFmt = new Intl.DateTimeFormat("en-GB", {
   hour: "2-digit",
   minute: "2-digit",
   hour12: false,
-  timeZone: "Europe/Zurich",
 });
 
 // Date without a time, for an axis whose ticks are days apart.
@@ -110,7 +119,6 @@ const dateTimeFmt = new Intl.DateTimeFormat("en-GB", {
 const dateFmt = new Intl.DateTimeFormat("en-GB", {
   day: "2-digit",
   month: "short",
-  timeZone: "Europe/Zurich",
 });
 
 export function formatDate(iso: string | number | Date): string {
@@ -126,6 +134,70 @@ export function formatTime(iso: string | number | Date): string {
 export function formatDateTime(iso: string | number | Date): string {
   const d = toDate(iso);
   return d ? dateTimeFmt.format(d) : "—";
+}
+
+// formatAgo is a stamp as a distance rather than a clock reading: "3 min ago".
+//
+// The raw-cycles table reads down a column of runs a few minutes apart, and
+// what a reader takes from that column is how fresh the top of it is — a
+// question "21:35" only answers after they have looked at their own clock and
+// done the subtraction. The exact instant is not lost: the cell keeps it as its
+// title, which is also what a reader needs when they are matching a row against
+// something outside this page.
+//
+// NOT verdict.ts's agoWords, and the difference is deliberate. That one speaks
+// in a banner's register — "just now" for anything under five minutes — which
+// is exactly the resolution this table cannot use: cycles are five minutes
+// apart, so it would print "just now" against the newest several rows and say
+// nothing about the order a reader is scanning. This counts every minute, and
+// abbreviates its units, because it lives in a narrow column beside numbers.
+//
+// `now` is passed in rather than read here so the caller owns the clock: the
+// table re-reads it on a timer, and a component that cannot be handed an
+// instant cannot be tested against one either.
+export function formatAgo(
+  iso: string | number | Date,
+  now: number = Date.now(),
+): string {
+  const d = toDate(iso);
+  if (!d) return "—";
+  // Clamped at zero. A run stamped a second into the future is a client clock
+  // a second behind the daemon's, not a measurement from the future, and
+  // "in 1 min ago" is not a thing to print at anyone.
+  const ms = Math.max(0, now - d.getTime());
+  // Floored at every step, never rounded: a run 90 seconds old is a minute and
+  // a half old, and "2 min ago" claims half a minute that has not happened yet.
+  // An age that counts up is the one a reader can check against their own
+  // clock; an age that rounds up arrives at the next unit before they do.
+  const minutes = Math.floor(ms / 60_000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} h ago`;
+  return `${Math.floor(hours / 24)} d ago`;
+}
+
+// zoneLabel names the zone the three formatters above are resolving into:
+// "Europe/Zurich (CEST)". The footer is its only caller, and it exists because
+// a page of times in an unnamed zone is a page a reader has to guess at.
+//
+// The IANA name carries the place and the abbreviation carries the current
+// offset, which is the pair a reader needs: "Europe/Zurich" alone does not say
+// whether summer time is on, and "CEST" alone means nothing to anyone outside
+// the zone. Read out of Intl rather than computed — the abbreviation flips with
+// DST on a date this code should never have to know, and zones with no common
+// abbreviation report a "GMT+9" form instead, which is the right answer there.
+//
+// Called on render rather than memoized at module load: everything else here is
+// a formatter worth building once, and this is one string on one line.
+export function zoneLabel(): string {
+  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const short = new Intl.DateTimeFormat("en-GB", { timeZoneName: "short" })
+    .formatToParts(new Date())
+    .find((p) => p.type === "timeZoneName")?.value;
+  // The zone alone when the abbreviation is missing or is just the zone again:
+  // "Europe/Zurich (Europe/Zurich)" says nothing twice.
+  return short && short !== zone ? `${zone} (${short})` : zone;
 }
 
 function toDate(v: string | number | Date): Date | null {
