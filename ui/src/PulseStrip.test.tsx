@@ -156,6 +156,22 @@ describe("worstPerCycle", () => {
     expect(merged[0]!.ok).toBe(true);
   });
 
+  // Go's RFC3339Nano drops trailing zeros, so a fractional stamp and a whole
+  // one differ in length — and as text "." sorts before "Z", putting the later
+  // instant first. Five-minute cycles never collide inside a second today, so
+  // this pins the rule rather than a live bug.
+  it("orders on the instant, not on the text", () => {
+    const whole = { ...sample(0), at: "2026-08-04T12:00:00Z" };
+    const fraction = { ...sample(0), at: "2026-08-04T12:00:00.5Z" };
+
+    const merged = worstPerCycle([[fraction], [whole]]);
+
+    expect(merged.map((c) => c.at)).toEqual([
+      "2026-08-04T12:00:00Z",
+      "2026-08-04T12:00:00.5Z",
+    ]);
+  });
+
   it("orders by time, whichever response arrived first", () => {
     const merged = worstPerCycle([[sample(10)], [sample(0)]]);
 

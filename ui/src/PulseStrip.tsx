@@ -56,7 +56,18 @@ export function worstPerCycle(perModel: Cycle[][]): Cycle[] {
   }
   // Sorted by time rather than by arrival: these came out of a map fed by two
   // responses, and the strip's whole grammar is that left is older.
-  return [...byTime.values()].sort((a, b) => a.at.localeCompare(b.at));
+  //
+  // Parsed, never compared as strings. The daemon stamps cycles with Go's
+  // RFC3339Nano, which DROPS trailing zeros from the fraction — so "12:00:00Z"
+  // and "12:00:00.5Z" are half a second apart and sort the wrong way round as
+  // text, because "." precedes "Z". Cycles are five minutes apart, so today the
+  // difference always lands in a field before the fraction and the bug cannot
+  // fire; the cadence is not something this function should have to know.
+  // localeCompare was doubly wrong for it: collation is locale-dependent, and
+  // these are machine timestamps.
+  return [...byTime.values()].sort(
+    (a, b) => Date.parse(a.at) - Date.parse(b.at),
+  );
 }
 
 function maxOrNull(a: number | null, b: number | null): number | null {
