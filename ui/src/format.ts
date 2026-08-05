@@ -86,12 +86,22 @@ function round(v: number, digits: number): string {
   return Number(v.toFixed(digits)).toString();
 }
 
-// Europe/Zurich, 24-hour, per the locale decision.
+// The reader's own zone, 24-hour, per the locale decision.
+//
+// No timeZone option, deliberately: every instant the API serves is an instant —
+// RFC3339Nano in UTC, or unix seconds — so Intl resolves each of these against
+// the browser's zone and a reader in Tokyo sees Tokyo hours. These formatters
+// were pinned to Europe/Zurich, the probe host's zone, which put Swiss
+// wall-clock times in front of every reader on earth without a word saying so.
+//
+// The LOCALE stays fixed at en-GB while the zone follows the reader. The two
+// decide different things: the locale sets the shape — 24-hour, "04 Aug" — and
+// that shape is what the page's columns, axes and copy are written around. Only
+// the zone is a fact about the reader.
 const timeFmt = new Intl.DateTimeFormat("en-GB", {
   hour: "2-digit",
   minute: "2-digit",
   hour12: false,
-  timeZone: "Europe/Zurich",
 });
 const dateTimeFmt = new Intl.DateTimeFormat("en-GB", {
   day: "2-digit",
@@ -99,7 +109,6 @@ const dateTimeFmt = new Intl.DateTimeFormat("en-GB", {
   hour: "2-digit",
   minute: "2-digit",
   hour12: false,
-  timeZone: "Europe/Zurich",
 });
 
 // Date without a time, for an axis whose ticks are days apart.
@@ -110,7 +119,6 @@ const dateTimeFmt = new Intl.DateTimeFormat("en-GB", {
 const dateFmt = new Intl.DateTimeFormat("en-GB", {
   day: "2-digit",
   month: "short",
-  timeZone: "Europe/Zurich",
 });
 
 export function formatDate(iso: string | number | Date): string {
@@ -126,6 +134,29 @@ export function formatTime(iso: string | number | Date): string {
 export function formatDateTime(iso: string | number | Date): string {
   const d = toDate(iso);
   return d ? dateTimeFmt.format(d) : "—";
+}
+
+// zoneLabel names the zone the three formatters above are resolving into:
+// "Europe/Zurich (CEST)". The footer is its only caller, and it exists because
+// a page of times in an unnamed zone is a page a reader has to guess at.
+//
+// The IANA name carries the place and the abbreviation carries the current
+// offset, which is the pair a reader needs: "Europe/Zurich" alone does not say
+// whether summer time is on, and "CEST" alone means nothing to anyone outside
+// the zone. Read out of Intl rather than computed — the abbreviation flips with
+// DST on a date this code should never have to know, and zones with no common
+// abbreviation report a "GMT+9" form instead, which is the right answer there.
+//
+// Called on render rather than memoized at module load: everything else here is
+// a formatter worth building once, and this is one string on one line.
+export function zoneLabel(): string {
+  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const short = new Intl.DateTimeFormat("en-GB", { timeZoneName: "short" })
+    .formatToParts(new Date())
+    .find((p) => p.type === "timeZoneName")?.value;
+  // The zone alone when the abbreviation is missing or is just the zone again:
+  // "Europe/Zurich (Europe/Zurich)" says nothing twice.
+  return short && short !== zone ? `${zone} (${short})` : zone;
 }
 
 function toDate(v: string | number | Date): Date | null {

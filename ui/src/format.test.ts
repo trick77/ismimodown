@@ -1,7 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   dynamicRange,
   formatAxisMs,
+  formatDate,
+  formatDateTime,
   formatInt,
   formatMs,
   formatPct,
@@ -12,6 +14,7 @@ import {
   shouldUseLogScale,
   formatUSD,
   formatUSDPrecise,
+  zoneLabel,
 } from "./format";
 
 describe("plural", () => {
@@ -102,14 +105,82 @@ describe("formatPct / formatTps / formatInt", () => {
 });
 
 describe("formatTime", () => {
-  // Europe/Zurich, 24-hour, per the locale decision.
-  it("renders in Zurich time on a 24-hour clock", () => {
-    // 2026-08-04T12:00:00Z is 14:00 in Zurich (CEST).
+  // The suite runs under TZ=Europe/Zurich (see package.json), so these assert
+  // the ambient zone rather than a pinned one — which is now the rule.
+  it("renders the reader's zone on a 24-hour clock", () => {
+    // 2026-08-04T12:00:00Z is 14:00 in Zurich, on summer time.
     expect(formatTime("2026-08-04T12:00:00Z")).toBe("14:00");
+  });
+
+  // The other side of the DST flip. An offset applied by hand would be right in
+  // one of these two tests and wrong in the other; Intl is right in both.
+  it("follows the zone across a DST boundary", () => {
+    // The same UTC hour in January is 13:00 in Zurich, on winter time.
+    expect(formatTime("2026-01-04T12:00:00Z")).toBe("13:00");
   });
 
   it("handles an unparseable timestamp", () => {
     expect(formatTime("not a date")).toBe("—");
+  });
+});
+
+describe("formatDate / formatDateTime", () => {
+  it("renders a date without a time, for a day-spaced axis", () => {
+    expect(formatDate("2026-08-04T12:00:00Z")).toBe("04 Aug");
+  });
+
+  it("renders day, month and time together for a tooltip", () => {
+    expect(formatDateTime("2026-08-04T12:00:00Z")).toBe("04 Aug, 14:00");
+  });
+
+  it("handles an unparseable timestamp", () => {
+    expect(formatDate("not a date")).toBe("—");
+    expect(formatDateTime("not a date")).toBe("—");
+  });
+
+  // A bare number is epoch SECONDS — the cost payload's shape. The chart code
+  // wraps its millisecond axis values in a Date to opt out of this, so the rule
+  // is asserted here rather than left as a comment for the next caller to miss.
+  it("reads a bare number as epoch seconds", () => {
+    expect(formatDateTime(Date.parse("2026-08-04T12:00:00Z") / 1000)).toBe(
+      "04 Aug, 14:00",
+    );
+  });
+});
+
+// The regression guard for the whole change, and it asserts the CONSTRUCTION
+// rather than the output on purpose. The suite is pinned to TZ=Europe/Zurich,
+// so a formatter re-pinned to Europe/Zurich would produce byte-identical output
+// here and every value-based test above would still pass. Only the absence of
+// the option itself distinguishes "follows the reader" from "happens to agree
+// with the runner", and that holds under any TZ the suite is ever run in.
+describe("the formatters are not pinned to a zone", () => {
+  it("builds every formatter without a timeZone", async () => {
+    // Given the formatters are built once at module load, the spy has to be in
+    // place before the import — hence the dynamic import and the reset.
+    const spy = vi.spyOn(Intl, "DateTimeFormat");
+    vi.resetModules();
+
+    // When
+    await import("./format");
+
+    // Then
+    expect(spy).toHaveBeenCalled();
+    for (const call of spy.mock.calls) {
+      expect(call[1] ?? {}).not.toHaveProperty("timeZone");
+    }
+    spy.mockRestore();
+  });
+});
+
+describe("zoneLabel", () => {
+  // The footer's line. The IANA name is the part a reader can act on, so it is
+  // what is asserted; the abbreviation beside it is whatever Intl reports for
+  // the current offset and is not worth pinning to a season.
+  it("names the resolved zone", () => {
+    expect(zoneLabel()).toContain(
+      Intl.DateTimeFormat().resolvedOptions().timeZone,
+    );
   });
 });
 

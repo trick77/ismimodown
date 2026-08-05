@@ -57,8 +57,14 @@ export function CostPanel({ cost }: { cost: CostBreakdown | null }) {
           {/* offpeak_until is the next boundary either way, so the preposition
               has to come from offpeak_active: "until" while the reduced rate is
               running, "from" while it is still ahead. Reading it as "until" in
-              both states says the discount is live at 16:00 Zurich, which is
-              two hours before it starts. */}
+              both states announces the discount as live right up to the hour it
+              actually starts.
+
+              The hour itself is the reader's local clock, like every time on
+              the page — the boundary is an instant, and the footer names the
+              zone it is being shown in. The Beijing hours in the note below the
+              chart are the other half of that: they are the window's fixed
+              definition, not a second clock competing with this one. */}
           {cost.offpeak_coefficient}× {cost.offpeak_active ? "until" : "from"}{" "}
           {formatTime(new Date(cost.offpeak_until * 1000))}
         </span>
