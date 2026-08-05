@@ -88,13 +88,10 @@ describe("PulseStrip", () => {
     render(<PulseStrip perModel={[[sample()]]} />);
 
     const note = screen.getByTestId("pulse-note");
-    expect(note).toHaveTextContent("time to first token");
-    expect(note).toHaveTextContent("Last 24 hours");
-    // The scale is relative. Without saying so, the tallest bar reads as a
-    // threshold rather than as whatever today happened to be.
-    expect(note).toHaveTextContent("scaled to the tallest bar here");
+    expect(note).toHaveTextContent("TTFT");
+    expect(note).toHaveTextContent("24 hours");
     expect(note).toHaveTextContent("a run failed");
-    expect(note).toHaveTextContent("an answer was wrong");
+    expect(note).toHaveTextContent("a wrong answer");
   });
 });
 

@@ -129,17 +129,20 @@ export function PulseStrip({ perModel }: { perModel: Cycle[][] }) {
           );
         })}
       </div>
-      {/* Four things a reader cannot otherwise discover: what the height is,
-          that it is a whole day regardless of the window pill, that the scale
-          is relative, and what the two other colours mean. The colours
-          especially — ui.tsx opens by saying colour is never the only signal
-          here, and until this line the strip had three states told apart by hue
-          alone, readable only by hovering, which does not exist on a phone. */}
+      {/* Three things a reader cannot otherwise discover: what the height is,
+          that it is a whole day regardless of the window pill, and what the two
+          other colours mean. The colours especially — ui.tsx opens by saying
+          colour is never the only signal here, and until this line the strip
+          had three states told apart by hue alone, readable only by hovering,
+          which does not exist on a phone.
+          
+          The scale is relative to the tallest bar, and that is deliberately NOT
+          said: it is the reading a reader takes from an unlabelled strip
+          anyway, and it was the clause that made this a paragraph. */}
       <p className="mt-2 text-label text-muted" data-testid="pulse-note">
-        Last 24 hours, one bar per cycle. Height is the slower of the two
-        models&apos; time to first token, scaled to the tallest bar here.{" "}
+        One bar per cycle, 24 hours. Height is the slower model&apos;s TTFT.{" "}
         <span className="text-danger">Red</span>: a run failed.{" "}
-        <span className="text-fault-edge">Amber</span>: an answer was wrong.
+        <span className="text-fault-edge">Amber</span>: a wrong answer.
       </p>
     </div>
   );
