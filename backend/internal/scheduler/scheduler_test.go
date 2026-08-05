@@ -208,7 +208,9 @@ func TestLoggedReplyIsBounded(t *testing.T) {
 
 	s.runProbe(context.Background(), "mimo-v2.5", probe.ProbeShort, 1, time.Now())
 
-	if n := buf.Len(); n > maxLoggedContent+512 {
+	// The run also emits its own "inference call" line, so the budget covers two
+	// lines of fixed fields plus one bounded reply — not one line.
+	if n := buf.Len(); n > maxLoggedContent+1024 {
 		t.Errorf("log line is %d bytes, want the reply clipped near %d", n, maxLoggedContent)
 	}
 	// Clipped on a rune boundary, so the evidence is not a row of replacement
@@ -241,6 +243,78 @@ func TestOnlyWrongAnswersAreLogged(t *testing.T) {
 				t.Errorf("logged a wrong answer for a %s: %s", tc.name, buf.String())
 			}
 		})
+	}
+}
+
+// Every inference call leaves a line, whichever prompt it carried. "cycle
+// complete" names the model that went wide and counts the rest, so without this
+// a short run is invisible in the log while a wide one is not.
+func TestEveryInferenceCallIsLogged(t *testing.T) {
+	answerOK := true
+	for _, tc := range []struct {
+		kind string
+		res  probe.InferResult
+	}{
+		{probe.ProbeShort, probe.InferResult{OK: true, AnswerOK: &answerOK, TTFTMs: 900, TotalMs: 1700}},
+		{probe.ProbeWide, probe.InferResult{OK: true, TTFTMs: 2400, TotalMs: 9100}},
+	} {
+		t.Run(tc.kind, func(t *testing.T) {
+			s, _ := newTestScheduler(t, &gradingProber{res: tc.res}, &fakePinger{})
+			buf := captureLogs(t)
+
+			s.runProbe(context.Background(), "mimo-v2.5", tc.kind, 7, time.Now())
+
+			got := buf.String()
+			for _, want := range []string{
+				`"msg":"inference call"`, `"probe":"` + tc.kind + `"`,
+				`"model":"mimo-v2.5"`, `"cycle":7`, `"ok":true`, `"level":"INFO"`,
+			} {
+				if !strings.Contains(got, want) {
+					t.Errorf("log is missing %q; got %s", want, got)
+				}
+			}
+		})
+	}
+}
+
+// A failed run is the reason the line exists: it is a row in infer_probes with
+// an error class and, until now, nothing at all in the container log. The level
+// carries the verdict so WARN alone finds it.
+func TestFailedInferenceCallLogsTheClassAtWarn(t *testing.T) {
+	prober := &gradingProber{res: probe.InferResult{
+		OK:          false,
+		HTTPStatus:  401,
+		ErrorClass:  probe.ErrClassAuth,
+		ErrorDetail: `{"error":"invalid api key"}`,
+	}}
+	s, _ := newTestScheduler(t, prober, &fakePinger{})
+	buf := captureLogs(t)
+
+	s.runProbe(context.Background(), "mimo-v2.5", probe.ProbeShort, 3, time.Now())
+
+	got := buf.String()
+	for _, want := range []string{
+		`"msg":"inference call"`, `"level":"WARN"`, `"ok":false`,
+		`"http_status":401`, `"error_class":"` + probe.ErrClassAuth + `"`, "invalid api key",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("log is missing %q; got %s", want, got)
+		}
+	}
+}
+
+// A healthy line carries no empty error fields: a reader scanning for the
+// failure should not have to step over two blank strings on every good run.
+func TestHealthyInferenceCallOmitsTheErrorFields(t *testing.T) {
+	s, _ := newTestScheduler(t, &gradingProber{res: probe.InferResult{OK: true}}, &fakePinger{})
+	buf := captureLogs(t)
+
+	s.runProbe(context.Background(), "mimo-v2.5", probe.ProbeShort, 1, time.Now())
+
+	for _, unwanted := range []string{"error_class", "error_detail"} {
+		if strings.Contains(buf.String(), unwanted) {
+			t.Errorf("healthy line carries %q: %s", unwanted, buf.String())
+		}
 	}
 }
 

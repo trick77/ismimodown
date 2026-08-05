@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"math"
 	"slices"
 	"strings"
 	"sync"
@@ -671,7 +672,76 @@ func (s *Scheduler) runProbe(
 			"finish_reason", res.FinishReason,
 			"content", truncate(res.Content, maxLoggedContent))
 	}
+
+	logInferenceCall(ctx, model, kind, n, req, res)
 	return res, true
+}
+
+// logInferenceCall emits one line per inference call — every call, not only the
+// wide one.
+//
+// "cycle complete" names the model that went wide and reduces the short runs to
+// a count, so a wide run is identifiable in the log and a short run is not. That
+// asymmetry is backwards for failures: a short probe that timed out, took a 401,
+// or came back at four seconds becomes a row in infer_probes with an
+// error_class, and nothing at all in the container log — which is the first
+// place an operator looks and the only place available without sqlite3 on the
+// volume.
+//
+// The level carries the verdict, so `level=WARN` alone finds the bad runs
+// without knowing which fields to read. error_class and error_detail are
+// attached only when there is one: a healthy line should not carry two empty
+// strings, and a reader scanning for the failure should not have to skip them.
+//
+// error_detail is operator-only and stays out of the HTTP API, but the container
+// log is the same trust boundary as the database file, so the provider's own
+// words belong here — that is the whole point of keeping them. It is truncated
+// on the same bound as a graded-wrong reply, since a provider serving an HTML
+// error page would otherwise put a full document on one log line.
+func logInferenceCall(
+	ctx context.Context, model, kind string, n int64, req probe.Request, res probe.InferResult,
+) {
+	lvl := slog.LevelInfo
+	if !res.OK {
+		lvl = slog.LevelWarn
+	}
+
+	attrs := []any{
+		"model", model, "probe", kind, "cycle", n,
+		"ok", res.OK,
+		"http_status", res.HTTPStatus,
+		"ttft_ms", round1(res.TTFTMs),
+		"total_ms", round1(res.TotalMs),
+		"output_tps", round1(res.OutputTPS),
+		"prompt_tokens", res.Usage.PromptTokens,
+		"output_tokens", res.Usage.CompletionTokens,
+		"cached_tokens", res.Usage.PromptTokensDetails.CachedTokens,
+		"reasoning_tokens", res.Usage.CompletionTokenDetails.ReasoningTokens,
+		"finish_reason", res.FinishReason,
+	}
+	// Only the short probe carries one, and an empty key on every wide line
+	// would read as a question that went missing rather than one that never
+	// existed.
+	if req.QuestionID != "" {
+		attrs = append(attrs, "question_id", req.QuestionID)
+	}
+	if res.AnswerOK != nil {
+		attrs = append(attrs, "answer_ok", *res.AnswerOK)
+	}
+	if res.ErrorClass != "" {
+		attrs = append(attrs,
+			"error_class", res.ErrorClass,
+			"error_detail", truncate(res.ErrorDetail, maxLoggedContent))
+	}
+
+	slog.Log(ctx, lvl, "inference call", attrs...)
+}
+
+// round1 trims a millisecond timing to one decimal for the log. The stored
+// column keeps full precision; a log line reporting 143.82754100000002 ms is
+// harder to read and no more true.
+func round1(v float64) float64 {
+	return math.Round(v*10) / 10
 }
 
 // maxLoggedContent bounds the reply quoted into the log. The short probe caps
