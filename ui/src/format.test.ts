@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   dynamicRange,
+  formatAxisMs,
   formatInt,
   formatMs,
   formatPct,
@@ -54,6 +55,38 @@ describe("formatMs", () => {
 
   it("renders an actual zero as zero", () => {
     expect(formatMs(0)).toBe("0 ms");
+  });
+});
+
+describe("formatAxisMs", () => {
+  // An axis is read as a ladder. formatMs would print the top of a spike chart
+  // as "1.7 min", leaving three units on one axis and the reader converting
+  // between them to see that the steps are even.
+  it("breaks once, at the second, and never reaches minutes", () => {
+    expect(formatAxisMs(300)).toBe("300 ms");
+    expect(formatAxisMs(1000)).toBe("1 s");
+    expect(formatAxisMs(1500)).toBe("1.5 s");
+    expect(formatAxisMs(30000)).toBe("30 s");
+    expect(formatAxisMs(100000)).toBe("100 s");
+  });
+
+  // A local handshake plots on a linear axis with ticks half a millisecond
+  // apart; whole-millisecond rounding printed "1 ms" against two of them.
+  it("keeps a decimal on a sub-100 ms tick", () => {
+    expect(formatAxisMs(0.5)).toBe("0.5 ms");
+    expect(formatAxisMs(12.5)).toBe("12.5 ms");
+    expect(formatAxisMs(50)).toBe("50 ms");
+  });
+
+  // The baseline of a linear ms axis. A unit on it reads as though the axis
+  // means something different down there.
+  it("leaves the zero baseline unitless", () => {
+    expect(formatAxisMs(0)).toBe("0");
+  });
+
+  it("renders nothing rather than a number for a value it cannot label", () => {
+    expect(formatAxisMs(-1)).toBe("");
+    expect(formatAxisMs(NaN)).toBe("");
   });
 });
 

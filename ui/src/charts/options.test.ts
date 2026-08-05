@@ -5,6 +5,7 @@ import {
   buildDecompositionOption,
   buildLineOption,
   colorForModel,
+  logAxis,
   SERIES_COLORS,
 } from "./options";
 
@@ -112,6 +113,124 @@ describe("buildLineOption", () => {
     });
     expect(opt.yAxis.type).toBe("value");
     expect(opt.logScale).toBe(false);
+  });
+
+  // Left to itself ECharts rounds a log axis out to whole decades, and the
+  // real 24h chart — 830 ms to 56 s — was drawn from 100 ms to 100 s with two
+  // of its four gridlines standing over nothing.
+  it("fits the log axis to the data instead of rounding out to decades", () => {
+    const opt = buildLineOption({
+      series: { a: [pt(1, 830), pt(2, 56365)] },
+      order: ["a"],
+      colorOf: () => "#fff",
+      unit: "ms",
+    });
+    expect(opt.yAxis.min).toBe(700);
+    expect(opt.yAxis.max).toBe(70000);
+    expect(opt.yAxis.splitLine.customValues).toEqual([
+      1000, 3000, 10000, 30000,
+    ]);
+  });
+
+  // The ticks and the labels have to be the same set, or a gridline is drawn
+  // without a number against it.
+  it("labels the fitted ticks in ms and s, never in minutes", () => {
+    const opt = buildLineOption({
+      series: { a: [pt(1, 830), pt(2, 56365)] },
+      order: ["a"],
+      colorOf: () => "#fff",
+      unit: "ms",
+    });
+    expect(opt.yAxis.axisTick.customValues).toEqual(
+      opt.yAxis.axisLabel.customValues,
+    );
+    const label = opt.yAxis.axisLabel.formatter!;
+    expect(opt.yAxis.axisLabel.customValues!.map(label)).toEqual([
+      "1 s",
+      "3 s",
+      "10 s",
+      "30 s",
+    ]);
+  });
+
+  // A linear axis is ECharts' own nicing from zero, and handing it a fitted
+  // min would cut the baseline off.
+  it("leaves a linear axis unbounded and unticked", () => {
+    const opt = buildLineOption({
+      series,
+      order: ["mimo-v2.5"],
+      colorOf: () => "#fff",
+      unit: "ms",
+    });
+    expect(opt.yAxis.min).toBeUndefined();
+    expect(opt.yAxis.max).toBeUndefined();
+    expect(opt.yAxis.splitLine.customValues).toBeUndefined();
+    // It still gets the unit, though: "1,000" was no more a latency on a
+    // linear axis than it was on a log one.
+    expect(opt.yAxis.axisLabel.formatter!(1000)).toBe("1 s");
+  });
+
+  // The unit is the caller's; a token count formatted as a duration is a lie.
+  it("does not format the axis as a duration for a non-ms unit", () => {
+    const opt = buildLineOption({
+      series: { a: [pt(1, 1), pt(2, 9000)] },
+      order: ["a"],
+      colorOf: () => "#fff",
+      unit: "tok/s",
+      forceLinear: true,
+    });
+    expect(opt.yAxis.axisLabel.formatter).toBeUndefined();
+  });
+});
+
+describe("logAxis", () => {
+  it("snaps the ends past a half decade rather than taking the whole one", () => {
+    // 57275 sits between 50000 and 100000; a 1-2-5 ladder would have to take
+    // the decade, which is the bug this ladder exists to avoid.
+    expect(logAxis([1601, 57275])).toMatchObject({ min: 1500, max: 70000 });
+  });
+
+  it("keeps every gridline strictly inside the bounds", () => {
+    const axis = logAxis([1601, 57275])!;
+    for (const tick of axis.ticks) {
+      expect(tick).toBeGreaterThan(axis.min);
+      expect(tick).toBeLessThan(axis.max);
+    }
+  });
+
+  // Fewer than three reads as a single annotated height rather than a scale;
+  // more than a handful crowds a 240px plot.
+  it("thins the ladder to a readable number of gridlines", () => {
+    for (const values of [
+      [830, 56365],
+      [1601, 57275],
+      [100, 90000],
+      [3.7, 900],
+      [1, 1_000_000],
+    ]) {
+      const axis = logAxis(values)!;
+      expect(axis.ticks.length).toBeGreaterThanOrEqual(3);
+      expect(axis.ticks.length).toBeLessThanOrEqual(7);
+    }
+  });
+
+  // A log axis cannot render a zero or a negative, and a range of zero width
+  // would pin the plot to a single row.
+  it("returns null when the values cannot support an axis", () => {
+    expect(logAxis([])).toBeNull();
+    expect(logAxis([0, -5, null])).toBeNull();
+  });
+
+  // customValues: [] would leave the axis with no gridlines and no labels at
+  // all, which is worse than the nicing it was meant to replace.
+  it("returns null when no round number falls inside the bounds", () => {
+    expect(logAxis([900, 900])).toBeNull();
+  });
+
+  it("still fits an axis when every value is identical", () => {
+    const axis = logAxis([1000, 1000])!;
+    expect(axis.min).toBeLessThan(1000);
+    expect(axis.max).toBeGreaterThan(1000);
   });
 });
 
