@@ -148,7 +148,20 @@ services:
       # to make for trick77.com.
       traefik.http.middlewares.mimostats-hsts.headers.stsSeconds: "31536000"
       traefik.http.middlewares.mimostats-hsts.headers.stsIncludeSubdomains: "true"
-      traefik.http.routers.mimostats.middlewares: mimostats-hsts@docker
+      # Compression belongs to the terminator, not the binary — the app should
+      # not be negotiating encodings with a client it never speaks to directly.
+      # It was simply never switched on: /api/dashboard is one JSON document
+      # carrying a day of cycles per model, which measured ~6x on gzip, and it
+      # was going out uncompressed on every load, every five-minute refetch and
+      # every cycle event.
+      #
+      # Traefik does not compress below minResponseBodyBytes (1024 by default),
+      # which is the right shape for this: /healthz and an error body stay
+      # uncompressed, the dashboard does not.
+      traefik.http.middlewares.mimostats-compress.compress: "true"
+      # Order matters: hsts first, so the header is attached whatever the
+      # encoding negotiation does.
+      traefik.http.routers.mimostats.middlewares: mimostats-hsts@docker,mimostats-compress@docker
 
 networks:
   traefik:
