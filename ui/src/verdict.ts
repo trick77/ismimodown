@@ -376,12 +376,12 @@ export function buildVerdict(
       detail:
         infra.lastRedAgo !== null
           ? [
-              // Written out rather than pluralised: at one the verb changes
-              // too, and "the 1 since have all been clean" is the sentence a
-              // reader stops trusting the rest of the banner over.
-              infra.lastRedAgo === 1
-                ? `The last failed cycle was ${agoWords(infra.lastRedMinutes ?? 5)}; the one since was clean.`
-                : `The last failed cycle was ${agoWords(infra.lastRedMinutes ?? infra.lastRedAgo * 5)}; the ${infra.lastRedAgo} since have all been clean.`,
+              // No singular branch, and none is reachable: lastRedAgo is an
+              // index into the whole served block while count covers the first
+              // RECENT_CYCLES of it, so a red anywhere near the front makes the
+              // network branch above return first. Getting here at all means
+              // the last red is at least RECENT_CYCLES back.
+              `The last failed cycle was ${agoWords(infra.lastRedMinutes ?? infra.lastRedAgo * 5)}; the ${infra.lastRedAgo} since have all been clean.`,
             ]
           : detail,
     };
