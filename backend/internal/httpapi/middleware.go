@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"runtime/debug"
 	"time"
+
+	"github.com/trick77/mimostats/internal/ratelimit"
 )
 
 // recovery converts panics in downstream handlers into 500 responses. Without
@@ -124,7 +126,7 @@ func (rec *statusRecorder) Unwrap() http.ResponseWriter {
 	return rec.ResponseWriter
 }
 
-// logging logs each request with method, path, status and duration.
+// logging logs each request with method, path, status, duration and caller.
 //
 // /healthz is skipped: the container healthcheck hits it every 60s and would
 // otherwise be most of the log volume on an idle server.
@@ -133,6 +135,24 @@ func (rec *statusRecorder) Unwrap() http.ResponseWriter {
 // travels in a query string on this API today, but the endpoints are public and
 // unauthenticated, so the log must not become a mirror of arbitrary
 // caller-supplied text.
+//
+// The caller is ratelimit.ClientIP — the limiter's OWN bucket key, not
+// r.RemoteAddr. Three things follow from that, and they are the reason to reuse
+// it rather than read the address again here:
+//
+//   - Behind Traefik, RemoteAddr is the proxy. The key reads the LAST
+//     X-Forwarded-For entry, the one the nearest trusted proxy appended, rather
+//     than the caller-supplied first entry anyone can invent.
+//   - IPv6 is already collapsed to its /64, so the log records the block rather
+//     than the address. Rotating the low 64 bits is free, so the /64 is the
+//     identity that means anything anyway.
+//   - A 429 line and the bucket that produced it now name the same thing. A log
+//     that said "some other notion of the caller" would be unable to answer the
+//     only question a burst of 429s raises: one scraper, or many readers.
+//
+// This is every request, not only the failures — so the log is a visitor record
+// for a public page, and how long it is kept is a deployment decision rather
+// than this file's.
 func logging(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/healthz" {
@@ -159,6 +179,7 @@ func logging(next http.Handler) http.Handler {
 			slog.String("path", r.URL.Path),
 			slog.Int("status", rec.status),
 			slog.String("dur", time.Since(start).String()),
+			slog.String("client", ratelimit.ClientIP(r)),
 		)
 	})
 }
