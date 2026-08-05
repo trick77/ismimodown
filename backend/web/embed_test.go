@@ -101,6 +101,54 @@ func TestHandlerDoesNotFallBackForAssets(t *testing.T) {
 	}
 }
 
+// The split that makes a year-long cache safe. Only Vite's hashed output may be
+// held immutably; index.html is the file that NAMES the current bundle, so a
+// cached one is a browser pinned to a build that no longer exists.
+func TestCacheControlIsSetPerAsset(t *testing.T) {
+	const immutable = "public, max-age=31536000, immutable"
+
+	for _, tc := range []struct {
+		name string
+		want string
+	}{
+		{"assets/index-C7Xl7PkL.js", immutable},
+		{"assets/index-BGjmce_o.css", immutable},
+		{"assets/SansWebVariable-TextRegular-CFxw3nG7.woff2", immutable},
+		// Hashless, all of them: the names are fixed and the bytes behind them
+		// change in place, which is the exact shape immutable must not cover.
+		{"index.html", "no-cache"},
+		{"manifest.webmanifest", "no-cache"},
+		{"icon.svg", "no-cache"},
+		{"og.png", "no-cache"},
+	} {
+		rec := httptest.NewRecorder()
+		setCacheControl(rec, tc.name)
+		if got := rec.Header().Get("Cache-Control"); got != tc.want {
+			t.Errorf("%s: Cache-Control = %q, want %q", tc.name, got, tc.want)
+		}
+	}
+}
+
+// The shell itself, through the real handler — including via the SPA fallback,
+// which serves index.html under a path that is not its name. Reaching that
+// branch with no Cache-Control is how a deep link ends up being the one route
+// that hands out a year-old shell.
+func TestShellIsNotCachedOnEitherPath(t *testing.T) {
+	h, err := Handler()
+	if err != nil {
+		t.Fatalf("Handler: %v", err)
+	}
+
+	for _, path := range []string{"/", "/some/deep/link"} {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+
+		if got := rec.Header().Get("Cache-Control"); got != "no-cache" {
+			t.Errorf("%s: Cache-Control = %q, want no-cache", path, got)
+		}
+	}
+}
+
 // Chrome refuses a manifest served as text/plain and silently drops the PWA
 // icons and theme colour with it — a failure with no error anywhere the
 // developer looks. Go's mime table has no .webmanifest entry, so the

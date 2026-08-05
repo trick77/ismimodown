@@ -36,6 +36,23 @@ const summary = (models: ModelSummary[]): Summary => ({
 });
 
 describe("ModelCards", () => {
+  // These cards sit above the fold with the whole page under them. Rendering
+  // nothing until the fetch lands is what shoved that page down and made this
+  // the largest single contributor to the dashboard's layout shift.
+  it("holds a row of height before the models arrive", () => {
+    render(<ModelCards summary={null} baseline={null} />);
+
+    const pending = screen.getByTestId("model-cards-pending");
+    // Two shapes, because the grid has two: one row side by side above the sm
+    // breakpoint, two stacked rows below it. Reserving only the desktop height
+    // leaves the phone shifting by a whole card.
+    expect(pending).toHaveClass("h-[500px]");
+    expect(pending).toHaveClass("sm:h-[242px]");
+    // It carries no information, so it must not be an object a screen reader
+    // stops on — the verdict banner above already says the page is loading.
+    expect(pending).toHaveAttribute("aria-hidden", "true");
+  });
+
   it("renders one card per model", () => {
     render(
       <ModelCards

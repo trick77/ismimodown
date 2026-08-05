@@ -1,7 +1,7 @@
 import type { ModelSeries } from "./api/types";
-import { Card, CensoredNote, LogScaleChip } from "./ui";
+import { Card, CensoredNote, LogScaleChip, NoChart } from "./ui";
 import { EChart } from "./charts/EChart";
-import { buildLineOption, colorForModel } from "./charts/options";
+import { CHART_HEIGHT, buildLineOption, colorForModel } from "./charts/options";
 
 export function SeriesPanel({
   title,
@@ -38,9 +38,9 @@ export function SeriesPanel({
       {hasData ? (
         <EChart option={option} ariaLabel={`${title} over time, per model`} />
       ) : (
-        <p className="font-serif italic text-faint">
+        <NoChart height={CHART_HEIGHT}>
           Not enough data yet — first samples within a few minutes.
-        </p>
+        </NoChart>
       )}
       <Legend models={models} />
       <CensoredNote bands={option.censoredBands} />

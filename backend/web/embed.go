@@ -7,6 +7,7 @@ import (
 	"mime"
 	"net/http"
 	"path"
+	"strings"
 )
 
 // Go's built-in table has no entry for .webmanifest, so http.FileServer would
@@ -69,6 +70,39 @@ func (h spaHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		r = r.Clone(r.Context())
 		r.URL.Path = "/"
+		name = "index.html"
 	}
+	setCacheControl(w, name)
 	http.FileServer(h.files).ServeHTTP(w, r)
+}
+
+// assetPrefix is the directory Vite writes its hashed output to. Everything
+// under it — the JS chunk, the stylesheet, the three woff2 — carries a content
+// hash in its filename, which is what makes a year-long immutable cache safe:
+// a rebuild changes the name, so there is no such thing as a stale hit.
+const assetPrefix = "assets/"
+
+// setCacheControl tells the browser how long it may keep what it just fetched.
+//
+// http.FileServer sets neither Cache-Control nor a usable validator here: the
+// files come from an embed.FS, whose entries have a ZERO modtime, so it emits
+// no Last-Modified either. Every visit therefore re-downloaded the whole
+// bundle — 700 kB of JS, CSS and fonts that had not changed in weeks.
+//
+// Two rules, and the split matters more than either value:
+//
+//   - Hashed assets: a year, immutable. immutable additionally suppresses the
+//     revalidation a browser would otherwise send on a reload.
+//   - Everything else — index.html above all, but also the icons and the
+//     manifest at the root, which are NOT hashed: no-cache. Not "no caching":
+//     the copy may be stored and reused, but only after asking. index.html is
+//     the file that names the current hashed bundle, so a cached one is a
+//     browser pinned to a deleted build; the 404 branch above is the recovery
+//     path, and it should not have to fire in the first place.
+func setCacheControl(w http.ResponseWriter, name string) {
+	if strings.HasPrefix(name, assetPrefix) {
+		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		return
+	}
+	w.Header().Set("Cache-Control", "no-cache")
 }

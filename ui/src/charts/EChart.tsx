@@ -14,6 +14,7 @@ import {
   TooltipComponent,
 } from "echarts/components";
 import { CanvasRenderer } from "echarts/renderers";
+import { CHART_HEIGHT } from "./options";
 
 // Only the pieces this dashboard actually draws are registered.
 //
@@ -43,7 +44,7 @@ echarts.use([
 // jsdom cannot exercise, so a test here would assert nothing real.
 export function EChart({
   option,
-  height = 240,
+  height = CHART_HEIGHT,
   ariaLabel,
 }: {
   option: Record<string, unknown>;

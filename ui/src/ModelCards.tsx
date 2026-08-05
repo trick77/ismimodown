@@ -21,6 +21,37 @@ export function ModelCards({
   const models = summary?.models ?? [];
   const ids = models.map((m) => m.model_id);
 
+  // One empty card holding the height the real ones will need, until there are
+  // models to put in them.
+  //
+  // This grid used to be zero pixels tall and then abruptly full height, above
+  // the fold with the entire page below it — the single largest contributor to
+  // the layout shift this page scored. Reserving the height is the fix; the
+  // surface is so that the reservation reads as a card on its way rather than
+  // as a hole in the page.
+  //
+  // TWO numbers because the grid has two shapes and a card is 242 px tall in
+  // both: side by side above the sm breakpoint, one row; stacked below it, two
+  // rows and a gap-4 between them. A single 242 was measured on a desktop
+  // viewport and left the phone shifting by a whole card — which is the layout
+  // PageSpeed grades on mobile.
+  //
+  // Both numbers assume the two models this probes, and they assume it
+  // IDENTICALLY: one row of a two-column grid is the same assumption as two
+  // stacked rows. Nothing here can know the count — it is the first thing the
+  // response says and this renders before the response — so a third model
+  // would leave one row unreserved at either width, rather than one shape
+  // being right and the other wrong.
+  if (models.length === 0) {
+    return (
+      <div
+        className="card h-[500px] p-5 sm:h-[242px]"
+        aria-hidden="true"
+        data-testid="model-cards-pending"
+      />
+    );
+  }
+
   return (
     <div className="grid gap-4 sm:grid-cols-2">
       {models.map((m) => {
@@ -52,7 +83,13 @@ export function ModelCards({
                   style={{ background: colorForModel(m.model_id, ids) }}
                   aria-hidden="true"
                 />
-                <h3 className="num text-ui text-ink">{m.model_id}</h3>
+                {/* h2, not h3. These cards are the first panels on the page
+                    and every Card below them titles itself h2, so an h3 here
+                    made the document read h1 → h3 → h2 — a level skipped, and
+                    a screen reader's outline that claims each model card is
+                    subordinate to nothing. The size is set by the class, not
+                    by the tag. */}
+                <h2 className="num text-ui text-ink">{m.model_id}</h2>
               </div>
               <StateChip state={worst(availability, correctness, ttft)} />
             </header>

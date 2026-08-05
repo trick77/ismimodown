@@ -13,6 +13,16 @@ import {
   shouldUseLogScale,
 } from "../format";
 
+// The height every plot draws at unless it asks for another one.
+//
+// Here rather than in the render wrapper beside it, even though that is where it
+// is applied: the wrapper is mocked in the panel tests, and a placeholder that
+// imported its height from a mock would be reserving whatever the mock happened
+// to return. It has to be the SAME number as the chart it stands in for — the
+// two agreeing is the whole reason a chart arriving costs no layout shift — and
+// a literal 240 in seven files is a number that drifts apart silently.
+export const CHART_HEIGHT = 240;
+
 // Series colour follows the MODEL, never its rank, so a model keeps its hue
 // when the ordering changes. Validated against the #1f1f1e surface: CVD
 // separation ΔE 26.8, normal-vision ΔE 31.8.
