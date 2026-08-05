@@ -10,6 +10,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	"github.com/trick77/mimostats/internal/probe"
 	"github.com/trick77/mimostats/internal/samples"
@@ -532,7 +533,47 @@ func (s *Scheduler) runProbe(
 		slog.Error("probe request rejected", "err", err, "model", model, "probe", kind)
 		return probe.InferResult{}, false
 	}
+
+	// The only place the model's actual words are ever visible.
+	//
+	// A wrong answer is stored as answer_ok=0 and nothing else — the reply
+	// itself is deliberately never persisted, and a bare zero cannot tell a
+	// silent reroute to a smaller model from a reply cut off at MaxTokens from
+	// a provider serving "we are at capacity" as a perfectly well-formed
+	// stream. All three are graded wrong and look identical afterwards. So the
+	// reply goes to the log, where it is readable and not queryable, rather
+	// than into a column that would make it neither.
+	//
+	// finish_reason is what separates the truncation case from the other two,
+	// and it is already on the result and stored nowhere.
+	if res.AnswerOK != nil && !*res.AnswerOK {
+		slog.Warn("answer graded wrong",
+			"model", model, "probe", kind, "cycle", n,
+			"question_id", req.QuestionID,
+			"finish_reason", res.FinishReason,
+			"content", truncate(res.Content, maxLoggedContent))
+	}
 	return res, true
+}
+
+// maxLoggedContent bounds the reply quoted into the log. The short probe caps
+// output at InferMaxTokens, so a healthy reply is already well under this; the
+// bound is for the reply that is not healthy, which is the whole reason the
+// line exists.
+const maxLoggedContent = 300
+
+// truncate shortens s for logging, marking that it did so. Cut on a rune
+// boundary: a reply is text, and half a multi-byte character in a JSON log line
+// is a replacement glyph where the evidence should be.
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	cut := n
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut] + "…"
 }
 
 func (s *Scheduler) acquire(key string) bool {

@@ -11,6 +11,7 @@ import {
   shouldUseLogScale,
   formatUSD,
   formatUSDPrecise,
+  probeName,
 } from "./format";
 
 describe("plural", () => {
@@ -134,5 +135,20 @@ describe("money", () => {
     expect(formatUSD(null)).toBe("—");
     expect(formatUSDPrecise(undefined)).toBe("—");
     expect(formatUSD(Number.NaN)).toBe("—");
+  });
+});
+
+describe("probeName", () => {
+  // Both probes run an inference; the prompt size is what differs. The schema's
+  // word is not the reader's, and one card saying "short" while another says
+  // "infer" is worse than either on its own.
+  it("calls the short probe short, whatever the wire calls it", () => {
+    expect(probeName("infer")).toBe("short");
+    expect(probeName("wide")).toBe("wide");
+  });
+
+  // A kind the page has no name for is still something an operator must see.
+  it("passes an unrecognised kind through rather than blanking it", () => {
+    expect(probeName("deep")).toBe("deep");
   });
 });

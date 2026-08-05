@@ -1,6 +1,6 @@
 import type { Sample } from "./api/types";
 import { Card } from "./ui";
-import { formatMs, formatTime, formatTps } from "./format";
+import { formatMs, formatTime, formatTps, probeName } from "./format";
 
 // How many cycles the table renders.
 //
@@ -13,31 +13,59 @@ import { formatMs, formatTime, formatTps } from "./format";
 // handed, this is what it draws.
 const ROWS = 20;
 
+// newestFirst merges one array of samples per probe kind into the single
+// ordering the table draws.
+//
+// Ordered on the parsed instant, never on the timestamp as text. The daemon
+// stamps cycles with Go's RFC3339Nano, which DROPS trailing zeros from the
+// fraction, so "12:00:00Z" and "12:00:00.5Z" sort the wrong way round as
+// strings — "." precedes "Z". Cycles are five minutes apart so the difference
+// lands in an earlier field today and the bug cannot fire; the cadence is not
+// something this function should have to know.
+//
+// A stable tie-break matters here in a way it did not when the table held one
+// probe: a wide run and the short run beside it share their cycle's timestamp
+// exactly, so without one the pair would swap places between renders. Probe
+// name, so the order is the same on every load.
+export function newestFirst(perProbe: Sample[][]): Sample[] {
+  return perProbe.flat().sort((a, b) => {
+    const byTime = Date.parse(b.at) - Date.parse(a.at);
+    return byTime !== 0 ? byTime : a.probe.localeCompare(b.probe);
+  });
+}
+
 // Raw cycles, nothing aggregated away — the one place on the page a screen
 // reader gets numbers rather than a canvas with a summary label.
 //
 // It used to claim to be the accessible alternative to every chart above. It
-// never quite was: the charts run to 3 months across both models, and this has
-// only ever held the infer probe for one. Now that it stops after a couple of
-// hours of cycles the claim is plainly false, so it is not made. The charts'
-// own aria-labels are what carry them, and closing that gap properly means
-// giving each chart its own tabular alternative, not making this table longer
-// than anyone reads.
-export function SamplesTable({ samples }: { samples: Sample[] }) {
-  // Samples arrive newest-first from the API, so the head is the recent end.
-  const rows = samples.slice(0, ROWS);
+// never quite was: the charts run to 3 months across both models, and this
+// holds one. Now that it stops after a couple of hours of cycles the claim is
+// plainly false, so it is not made. The charts' own aria-labels are what carry
+// them, and closing that gap properly means giving each chart its own tabular
+// alternative, not making this table longer than anyone reads.
+//
+// Both probes, though. The hourly wide run is stored against the same cycle as
+// the short one and was simply never asked for, which left the page's only raw
+// record quietly incomplete — the one table that promises nothing is aggregated
+// away was aggregating away a whole probe. Two consequences are shown rather
+// than hidden: the pair shares a timestamp, so Time repeats and the Probe
+// column beside it is what tells the rows apart; and wide has no single
+// assertable answer, so it is never graded and its Answer cell is a dash.
+export function SamplesTable({ perProbe }: { perProbe: Sample[][] }) {
+  const rows = newestFirst(perProbe).slice(0, ROWS);
   // "At most" rather than a flat count: a fresh database has two cycles, and a
   // subtitle claiming twenty while showing two is wrong in exactly the
   // situation where the reader is least sure what they are looking at.
-  const subtitle = `The last ${ROWS} runs at most, unaggregated. Failed runs show their error class.`;
+  const subtitle = `The last ${ROWS} runs at most, short and wide, unaggregated. Failed runs show their error class.`;
   return (
     <Card title="Raw cycles" subtitle={subtitle}>
       {rows.length > 0 ? (
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[560px] text-label">
+          <table className="w-full min-w-[640px] text-label">
             <thead>
               <tr className="text-micro uppercase tracking-wider text-ghost">
                 <th className="py-2 pr-4 text-left font-medium">Time</th>
+                <th className="py-2 pr-4 text-left font-medium">Probe</th>
                 <th className="py-2 pr-4 text-right font-medium">TTFT</th>
                 <th className="py-2 pr-4 text-right font-medium">Total</th>
                 <th className="py-2 pr-4 text-right font-medium">Throughput</th>
@@ -48,10 +76,11 @@ export function SamplesTable({ samples }: { samples: Sample[] }) {
             <tbody>
               {rows.map((s, i) => (
                 <tr
-                  key={`${s.at}-${i}`}
+                  key={`${s.at}-${s.probe}-${i}`}
                   className="border-t border-border-soft text-muted"
                 >
                   <td className="num py-2 pr-4">{formatTime(s.at)}</td>
+                  <td className="num py-2 pr-4">{probeName(s.probe)}</td>
                   <td className="num py-2 pr-4 text-right">
                     {formatMs(s.ttft_ms)}
                   </td>

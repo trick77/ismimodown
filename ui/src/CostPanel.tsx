@@ -1,5 +1,11 @@
 import type { CostBreakdown, CostGroup } from "./api/types";
-import { formatInt, formatTime, formatUSD, formatUSDPrecise } from "./format";
+import {
+  formatInt,
+  formatTime,
+  formatUSD,
+  formatUSDPrecise,
+  probeName,
+} from "./format";
 import { Card } from "./ui";
 import { EChart } from "./charts/EChart";
 import { buildCostOption } from "./charts/options";
@@ -19,11 +25,6 @@ const MIN_RUNS = 10;
 
 // The probe kinds, in the order the panel names them, with the words the rest of
 // the page uses. "infer" is the API's term and never the reader's.
-const PROBE_LABELS: Record<string, string> = {
-  infer: "Per short run",
-  wide: "Per wide run",
-};
-
 const PROBE_HINTS: Record<string, string> = {
   infer: "every 5 min",
   wide: "hourly",
@@ -68,7 +69,7 @@ export function CostPanel({ cost }: { cost: CostBreakdown | null }) {
         {cost.probes.map((p) => (
           <Money
             key={p.probe}
-            label={PROBE_LABELS[p.probe] ?? p.probe}
+            label={`Per ${probeName(p.probe)} run`}
             value={formatUSDPrecise(perRun(p))}
             hint={`${formatInt(p.runs)} runs · ${PROBE_HINTS[p.probe] ?? ""}`}
           />

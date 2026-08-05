@@ -512,6 +512,78 @@ func TestMalformedChunkIsAProtocolError(t *testing.T) {
 	}
 }
 
+// The failure a proxy in front of the model produces: 200 OK, and a body that
+// is not a stream at all. The class is the same protocol error either way, so
+// the body IS the diagnosis — reporting only that nothing arrived leaves the
+// operator unable to tell a broken model from a WAF.
+func TestNonStreamBodyOnA200IsKept(t *testing.T) {
+	const body = `<?xml version="1.0"?><Error><Code>ServiceUnavailable</Code></Error>`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, body)
+	}))
+	defer srv.Close()
+
+	res, _ := NewClient(testConfig(srv.URL)).Run(context.Background(), Request{
+		ModelID: "m", Probe: ProbeInfer, Prompt: "q", MaxTokens: 150,
+	})
+	if res.ErrorClass != ErrClassProtocol {
+		t.Errorf("class = %q, want %q", res.ErrorClass, ErrClassProtocol)
+	}
+	if !strings.Contains(res.ErrorDetail, "ServiceUnavailable") {
+		t.Errorf("detail = %q, want it to carry the body", res.ErrorDetail)
+	}
+}
+
+// A hostile or broken upstream must not be able to grow error_detail without
+// bound, and one SSE line may be a megabyte on its own — so the cap has to
+// survive a body that is a single enormous line, not just many small ones.
+func TestKeptBodyIsBounded(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		body string
+	}{
+		{"one enormous line", strings.Repeat("x", 64*1024)},
+		// The separator has to be capped too, not just the text: this body is
+		// mostly newlines, and appending one per line after the cap is reached
+		// would grow error_detail without ever adding a character of evidence.
+		{"ten thousand short lines", strings.Repeat("boom\n", 10000)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				fmt.Fprint(w, tc.body)
+			}))
+			defer srv.Close()
+
+			res, _ := NewClient(testConfig(srv.URL)).Run(context.Background(), Request{
+				ModelID: "m", Probe: ProbeInfer, Prompt: "q", MaxTokens: 150,
+			})
+			if n := len(res.ErrorDetail); n > maxErrorBodyBytes+64 {
+				t.Errorf("detail is %d bytes, want it clipped near %d", n, maxErrorBodyBytes)
+			}
+		})
+	}
+}
+
+// Nothing at all is still its own finding, and it keeps the original wording:
+// there is no body to quote, and inventing an empty one would read as though
+// something had been captured.
+func TestEmptyBodyOnA200KeepsThePlainReason(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+	}))
+	defer srv.Close()
+
+	res, _ := NewClient(testConfig(srv.URL)).Run(context.Background(), Request{
+		ModelID: "m", Probe: ProbeInfer, Prompt: "q", MaxTokens: 150,
+	})
+	if res.ErrorClass != ErrClassProtocol {
+		t.Errorf("class = %q, want %q", res.ErrorClass, ErrClassProtocol)
+	}
+	if res.ErrorDetail != "stream produced no deltas" {
+		t.Errorf("detail = %q, want the plain reason", res.ErrorDetail)
+	}
+}
+
 // Truncated without [DONE] means the upstream went away mid-answer. Reporting
 // that as success would publish a partial response as a complete one.
 func TestTruncatedStreamIsNotSuccess(t *testing.T) {

@@ -229,11 +229,37 @@ func (c *Client) readStream(
 		gaps         []float64
 		content      strings.Builder
 		sawDone      bool
+		// Whatever arrived that was not SSE, kept until the first delta proves
+		// this really is a stream. A load balancer or a WAF answering 200 with
+		// an XML or HTML error page produces a body of exactly these lines, and
+		// discarding them left the operator with nothing to read: the non-2xx
+		// path keeps its body verbatim, this one used to report only that
+		// nothing arrived. Bounded by the same maxErrorBodyBytes, for the same
+		// reason — a hostile upstream must not be able to grow this.
+		preamble strings.Builder
 	)
 
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" || !strings.HasPrefix(line, "data:") {
+			// Only while the stream has yet to produce anything. Once it is
+			// flowing, non-data lines are SSE comments and keepalives — normal
+			// traffic, and no evidence of anything.
+			//
+			// The cap is checked BEFORE the separator, not only against the
+			// line: a body of ten thousand lines would otherwise keep
+			// appending newlines long after the last one that carried any
+			// text, and error_detail is a column, not a scratch buffer.
+			if room := maxErrorBodyBytes - preamble.Len(); firstDelta.IsZero() && line != "" && room > 0 {
+				if preamble.Len() > 0 {
+					preamble.WriteByte('\n')
+					room--
+				}
+				// Clipped rather than skipped when it does not fit whole: one
+				// SSE line may be up to maxSSELineBytes, so a length check
+				// alone would let a single line blow past the cap.
+				preamble.WriteString(clip(line, room))
+			}
 			continue
 		}
 		payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
@@ -314,8 +340,18 @@ func (c *Client) readStream(
 	}
 	if firstDelta.IsZero() {
 		// Headers and a clean body, but the model never emitted anything.
+		//
+		// The class stays protocol either way — what changes is whether the
+		// operator can see WHY. A body that was not a stream at all is the
+		// interesting case, and its text is the whole diagnosis, so it becomes
+		// the detail. The old fixed string remains for the genuinely empty
+		// body, where there is nothing else to say.
 		res.ErrorClass = ErrClassProtocol
-		res.ErrorDetail = "stream produced no deltas"
+		if preamble.Len() > 0 {
+			res.ErrorDetail = "stream produced no deltas; body: " + preamble.String()
+		} else {
+			res.ErrorDetail = "stream produced no deltas"
+		}
 		return
 	}
 	if !sawDone {
@@ -340,6 +376,19 @@ func (c *Client) readStream(
 		res.OutputTPS = float64(n) / lastChunk.Sub(firstContent).Seconds()
 	}
 	res.OK = true
+}
+
+// clip returns at most n bytes of s. A negative or zero n yields "", so a
+// caller that has already filled its budget writes nothing rather than
+// panicking on a negative slice bound.
+func clip(s string, n int) string {
+	if n <= 0 {
+		return ""
+	}
+	if len(s) <= n {
+		return s
+	}
+	return s[:n]
 }
 
 // percentile returns the p-th percentile of vals using nearest-rank. Returns 0
