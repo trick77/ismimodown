@@ -303,6 +303,34 @@ func TestFailedInferenceCallLogsTheClassAtWarn(t *testing.T) {
 	}
 }
 
+// ErrorDetail is raw upstream bytes, and a gateway that echoes request headers
+// on a 4xx puts the live billable key in them. AGENTS.md says it may never reach
+// a log line — so it is stripped, and stripped BEFORE the clip, since half a key
+// is still key material.
+func TestLoggedErrorDetailIsRedactedAndBounded(t *testing.T) {
+	key := "tp-livebillablekey000000000000000"
+	prober := &gradingProber{res: probe.InferResult{
+		ErrorClass:  probe.ErrClassHTTP,
+		ErrorDetail: "upstream rejected {authorization: Bearer " + key + "} " + strings.Repeat("x", 4000),
+	}}
+	s, _ := newTestScheduler(t, prober, &fakePinger{})
+	buf := captureLogs(t)
+
+	s.runProbe(context.Background(), "mimo-v2.5", probe.ProbeShort, 1, time.Now())
+
+	got := buf.String()
+	if strings.Contains(got, key) {
+		t.Errorf("the api key reached the log: %s", got)
+	}
+	if !strings.Contains(got, "Bearer [redacted]") {
+		t.Errorf("log is missing the redaction marker; got %s", got)
+	}
+	// A page of HTML served as an error body must not become one log line.
+	if n := len(got); n > maxLoggedContent+512 {
+		t.Errorf("log line is %d bytes, want the detail clipped near %d", n, maxLoggedContent)
+	}
+}
+
 // A healthy line carries no empty error fields: a reader scanning for the
 // failure should not have to step over two blank strings on every good run.
 func TestHealthyInferenceCallOmitsTheErrorFields(t *testing.T) {

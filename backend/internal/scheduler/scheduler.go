@@ -14,6 +14,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/trick77/mimostats/internal/probe"
+	"github.com/trick77/mimostats/internal/redact"
 	"github.com/trick77/mimostats/internal/samples"
 	"github.com/trick77/mimostats/internal/sched"
 )
@@ -693,11 +694,17 @@ func (s *Scheduler) runProbe(
 // attached only when there is one: a healthy line should not carry two empty
 // strings, and a reader scanning for the failure should not have to skip them.
 //
-// error_detail is operator-only and stays out of the HTTP API, but the container
-// log is the same trust boundary as the database file, so the provider's own
-// words belong here — that is the whole point of keeping them. It is truncated
-// on the same bound as a graded-wrong reply, since a provider serving an HTML
-// error page would otherwise put a full document on one log line.
+// error_detail is operator-only and stays out of the HTTP API. The provider's
+// own words are the whole point of keeping it, so they are quoted here — but a
+// log line is not the database column, and AGENTS.md draws that line: the MiMo
+// key is live and billable and the repo is public, so it may never reach a log.
+// ErrorDetail carries raw upstream bytes (a provider error body at
+// probe/client.go:183, an unparsed stream preamble at :358), and a gateway that
+// echoes request headers on a 4xx puts the Authorization value in them. So it is
+// redacted BEFORE it is truncated — clipping first would leave the first half of
+// a live key in the log — and only then bounded on the same maxLoggedContent a
+// graded-wrong reply gets, since a provider serving an HTML error page would
+// otherwise put a full document on one line. The stored column is untouched.
 func logInferenceCall(
 	ctx context.Context, model, kind string, n int64, req probe.Request, res probe.InferResult,
 ) {
@@ -731,7 +738,7 @@ func logInferenceCall(
 	if res.ErrorClass != "" {
 		attrs = append(attrs,
 			"error_class", res.ErrorClass,
-			"error_detail", truncate(res.ErrorDetail, maxLoggedContent))
+			"error_detail", truncate(redact.String(res.ErrorDetail), maxLoggedContent))
 	}
 
 	slog.Log(ctx, lvl, "inference call", attrs...)
