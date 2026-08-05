@@ -236,7 +236,14 @@ func (s *Store) Cost(ctx context.Context, w Window, prices map[string]config.Mod
 		  -- Runs that reported usage. A failed run stores NULL in all four
 		  -- columns, so it cannot be priced; it is counted separately below
 		  -- rather than folded in as a free run.
-		  AND i.prompt_tokens IS NOT NULL
+		  --
+		  -- Zero is the same case wearing a different hat. Every probe sends a
+		  -- system message, which puts a floor of ~20 on prompt_tokens (see
+		  -- config.DefaultSystemPrompt), so a SUCCEEDED run reporting zero did
+		  -- not cost nothing — its usage chunk never arrived, and the column
+		  -- cannot tell "none" from "not reported". Pricing it would publish a
+		  -- free inference.
+		  AND COALESCE(i.prompt_tokens, 0) > 0
 		GROUP BY bucket, i.model_id, i.probe, offpeak
 		ORDER BY bucket`,
 		bucketSecs, secondsPerDay, offPeakStartSecond),
@@ -254,6 +261,14 @@ func (s *Store) Cost(ctx context.Context, w Window, prices map[string]config.Mod
 		total    CostGroup
 		anyPrice = out.Priced
 	)
+	// A priced window with no rows in it still has a total, and that total is
+	// zero rather than unknown. Left nil, the response would claim prices are
+	// configured and then refuse to name a figure, which is a state the client
+	// has no way to render.
+	if anyPrice {
+		zero, list := 0.0, 0.0
+		total.USD, total.ListUSD = &zero, &list
+	}
 
 	for rows.Next() {
 		var r costRow
@@ -305,7 +320,7 @@ func (s *Store) Cost(ctx context.Context, w Window, prices map[string]config.Mod
 	if err := s.db.QueryRowContext(ctx, `
 		SELECT count(*) FROM infer_probes i
 		JOIN cycles c ON c.id = i.cycle_id
-		WHERE c.started_at >= ? AND i.prompt_tokens IS NULL`,
+		WHERE c.started_at >= ? AND COALESCE(i.prompt_tokens, 0) = 0`,
 		since.UTC().Format(time.RFC3339Nano)).Scan(&out.Unpriced); err != nil {
 		return CostBreakdown{}, fmt.Errorf("cost unpriced: %w", err)
 	}
@@ -315,6 +330,10 @@ func (s *Store) Cost(ctx context.Context, w Window, prices map[string]config.Mod
 		out.Prices = nil
 	}
 	out.Total = finish(total, anyPrice)
+	// Allocated, so they marshal as [] and not null. The client maps over both,
+	// and a null there is one missing guard away from a blank page.
+	out.Phases = make([]PhaseCost, 0, 2)
+	out.Probes = make([]ProbeCost, 0, 2)
 	for _, phase := range []string{PhaseFull, PhaseOffPeak} {
 		if g, ok := byPhase[phase]; ok {
 			out.Phases = append(out.Phases, PhaseCost{Phase: phase, CostGroup: finish(*g, anyPrice)})

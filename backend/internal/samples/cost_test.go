@@ -377,3 +377,53 @@ func TestCostTreatsAZeroPriceAsAPrice(t *testing.T) {
 		t.Errorf("total = %v, want 0", v)
 	}
 }
+
+// A SUCCEEDED run reporting zero prompt tokens did not cost nothing: every probe
+// sends a system message, so prompt_tokens has a floor of ~20 and a zero means
+// the usage chunk never arrived. Pricing it would publish a free inference.
+func TestCostTreatsAZeroPromptAsMissingUsage(t *testing.T) {
+	s := New(openTestDB(t))
+	w, _ := LookupWindow("24h")
+	at := time.Date(2026, 8, 4, 10, 0, 0, 0, time.UTC)
+	now := at.Add(time.Hour)
+
+	saveAt(t, s, at,
+		costRun("mimo-v2.5", probe.ProbeInfer, 1000, 0, 0),
+		costRun("mimo-v2.5", probe.ProbeInfer, 0, 0, 0))
+
+	got, err := s.Cost(context.Background(), w, testPrices, now)
+	if err != nil {
+		t.Fatalf("Cost: %v", err)
+	}
+	if got.Unpriced != 1 {
+		t.Errorf("Unpriced = %d, want 1", got.Unpriced)
+	}
+	if got.Total.Runs != 1 {
+		t.Errorf("Runs = %d, want 1 — a run with no usage is not a free run", got.Total.Runs)
+	}
+}
+
+// An empty window still has a total, and with prices configured that total is
+// zero rather than unknown. Left null, the response would claim to be priced and
+// then decline to name a figure.
+func TestCostOnAnEmptyWindowIsZeroNotUnknown(t *testing.T) {
+	s := New(openTestDB(t))
+	w, _ := LookupWindow("24h")
+
+	got, err := s.Cost(context.Background(), w, testPrices,
+		time.Date(2026, 8, 4, 10, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("Cost: %v", err)
+	}
+	if !got.Priced {
+		t.Error("Priced = false with a price table configured")
+	}
+	if v := usd(t, got.Total.USD); v != 0 {
+		t.Errorf("total = %v, want 0", v)
+	}
+	// Lists, never nulls: the client maps over both.
+	if got.Phases == nil || got.Probes == nil || got.Series == nil {
+		t.Errorf("a null list was served: phases=%v probes=%v series=%v",
+			got.Phases, got.Probes, got.Series)
+	}
+}
