@@ -22,13 +22,18 @@ const (
 	offPeakStartSecond = config.OffPeakStartUTCHour * 3600
 )
 
-// cycleSeconds mirrors scheduler.CycleInterval, and halfCycleSeconds is the
+// CycleSeconds mirrors scheduler.CycleInterval, and halfCycleSeconds is the
 // offset that turns a floor into a round.
 //
 // Restated rather than imported: `samples` is the layer the scheduler writes
 // into, and a dependency the other way would make the store aware of the loop
 // that fills it. The value is also a property of the rows already in the table
 // — the cadence they were written at — rather than of the process running now.
+//
+// Exported only so the restatement can be CHECKED. A restated constant that
+// silently disagrees with the one it mirrors is the whole hazard, so the
+// scheduler asserts the two are equal at compile time; nothing reads this to
+// decide anything.
 //
 // They exist because the cost series SUMS per bucket, and every bucket width is
 // a multiple of the cadence, so bucket boundaries land exactly on cycle ticks.
@@ -39,8 +44,8 @@ const (
 // the tick it belongs to before flooring it into a bucket removes the straddle
 // and leaves the money untouched.
 const (
-	cycleSeconds     = 300
-	halfCycleSeconds = cycleSeconds / 2
+	CycleSeconds     = 300
+	halfCycleSeconds = CycleSeconds / 2
 )
 
 // PhaseFull and PhaseOffPeak name the two billing phases.
@@ -271,7 +276,7 @@ func (s *Store) Cost(ctx context.Context, w Window, prices map[string]config.Mod
 		  AND COALESCE(i.prompt_tokens, 0) > 0
 		GROUP BY bucket, i.model_id, i.probe, offpeak
 		ORDER BY bucket`,
-		bucketSecs, secondsPerDay, offPeakStartSecond, halfCycleSeconds, cycleSeconds),
+		bucketSecs, secondsPerDay, offPeakStartSecond, halfCycleSeconds, CycleSeconds),
 		since.UTC().Format(time.RFC3339Nano))
 	if err != nil {
 		return CostBreakdown{}, fmt.Errorf("cost query: %w", err)

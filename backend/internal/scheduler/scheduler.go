@@ -22,6 +22,22 @@ import (
 // interpolated.
 const CycleInterval = 5 * time.Minute
 
+// The cost series rounds every run to its cycle tick before bucketing it, and
+// it does that with its own copy of this value — see samples.CycleSeconds for
+// why the store restates it rather than importing the scheduler.
+//
+// The restatement is only harmless while the two agree. Changing CycleInterval
+// alone would leave the cost query rounding to the OLD tick, silently
+// misfiling runs by up to half a cycle and reintroducing exactly the boundary
+// straddle that rounding exists to remove — with no test failing, because both
+// halves would still be self-consistent. So the compiler checks it: the two
+// differences below are non-negative together only when the values are equal,
+// and a negative constant does not convert to uint.
+const (
+	_ = uint(samples.CycleSeconds - int64(CycleInterval/time.Second))
+	_ = uint(int64(CycleInterval/time.Second) - samples.CycleSeconds)
+)
+
 // CycleJitter is applied symmetrically, so the MEAN stays exactly
 // CycleInterval and the day really does produce 288 cycles.
 const CycleJitter = 30 * time.Second
@@ -111,7 +127,7 @@ type Scheduler struct {
 	// It does NOT drive the wide cadence any more. This counter is
 	// memory-resident, so it restarts at zero with the process — fine for a
 	// rotation, where starting over just repeats a question, and wrong for a
-	// billed hourly probe, where it re-fires on every restart. See wideIsDue.
+	// billed hourly probe, where it re-fires on every restart. See wideModel.
 	cycleCount atomic.Int64
 
 	// lastWideNano is an in-memory FLOOR on the wide cadence: the cycle time of
@@ -119,7 +135,7 @@ type Scheduler struct {
 	// not it was ever persisted.
 	//
 	// The database stays the source of truth across restarts — that is the whole
-	// point of wideIsDue — but it only knows about probes that were written. A
+	// point of wideModel — but it only knows about probes that were written. A
 	// daemon whose writes fail (full disk, read-only volume, a cycle abandoned
 	// mid-shutdown) keeps reading a stale timestamp, and once that is an hour
 	// old EVERY five-minute cycle fires the ~3800-token probe for every model.

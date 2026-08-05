@@ -351,6 +351,27 @@ func TestCostBucketsByTheTickNotTheJitter(t *testing.T) {
 	}
 }
 
+// The other half of the rounding's premise, and the half a compile-time check
+// cannot state: every bucket width must be a whole number of cycles.
+//
+// Rounding to the tick is only free while a bucket boundary lands ON one. Add a
+// window whose bucket is not a multiple of the cadence — a one-minute bucket,
+// say — and rounding stops moving runs to the boundary they belong to and
+// starts piling them onto every fifth bucket, leaving the four between them
+// permanently empty. Those render as gaps, which the chart reads as "no run
+// landed here": a made-up outage in a series that is only supposed to be
+// smoothed.
+func TestEveryWindowBucketIsAWholeNumberOfCycles(t *testing.T) {
+	for _, w := range Windows {
+		secs := int64(w.Bucket / time.Second)
+		if secs <= 0 || secs%CycleSeconds != 0 {
+			t.Errorf("window %q buckets at %v, which is not a positive multiple of the %d s cycle — "+
+				"the cost query rounds runs to the tick and would leave empty buckets between them",
+				w.Key, w.Bucket, CycleSeconds)
+		}
+	}
+}
+
 func TestOffPeakSpansClipToTheWindow(t *testing.T) {
 	// 12:00 to 20:00 UTC: the window opens at 16:00 and the span must stop at
 	// the right edge rather than running to midnight.
