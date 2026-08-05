@@ -1,5 +1,5 @@
 import type { Cycle } from "./api/types";
-import { formatMs, formatTime, plural } from "./format";
+import { formatMs, formatTime, plural, shouldUseLogScale } from "./format";
 
 // One bar per cycle: colour by health, height by latency, both taken from the
 // WORSE of the models probed in that cycle.
@@ -91,6 +91,28 @@ export function PulseStrip({ perModel }: { perModel: Cycle[][] }) {
   // than as whatever today happened to be.
   const peak = successes.length > 0 ? Math.max(...successes) : 1;
 
+  // Linear collapses the case this strip exists to show. A normal reading is
+  // under a second and the probe's TTFT timeout is 150 s, so ONE slow cycle
+  // puts the peak two decades above the baseline and every healthy bar lands on
+  // the 8% floor: a row of dots under a spike, with the day's actual shape
+  // squeezed out of it. Same 20x threshold as the charts, from the same helper
+  // — a second rule for when a scale stops being readable would be a second
+  // answer to the same question.
+  const positives = successes.filter((v) => v > 0);
+  const log = shouldUseLogScale(successes);
+  // The domain is anchored on the decade BELOW the fastest reading rather than
+  // on the reading itself: anchored on the minimum, the fastest bar is pinned
+  // flat every render and the whole shape shifts whenever the day's quietest
+  // cycle changes. A decade only moves when the baseline crosses a power of
+  // ten, so the strip means the same thing from one visit to the next.
+  const floor =
+    log && positives.length > 0
+      ? Math.pow(10, Math.floor(Math.log10(Math.min(...positives))))
+      : 0;
+  // Zero when every reading is identical, or when there is only one: that
+  // window has no range to spread, and dividing by it would render NaN%.
+  const span = floor > 0 && peak > floor ? Math.log(peak / floor) : 0;
+
   return (
     <div>
       <div
@@ -109,9 +131,18 @@ export function PulseStrip({ perModel }: { perModel: Cycle[][] }) {
           // no latency to plot, and drawing it short would make an outage look
           // like a fast response.
           const failed = !s.ok;
+          const ttft = s.ttft_ms ?? 0;
+          // The 8% floor survives both scales: a fast cycle is still a bar.
+          // Clamped up to the floor before the log, so a reading below the
+          // anchored decade draws short rather than negative.
           const height = failed
             ? 100
-            : Math.max(8, ((s.ttft_ms ?? 0) / peak) * 100);
+            : span > 0
+              ? Math.max(
+                  8,
+                  8 + 92 * (Math.log(Math.max(ttft, floor) / floor) / span),
+                )
+              : Math.max(8, (ttft / peak) * 100);
           const color = failed
             ? "var(--color-danger)"
             : s.answer_ok === false
@@ -149,9 +180,16 @@ export function PulseStrip({ perModel }: { perModel: Cycle[][] }) {
           
           The scale is relative to the tallest bar, and that is deliberately NOT
           said: it is the reading a reader takes from an unlabelled strip
-          anyway, and it was the clause that made this a paragraph. */}
+          anyway, and it was the clause that made this a paragraph.
+
+          A log scale is the exception, and only while it is on. Relative-to-
+          tallest is what an unlabelled strip already implies; proportional
+          spacing between the bars is what it implies NEXT, and that one stops
+          being true — a log scale read as linear is worse than no chart at all
+          (charts/options.ts). Two words, and only on the days that earn them. */}
       <p className="mt-2 text-label text-muted" data-testid="pulse-note">
-        One bar per cycle, 24 hours. Height is the slower model&apos;s TTFT.{" "}
+        One bar per cycle, 24 hours. Height is the slower model&apos;s TTFT
+        {span > 0 ? ", log-scaled" : ""}.{" "}
         <span className="text-danger">Red</span>: a run failed.{" "}
         <span className="text-fault-edge">Amber</span>: a wrong answer.
       </p>
