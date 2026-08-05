@@ -101,7 +101,7 @@ describe("newestFirst", () => {
 describe("SamplesTable", () => {
   // The caller hands over a whole day so PulseStrip can draw it. The table is
   // not the place to re-read that day.
-  it("renders at most the forty most recent runs", () => {
+  it("renders at most the twenty most recent runs", () => {
     render(
       <SamplesTable
         perGroup={[
@@ -109,15 +109,16 @@ describe("SamplesTable", () => {
         ]}
       />,
     );
-    expect(bodyRows()).toBe(40);
+    expect(bodyRows()).toBe(20);
   });
 
-  // The cap is a row count, but what it buys a reader is a stretch of time, and
-  // two models produce rows twice as fast as one. This is the arithmetic that
-  // decided 40: an hour of two models is ~26 rows, and the old cap of 20 would
-  // have shown less than an hour with a single wide run in it — fewer than the
-  // table held before it drew every model.
-  it("reaches back past an hour of both models, wide runs included", () => {
+  // What the cap costs now that the table draws every model, asserted rather
+  // than left implied. The cap counts rows; a reader reads time. Two models at
+  // 12 short runs an hour each, plus a wide run an hour each, is ~26 rows an
+  // hour — so 20 rows is ~45 minutes, against the ~90 the same cap covered
+  // while the table held a single model. This test is what tells anyone who
+  // moves the number what they are trading.
+  it("covers about three quarters of an hour of both models", () => {
     const at = (min: number) =>
       new Date(Date.UTC(2026, 7, 4, 12, 0) - min * 60_000).toISOString();
     const groups = ["mimo-v2.5", "mimo-v2.5-pro"].flatMap((model_id) => [
@@ -131,12 +132,10 @@ describe("SamplesTable", () => {
     const times = [...screen.getByRole("table").querySelectorAll("tbody tr")]
       .map((tr) => tr.querySelector("td")!.textContent)
       .filter((t): t is string => t !== null);
-    // 40 rows of two models is 85 minutes here: 20 five-minute ticks at two
-    // short runs each, plus the four wide runs sharing two of those ticks. The
-    // number to hold on to is that it clears the hour, and with it more than
-    // one wide run — at the old cap of 20 this reached 45 minutes.
-    expect(times[times.length - 1]).toBe(formatTime(at(85)));
-    expect(screen.getAllByText("wide").length).toBeGreaterThanOrEqual(3);
+    // 20 rows of two models is 40 minutes here: 8 five-minute ticks at two
+    // short runs each, plus the two wide runs sharing the newest of them.
+    expect(times[times.length - 1]).toBe(formatTime(at(40)));
+    expect(screen.getAllByText("wide")).toHaveLength(2);
   });
 
   it("keeps the newest cycles, not the oldest", () => {
