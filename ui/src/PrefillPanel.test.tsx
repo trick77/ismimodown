@@ -38,9 +38,9 @@ describe("PrefillPanel", () => {
 
   // Prefill is a cost measured in latency — the subtitle says as much. What an
   // extra 3800 tokens costs and what those tokens bill at are one question.
-  it("carries the rate chip in the header", () => {
+  it("carries no rate chip in the header", () => {
     render(<PrefillPanel infer={infer} wide={wide} models={["mimo-v2.5"]} />);
-    expect(screen.getByText(/0\.8× (until|from)/i)).toBeInTheDocument();
+    expect(screen.queryByText(/0\.8× (until|from)/i)).not.toBeInTheDocument();
   });
 
   // This panel plots two probes an order of magnitude apart, so it is the one

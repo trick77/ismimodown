@@ -1,5 +1,5 @@
 import type { ModelSeries } from "./api/types";
-import { Card, CensoredNote, LogScaleChip, OffPeakChip } from "./ui";
+import { Card, CensoredNote, LogScaleChip } from "./ui";
 import { EChart } from "./charts/EChart";
 import { buildLineOption, colorForModel } from "./charts/options";
 
@@ -11,7 +11,6 @@ export function SeriesPanel({
   unit,
   forceLinear = false,
   offPeak = false,
-  offPeakChip = true,
 }: {
   title: string;
   subtitle: string;
@@ -24,10 +23,6 @@ export function SeriesPanel({
   // before deciding when to send work, and on every other chart it would be one
   // more band competing with the measurement.
   offPeak?: boolean;
-  // offPeakChip is the header pill, separate from the band. The topmost chart
-  // opts out: the band is already on it, and the rate is stated again on the
-  // charts below.
-  offPeakChip?: boolean;
 }) {
   const data = series?.models ?? {};
   const hasData = Object.values(data).some((points) => points.length > 0);
@@ -45,15 +40,10 @@ export function SeriesPanel({
     <Card
       title={title}
       subtitle={subtitle}
-      right={
-        <div className="flex items-center gap-2">
-          {/* Tied to the band actually being drawn, not to the prop. On 7d and
-              wider the band is dropped, and a chip promising a rate the plot
-              does not show is worse than no chip. */}
-          {offPeakChip && option.offPeakSpans.length > 0 && <OffPeakChip />}
-          {option.logScale && <LogScaleChip />}
-        </div>
-      }
+      /* No off-peak chip in the header — the rate is one fact and did not
+         want three copies of itself. The band still says which stretch of the
+         plot it applies to. */
+      right={option.logScale ? <LogScaleChip /> : null}
     >
       {hasData ? (
         <EChart option={option} ariaLabel={`${title} over time, per model`} />

@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
-import { Figure, OffPeakChip, Pill, StateChip } from "./ui";
+import { Figure, Pill, StateChip } from "./ui";
 
 describe("StateChip", () => {
   // Colour is never the only signal: the state word must be present so the
@@ -48,20 +48,6 @@ describe("Figure", () => {
   it("still shows a state that is not normal", () => {
     render(<Figure label="TTFT p50" value="4.2 s" state="degraded" />);
     expect(screen.getByTestId("state-chip")).toHaveTextContent("degraded");
-  });
-});
-
-describe("OffPeakChip", () => {
-  // A countdown would be stale for most of the five minutes it is on screen.
-  // The boundary is an instant, and it is either past or it is not.
-  it("names the end of the window while the rate is live", () => {
-    render(<OffPeakChip now={Date.UTC(2026, 7, 4, 20)} />);
-    expect(screen.getByText(/until/)).toHaveTextContent("02:00");
-  });
-
-  it("names the start of the next one while it is not", () => {
-    render(<OffPeakChip now={Date.UTC(2026, 7, 4, 9)} />);
-    expect(screen.getByText(/from/)).toHaveTextContent("18:00");
   });
 });
 

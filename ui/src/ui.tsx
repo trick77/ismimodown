@@ -1,7 +1,5 @@
 import type { ReactNode } from "react";
 import type { State } from "./verdict";
-import { formatTime } from "./format";
-import { currentOffPeak, OFFPEAK_COEFFICIENT } from "./offpeak";
 
 // Shared primitives. Colour is NEVER the only signal — every state chip carries
 // its word, and every delta its sign — so the dashboard stays readable to a
@@ -66,31 +64,6 @@ export function LogScaleChip() {
   return (
     <span className="num rounded-full border border-border px-2 py-[2px] text-micro uppercase tracking-wider text-faint">
       log scale
-    </span>
-  );
-}
-
-// OffPeakChip says whether the reduced rate is live right now, in the header.
-//
-// It names the BOUNDARY and never counts down to it. The page re-renders on the
-// 5-minute probe cycle, so "in 3h 10m" would be a number that is wrong for most
-// of the time it is on screen; "until 02:00" is simply true until it is not. The
-// same cycle means the state itself can lag the boundary by one probe, which is
-// nothing against an eight-hour window.
-export function OffPeakChip({ now = Date.now() }: { now?: number }) {
-  const { active, boundaryMs } = currentOffPeak(now);
-  return (
-    <span
-      className={`num rounded-full border px-2 py-[2px] text-micro uppercase tracking-wider ${
-        // Green, matching the band it refers to. The word beside it is what
-        // separates this from a health chip wearing the same colour.
-        active
-          ? "border-online/50 bg-online/15 text-online"
-          : "border-border text-faint"
-      }`}
-    >
-      {OFFPEAK_COEFFICIENT}× {active ? "until" : "from"}{" "}
-      {formatTime(new Date(boundaryMs))}
     </span>
   );
 }

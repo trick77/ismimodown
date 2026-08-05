@@ -283,7 +283,6 @@ export default function App() {
             models={models}
             unit="ms"
             offPeak
-            offPeakChip={false}
           />
           <SeriesPanel
             title="Throughput"
