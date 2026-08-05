@@ -121,7 +121,10 @@ describe("ModelCards", () => {
           model({
             censored: MIN_FAILURES_FOR_STATE - 1,
             attempts: 221,
-            succeeded: 220,
+            // A censored run is a failed one, so the failure count can never be
+            // below the censored count — a fixture that says otherwise would
+            // test a state the backend cannot produce.
+            succeeded: 219,
           }),
         ])}
         baseline={null}

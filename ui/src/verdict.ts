@@ -2,6 +2,7 @@
 // published without the context needed to read it.
 import type { ModelSummary, RecentCycle, Summary } from "./api/types";
 import { FAULT_EDGE, FAULT_OK, FAULT_ROUTE, FAULT_UPLINK } from "./api/types";
+import { plural } from "./format";
 
 export type State = "normal" | "elevated" | "degraded" | "unknown";
 
@@ -346,7 +347,7 @@ export function buildVerdict(
         "Reasoning is switched on — the latency figures are not measuring what they claim",
       detail: reasoning.map(
         (m) =>
-          `${m.model_id} returned up to ${m.max_reasoning_tokens} reasoning tokens despite thinking being disabled.`,
+          `${m.model_id} returned up to ${m.max_reasoning_tokens} reasoning ${plural(m.max_reasoning_tokens, "token")} despite thinking being disabled.`,
       ),
     };
   }
@@ -375,7 +376,12 @@ export function buildVerdict(
       detail:
         infra.lastRedAgo !== null
           ? [
-              `The last failed cycle was ${agoWords(infra.lastRedMinutes ?? infra.lastRedAgo * 5)}; the ${infra.lastRedAgo} since have all been clean.`,
+              // Written out rather than pluralised: at one the verb changes
+              // too, and "the 1 since have all been clean" is the sentence a
+              // reader stops trusting the rest of the banner over.
+              infra.lastRedAgo === 1
+                ? `The last failed cycle was ${agoWords(infra.lastRedMinutes ?? 5)}; the one since was clean.`
+                : `The last failed cycle was ${agoWords(infra.lastRedMinutes ?? infra.lastRedAgo * 5)}; the ${infra.lastRedAgo} since have all been clean.`,
             ]
           : detail,
     };
@@ -417,11 +423,11 @@ function faultVerdict(state: State, recent: RecentCycle[], t: Track): Verdict {
     );
   } else if (t.count > 1) {
     detail.push(
-      `${t.count} of the last ${horizon} cycles failed, the most recent ${when}.`,
+      `${t.count} of the last ${horizon} ${plural(horizon, "cycle")} failed, the most recent ${when}.`,
     );
   } else {
     detail.push(
-      `1 of the last ${horizon} cycles failed, ${when}. One cycle is not yet a pattern.`,
+      `1 of the last ${horizon} ${plural(horizon, "cycle")} failed, ${when}. One cycle is not yet a pattern.`,
     );
   }
 
@@ -499,8 +505,8 @@ function scoreModel(
     // does not say so reads as a verdict.
     detail.push(
       failures.count === 1
-        ? `${model.model_id} failed 1 of the last ${horizon} runs. One run is not yet a pattern.`
-        : `${model.model_id} failed ${failures.count} of the last ${horizon} runs.`,
+        ? `${model.model_id} failed 1 of the last ${horizon} ${plural(horizon, "run")}. One run is not yet a pattern.`
+        : `${model.model_id} failed ${failures.count} of the last ${horizon} ${plural(horizon, "run")}.`,
     );
   }
 

@@ -368,6 +368,27 @@ describe("buildVerdict", () => {
     expect(v.headline).toMatch(/reasoning is switched on/i);
   });
 
+  // The same sentence the model card carries, and it counts in the singular for
+  // the same reason: one leaked token is still the whole finding.
+  it("counts a single reasoning token in the singular", () => {
+    const v = buildVerdict(
+      summary({ models: [model({ max_reasoning_tokens: 1 })] }),
+      summary(),
+    );
+    expect(v.detail.join(" ")).toMatch(/up to 1 reasoning token\b/);
+  });
+
+  // A cold start: the daemon has served exactly one cycle and it failed. The
+  // horizon is then 1, and "1 of the last 1 cycles" reads as a typo in the one
+  // sentence that is supposed to be carefully hedged.
+  it("says one cycle in the singular on a one-cycle horizon", () => {
+    const v = buildVerdict(
+      summary({ cycles: 1, recent: recent([FAULT_EDGE], { count: 1 }) }),
+      summary(),
+    );
+    expect(v.detail.join(" ")).toMatch(/1 of the last 1 cycle /);
+  });
+
   it("names the struggling model and quantifies the regression", () => {
     const v = buildVerdict(
       summary({
