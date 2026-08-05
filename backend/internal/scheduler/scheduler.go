@@ -698,13 +698,14 @@ func (s *Scheduler) runProbe(
 // own words are the whole point of keeping it, so they are quoted here — but a
 // log line is not the database column, and AGENTS.md draws that line: the MiMo
 // key is live and billable and the repo is public, so it may never reach a log.
-// ErrorDetail carries raw upstream bytes (a provider error body at
-// probe/client.go:183, an unparsed stream preamble at :358), and a gateway that
-// echoes request headers on a 4xx puts the Authorization value in them. So it is
-// redacted BEFORE it is truncated — clipping first would leave the first half of
-// a live key in the log — and only then bounded on the same maxLoggedContent a
-// graded-wrong reply gets, since a provider serving an HTML error page would
-// otherwise put a full document on one line. The stored column is untouched.
+// ErrorDetail carries raw upstream bytes — the body read on a non-2xx status,
+// and the preamble kept when a stream produced no deltas, both in probe's client
+// — and a gateway that echoes request headers on a 4xx puts the Authorization
+// value in them. So it is redacted BEFORE it is truncated, since clipping first
+// would leave the first half of a live key in the log, and only then bounded on
+// the same maxLoggedContent a graded-wrong reply gets, since a provider serving
+// an HTML error page would otherwise put a full document on one line. The stored
+// column is untouched.
 func logInferenceCall(
 	ctx context.Context, model, kind string, n int64, req probe.Request, res probe.InferResult,
 ) {

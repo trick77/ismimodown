@@ -27,7 +27,21 @@ var userinfoRe = regexp.MustCompile(`://[^/\s"]+@`)
 // anything heading for the logs, not merely from anything heading for a client.
 var bearerRe = regexp.MustCompile(`(?i)bearer\s+\S+`)
 
-// String strips query strings, userinfo and bearer tokens from s.
+// keyRe matches the MiMo key by its own shape rather than by what precedes it.
+//
+// bearerRe only fires when the literal word "Bearer" is in front of the value,
+// which is a statement about how ONE gateway chose to quote the request back. A
+// gateway echoing the same credential as `x-api-key: tp-…` or inside a JSON body
+// evades it entirely and puts a live key in a public repo's container log. The
+// key's documented `tp-…` prefix (AGENTS.md) is the part no header name can
+// change, so it is matched directly.
+//
+// The length floor keeps this off ordinary prose — a real key is far longer than
+// eight characters, and "tp-" alone is a plausible fragment of anything.
+var keyRe = regexp.MustCompile(`tp-[A-Za-z0-9_-]{8,}`)
+
+// String strips query strings, userinfo, bearer tokens and anything shaped like
+// the MiMo key from s.
 //
 // The whole query string is stripped rather than an allowlist of "safe"
 // parameter names, since an allowlist is a leak waiting for the next parameter
@@ -38,7 +52,8 @@ var bearerRe = regexp.MustCompile(`(?i)bearer\s+\S+`)
 func String(s string) string {
 	s = queryStringRe.ReplaceAllString(s, "")
 	s = userinfoRe.ReplaceAllString(s, "://")
-	return bearerRe.ReplaceAllString(s, "Bearer [redacted]")
+	s = bearerRe.ReplaceAllString(s, "Bearer [redacted]")
+	return keyRe.ReplaceAllString(s, "[redacted]")
 }
 
 // Err strips the same things from an error's rendered message.

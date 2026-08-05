@@ -208,10 +208,15 @@ func TestLoggedReplyIsBounded(t *testing.T) {
 
 	s.runProbe(context.Background(), "mimo-v2.5", probe.ProbeShort, 1, time.Now())
 
-	// The run also emits its own "inference call" line, so the budget covers two
-	// lines of fixed fields plus one bounded reply — not one line.
-	if n := buf.Len(); n > maxLoggedContent+1024 {
-		t.Errorf("log line is %d bytes, want the reply clipped near %d", n, maxLoggedContent)
+	// Measured per line rather than over the buffer: the run now also emits its
+	// own "inference call" line, and widening a whole-buffer budget to absorb it
+	// would quietly buy a second line's worth of headroom for the clip this test
+	// exists to hold.
+	for _, line := range strings.Split(strings.TrimSpace(buf.String()), "\n") {
+		if n := len(line); n > maxLoggedContent+512 {
+			t.Errorf("log line is %d bytes, want the reply clipped near %d: %s",
+				n, maxLoggedContent, line)
+		}
 	}
 	// Clipped on a rune boundary, so the evidence is not a row of replacement
 	// glyphs where the last character was.
