@@ -20,7 +20,10 @@ func TestHandlerServesIndex(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", rec.Code)
 	}
-	if !strings.Contains(rec.Body.String(), "mimostats") {
+	// The mount point, not the product name: this asserts that the SPA SHELL
+	// was served, and a test that fingerprints on branding fails the day the
+	// branding is reworded — which is exactly how it failed.
+	if !strings.Contains(rec.Body.String(), `id="root"`) {
 		t.Errorf("body does not look like the shell: %s", rec.Body.String())
 	}
 }
@@ -40,7 +43,7 @@ func TestHandlerFallsBackToTheShell(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200 (SPA fallback)", rec.Code)
 	}
-	if !strings.Contains(rec.Body.String(), "mimostats") {
+	if !strings.Contains(rec.Body.String(), `id="root"`) {
 		t.Errorf("fallback did not serve the shell: %s", rec.Body.String())
 	}
 }

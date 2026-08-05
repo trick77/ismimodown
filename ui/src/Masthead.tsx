@@ -15,10 +15,10 @@ export function Masthead() {
         mimostats
       </h1>
       <p className="mt-4 max-w-[52ch] font-serif text-[clamp(1rem,2vw,1.3rem)] leading-snug text-ink-dim">
-        A latency monitor for{" "}
-        <em className="text-accent-strong">Xiaomi MiMo</em>, separating how long
-        it takes to <em>reach</em> the endpoint from what happens once you are
-        there.
+        Latency, throughput, availability and answer correctness for{" "}
+        <em className="text-accent-strong">Xiaomi MiMo</em> — separating how
+        long it takes to <em>reach</em> the endpoint from what happens once you
+        are there.
       </p>
     </header>
   );
