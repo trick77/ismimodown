@@ -31,6 +31,28 @@ const DEFAULT_WINDOW = "24h";
 // the daemon's cadence — if that moves, this moves with it.
 const CYCLE_MS = 5 * 60 * 1000;
 
+// How long a page waits before it opens the stream at all.
+//
+// A crawler that renders JavaScript runs this effect like any browser does, so
+// it opens the stream too — and then holds an idle connection open until its
+// own renderer gives up. Googlebot was observed doing exactly that: it opened
+// the stream in the same instant as the first dashboard fetch and tore it down
+// 21.5s later, without a single byte having been written to it (the server's
+// keepalive is longer than that, so nothing was). That costs the site a
+// goroutine and one of the broker's per-caller stream slots, and costs the
+// crawler 21s of its render budget for a stream that says nothing.
+//
+// Waiting past the render window means a crawler never opens it. The cost to a
+// real reader is bounded by this constant and no more: the initial load has
+// already run, and a cycle that lands inside the wait is picked up by the
+// refetch below the moment the stream opens. It is deliberately well past the
+// 21.5s observed — that is one measurement of an undocumented budget, not a
+// constant.
+//
+// Exported for the tests: they run on fake timers and have to step over this
+// deliberately, which is also what keeps the delay from being quietly deleted.
+export const STREAM_OPEN_DELAY_MS = 45 * 1000;
+
 // The verdict's two reference windows — the rolling 7-day baseline every
 // higher-is-worse metric is scored against, and the fixed 24h "right now" the
 // banner reads regardless of what the charts show — are chosen by the daemon
@@ -156,6 +178,17 @@ export default function App() {
     // being watched would make the stream pointless, since the interval below
     // already covers that rate.
     void (async () => {
+      // Deliberately before the first open, not between reconnects: the point
+      // is that a page which is never around for long enough never subscribes.
+      await new Promise((r) => setTimeout(r, STREAM_OPEN_DELAY_MS));
+
+      // The broker replays nothing — a subscriber sees only what is published
+      // after it subscribed — so a cycle that completed during the wait would
+      // otherwise sit unseen until the interval's next tick, minutes later. On
+      // the page that answers "is it down right now", that is the wrong minutes
+      // to be blind for. One refetch on open closes it.
+      void load(windowRef.current);
+
       let backoffMs = 1000;
       while (!controller.signal.aborted) {
         const openedAt = Date.now();

@@ -1,7 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import App from "./App";
+import App, { STREAM_OPEN_DELAY_MS } from "./App";
 
 // A clean hour of cycles. The verdict banner reads this rather than the
 // window's fault counts, so every fixture needs one or the page has nothing to
@@ -539,6 +539,59 @@ describe("App", () => {
       vi.useRealTimers();
     });
 
+    // A crawler that renders JavaScript runs the same effect a browser does, so
+    // it subscribes too — and then holds an idle connection until its renderer
+    // gives up, spending a broker slot and its own render budget on a stream
+    // that says nothing. Waiting past the render window means it never opens
+    // one. The dashboard still loads, and the interval still covers the
+    // cadence, so nothing a reader can see depends on this delay.
+    it("does not open the event stream while a crawler would still be looking", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      const fetchMock = mockFetch();
+      vi.stubGlobal("fetch", fetchMock);
+      render(<App />);
+
+      const opens = () =>
+        fetchMock.mock.calls.filter((c) => String(c[0]).includes("/api/events"))
+          .length;
+
+      // The page is up — the dashboard was fetched — and no stream with it.
+      await waitFor(() =>
+        expect(
+          fetchMock.mock.calls.filter((c) =>
+            String(c[0]).includes("/api/dashboard"),
+          ).length,
+        ).toBeGreaterThan(0),
+      );
+      // Ten seconds of slack, not one: `shouldAdvanceTime` means the waitFor
+      // above burns fake clock at real-time rate, and a loaded runner would eat
+      // a one-second margin.
+      await vi.advanceTimersByTimeAsync(STREAM_OPEN_DELAY_MS - 10000);
+      expect(opens()).toBe(0);
+
+      await vi.advanceTimersByTimeAsync(10000);
+      await waitFor(() => expect(opens()).toBe(1));
+    });
+
+    // The broker replays nothing, so a cycle that completed during the wait is
+    // never pushed. Without a refetch on open the page sits on it until the
+    // interval's next tick — minutes, on the page that answers "right now".
+    it("refetches when the stream finally opens, not just when it delivers", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      const fetchMock = mockFetch();
+      vi.stubGlobal("fetch", fetchMock);
+      render(<App />);
+
+      const loads = () =>
+        fetchMock.mock.calls.filter((c) =>
+          String(c[0]).includes("/api/dashboard"),
+        ).length;
+
+      await waitFor(() => expect(loads()).toBe(1));
+      await vi.advanceTimersByTimeAsync(STREAM_OPEN_DELAY_MS);
+      await waitFor(() => expect(loads()).toBe(2));
+    });
+
     it("reopens the event stream after it drops", async () => {
       vi.useFakeTimers({ shouldAdvanceTime: true });
       const fetchMock = mockFetch({ eventsStatus: 503 });
@@ -549,6 +602,7 @@ describe("App", () => {
         fetchMock.mock.calls.filter((c) => String(c[0]).includes("/api/events"))
           .length;
 
+      await vi.advanceTimersByTimeAsync(STREAM_OPEN_DELAY_MS);
       await waitFor(() => expect(opens()).toBe(1));
       // The backoff doubles: first retry at 1s, the next 2s after that. Asserted
       // as two separate advances so a constant-delay retry loop fails here.
@@ -572,6 +626,7 @@ describe("App", () => {
         fetchMock.mock.calls.filter((c) => String(c[0]).includes("/api/events"))
           .length;
 
+      await vi.advanceTimersByTimeAsync(STREAM_OPEN_DELAY_MS);
       await waitFor(() => expect(opens()).toBe(1));
       await vi.advanceTimersByTimeAsync(1000);
       expect(opens()).toBe(2);
