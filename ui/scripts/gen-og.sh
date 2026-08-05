@@ -97,25 +97,42 @@ if (($(echo "$SPREAD < 0.02" | bc -l))); then
 	fail=1
 fi
 
-# The wordmark's measured width, which is how a font fallback is caught. The
-# brand serif sets "mimostats" at 116px to 534px; with the woff2 unreachable
-# Chrome falls back and the same string measures 442px, so the band below
-# rejects it. That was checked by breaking the @font-face URLs on purpose — do
-# the same before widening this range, or it stops asserting anything.
+# The heading's measured width, which is how a font fallback is caught. The
+# brand serif sets "Is Xiaomi MiMo / down?" at 76px to a longest line of 527px;
+# with the woff2 unreachable Chrome falls back and the same two lines measure
+# 481px, so the band below rejects it. That was checked by breaking the
+# @font-face URLs on purpose — do the same before widening this range, or it
+# stops asserting anything.
+#
+# The band is tighter than the old one (which sat around a 534px single-word
+# single-word wordmark) because the real and fallback renders are only 46px
+# apart here. That
+# is the price of a longer string: the per-glyph difference stays a fixed
+# fraction while the absolute gap does not grow. Do not "round it out".
+#
+# The line break in card.html is a <br>, not a wrap, and this assertion is why.
+# Left to the measure, the fallback face re-broke the question one word later
+# and measured 533px against the real 485px — WIDER, and inside any band drawn
+# around the real value. A forced break makes this a measurement of the font
+# rather than of where a line happened to fall.
 #
 # This doubles as the square-crop guard. WhatsApp keeps only the middle 630px
-# (see card.html), so a wordmark wider than that is cut in half there and
+# (see card.html), so a heading wider than that is cut in half there and
 # nowhere else — the one failure that never shows up in a 1.91:1 preview.
 #
 # Threshold, not -fuzz -trim. The ground is the aura gradient rather than a flat
 # colour, so trim's corner-colour comparison walks out into the wash and reports
 # most of the canvas as ink (862px against a true 534px). Reducing to a
-# black-and-white mask at 60% keeps the near-white wordmark and drops both the
+# black-and-white mask at 60% keeps the near-white heading and drops both the
 # gradient and the muted text around it.
 #
-# The band is y=140..270; the wordmark's ink sits at 171..258, clear of the
-# eyebrow above and the lede below. Keep the slack — a band that clips the
-# wordmark measures a fragment and reports a fallback that is not there.
+# The band is y=115..315 — 200px tall, against 130px when the heading was one
+# line. The ink sits at 149..279, clear of the eyebrow above and the lede below
+# with about 34px of slack each way. Keep the slack: a band that clips the
+# heading measures a fragment and reports a fallback that is not there. That is
+# not hypothetical here — at 84px the two lines outgrew a 200px window and this
+# check read 347px, a clipped fragment, rather than the 630px overflow it was
+# actually looking at.
 #
 # If the band comes back all black — type gone, or the band moved off the
 # wordmark — -trim has nothing to trim. ImageMagick 7 treats that as a WARNING,
@@ -128,10 +145,10 @@ fi
 # ImageMagick error. stderr is deliberately NOT silenced: on a real failure that
 # warning names the cause, and this is the check most likely to be the first
 # sign that something moved.
-MARK_W="$(magick "$SHOT" -crop "${W}x130+0+140" +repage -alpha off \
+MARK_W="$(magick "$SHOT" -crop "${W}x200+0+115" +repage -alpha off \
 	-colorspace gray -threshold 60% -trim -format '%w' info: || echo 0)"
-if ((MARK_W < 480 || MARK_W > 600)); then
-	echo "gen-og: wordmark measures ${MARK_W}px, expected 480-600 — font fallback, or type resized past the square crop" >&2
+if ((MARK_W < 505 || MARK_W > 570)); then
+	echo "gen-og: heading measures ${MARK_W}px, expected 505-570 — font fallback, or type resized past the square crop" >&2
 	fail=1
 fi
 
@@ -141,4 +158,4 @@ fi
 # file is served once per scrape, not once per visitor.
 mkdir -p "$(dirname "$OUT")"
 cp "$SHOT" "$OUT"
-echo "gen-og: wrote og.png (${geom}, wordmark ${MARK_W}px, $(wc -c <"$OUT" | tr -d ' ') bytes) -> $OUT"
+echo "gen-og: wrote og.png (${geom}, heading ${MARK_W}px, $(wc -c <"$OUT" | tr -d ' ') bytes) -> $OUT"

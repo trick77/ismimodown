@@ -1,5 +1,15 @@
-// The header says what the page measures. The scope shows itself — two model
-// cards, one endpoint — so it is not also spelled out in prose here.
+// The header asks the question the site exists to answer, and the verdict
+// banner directly below answers it. That pairing is the page's whole shape:
+// question, answer, then the numbers the answer rests on.
+//
+// It names Xiaomi rather than MiMo alone. "mimo" is also the antenna term and
+// also a learn-to-code app, and a reader who arrived by typing the question
+// needs one word to know they are in the right place. The same sentence is in
+// index.html's <title>, its static <h1>, and the og card — reword one, reword
+// all four.
+//
+// The scope shows itself — two model cards, one endpoint — so it is not also
+// spelled out in prose here.
 //
 // The eyebrow's arrow reads from → to, so it names both ends of the measured
 // path: we dial out of Europe, the endpoint answers in Singapore. It said only
@@ -45,14 +55,21 @@ export function Masthead() {
           <span aria-hidden="true">↗</span>
         </a>
       </div>
-      <h1 className="mt-3 font-serif text-[clamp(2.4rem,7vw,4rem)] font-normal leading-[0.95] tracking-tight text-ink">
-        mimostats
+      {/* The clamp ceiling drops from 4rem to 3.4rem: the old wordmark was one
+          nine-character word, this is four words, and at 4rem it wrapped to
+          three ragged lines on a laptop. */}
+      <h1 className="mt-3 font-serif text-[clamp(2.1rem,6vw,3.4rem)] font-normal leading-[0.95] tracking-tight text-balance text-ink">
+        Is Xiaomi MiMo down?
       </h1>
+      {/* No longer "for Xiaomi MiMo": the heading above names it, and repeating
+          it one line later was the first thing the eye caught. The accent moved
+          to answer correctness, which is the measurement a plain uptime checker
+          does not make and the reason this page is longer than a green dot. */}
       <p className="mt-4 max-w-[52ch] font-serif text-[clamp(1rem,2vw,1.3rem)] leading-snug text-ink-dim">
-        Latency, throughput, availability and answer correctness for{" "}
-        <em className="text-accent-strong">Xiaomi MiMo</em> — separating how
-        long it takes to <em>reach</em> the API endpoint in Singapore from what
-        happens once you are there.
+        Latency, throughput, availability and{" "}
+        <em className="text-accent-strong">answer correctness</em> — separating
+        how long it takes to <em>reach</em> the API endpoint in Singapore from
+        what happens once you are there.
       </p>
     </header>
   );

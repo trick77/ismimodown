@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- One page, one URL: this is a single-page dashboard with no router. The
+     sitemap earns its place anyway, because it is what a Search Console
+     property is pointed at after the cutover, and because it states the
+     canonical hostname a second time.
+
+     No <lastmod>: the numbers change every five minutes but the document does
+     not, and a lastmod that lies about that trains crawlers to ignore it. -->
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://ismimodown.com/</loc>
+    <changefreq>hourly</changefreq>
+    <priority>1.0</priority>
+  </url>
+</urlset>

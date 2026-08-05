@@ -88,7 +88,13 @@ func TestHandlerDoesNotFallBackForAssets(t *testing.T) {
 		if rec.Code != http.StatusNotFound {
 			t.Errorf("%s: status = %d, want 404 (missing asset must not get the shell)", path, rec.Code)
 		}
-		if strings.Contains(rec.Body.String(), "mimostats") {
+		// The mount point, not the product name — the same reasoning as
+		// TestHandlerServesIndex above, and for a sharper reason on a NEGATIVE
+		// assertion. This read "mimostats" until the site was renamed, and a
+		// negative check whose needle no longer exists does not fail: it passes
+		// forever, including on the day the shell really is served for a
+		// missing asset. `id="root"` is in every shell and in no 404 body.
+		if strings.Contains(rec.Body.String(), `id="root"`) {
 			t.Errorf("%s: served the shell body for a missing asset", path)
 		}
 	}

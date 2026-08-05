@@ -1,5 +1,8 @@
 # Deploying mimostats
 
+The site is ismimodown.com; the repo, module, image and database file are still
+called `mimostats`. Both names appear below and neither is a typo.
+
 One container behind an existing Traefik. The whole thing is a single Go binary
 with the dashboard embedded, plus one SQLite file.
 
@@ -12,7 +15,27 @@ with the dashboard embedded, plus one SQLite file.
   docker network create traefik    # if it does not already exist
   ```
 
-- A DNS record for `mimostats.trick77.com` pointing at the host.
+- **Two** DNS A records pointing at the host: `ismimodown.com` and
+  `www.ismimodown.com`. www exists only to 301 to the apex, but it needs its own
+  record and its own certificate — see below.
+- An ACME resolver named `letsencrypt` in Traefik's static config. The router
+  labels name it explicitly:
+
+  ```toml
+  [certificatesResolvers.letsencrypt.acme]
+    email = "…"
+    tlsChallenge = true
+    storage = "/letsencrypt/acme.json"
+  ```
+
+  `tlsChallenge` is TLS-ALPN-01, answered on 443 through the `websecure`
+  entrypoint. Nothing needs port 80 and there is no challenge path to route.
+
+  **Let the DNS resolve before the first `docker compose up`.** The ACME order
+  fires on router creation; against a name that does not resolve it fails, and
+  Let's Encrypt rate-limits failed authorisations. The visible symptom is a
+  browser interstitial — Traefik falls back to its own self-signed certificate
+  rather than erroring.
 - A MiMo token-plan key (`tp-…`).
 
 ## Install
@@ -45,13 +68,30 @@ variant, because this repo is public. Never put a real key in `.env.example`.
 ```sh
 docker compose ps                       # healthy within ~30s
 docker compose logs -f mimostats        # "cycle complete" every ~5 minutes
-curl -s https://mimostats.trick77.com/healthz
+curl -s https://ismimodown.com/healthz
+```
+
+The certificate is the first thing to check on a new host — a self-signed
+fallback still answers, so `curl -k` and a browser click-through both hide it:
+
+```sh
+echo | openssl s_client -connect ismimodown.com:443 -servername ismimodown.com 2>/dev/null | \
+  openssl x509 -noout -issuer -dates
+```
+
+The issuer must be Let's Encrypt. `TRAEFIK DEFAULT CERT` means the ACME order
+never completed — check DNS first, then `docker compose logs traefik`.
+
+www must redirect permanently rather than serve:
+
+```sh
+curl -sSI https://www.ismimodown.com/ | head -3   # 301, location: https://ismimodown.com/
 ```
 
 Response headers, after a Traefik reload picks up the new labels:
 
 ```sh
-curl -sSI https://mimostats.trick77.com/ | \
+curl -sSI https://ismimodown.com/ | \
   grep -Ei 'content-security-policy|x-content-type|x-frame|referrer|strict-transport'
 ```
 
@@ -180,6 +220,19 @@ even a read needs to touch the `-shm` file. `sudo -u '#1000'` if in doubt.
 
 Retention deletes cycles older than three months, so the history is bounded at
 roughly 110k rows regardless of uptime.
+
+## After a domain change
+
+The site ships `robots.txt` and `sitemap.xml`, and neither does anything until
+something is told to read them. Once the certificate is good:
+
+- Add `https://ismimodown.com/` as a property in Google Search Console and
+  submit `/sitemap.xml`.
+- Re-scrape the link preview by pasting the URL into Slack or WhatsApp.
+  WhatsApp and Telegram cache a card effectively forever, which is what the
+  `?v=` on the og:image URL exists to defeat — bump it in the same commit as any
+  regenerated `ui/public/og.png`, or the redraw reaches nobody who ever shared
+  the old link.
 
 ## Hardening notes
 

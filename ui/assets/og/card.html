@@ -165,12 +165,20 @@
         margin-right: -0.22em;
       }
 
+      /* 76px, down from the 116px a one-word wordmark could carry. The heading
+         is a four-word question now, and at 116px it ran to roughly twice the
+         630px the square crop keeps — see the wordmark assertion in gen-og.sh.
+         76px sets the longer of the two lines to 527px, inside that limit with
+         room to spare, and holds a clear step over the 34px lede.
+
+         Measured, not guessed: 84px was tried first, and its two lines pushed
+         the lede far enough down to unbalance the column. */
       h1 {
         margin-top: 34px;
         font-family: "Anthropic Serif", serif;
-        font-size: 116px;
+        font-size: 76px;
         font-weight: 400;
-        line-height: 0.9;
+        line-height: 0.95;
         letter-spacing: -0.03em;
         color: var(--color-ink);
       }
@@ -188,8 +196,8 @@
       .lede em {
         font-style: italic;
         color: var(--color-accent-strong);
-        /* "Xiaomi MiMo" is a name and breaks across lines at this measure
-           otherwise. It is the only two-word em here; "reach" is unaffected. */
+        /* "answer correctness" is one idea and breaks across lines at this
+           measure otherwise, which reads as two list items rather than one. */
         white-space: nowrap;
       }
 
@@ -252,17 +260,28 @@
         <span>europe → singapore · every 5 min</span>
       </div>
 
-      <h1>mimostats</h1>
+      <!-- The break is explicit, not left to the measure. Two reasons. It keeps
+           "Xiaomi MiMo" whole — a product name split across lines reads as a
+           typo — and it makes the wordmark width in gen-og.sh a measurement of
+           the FONT rather than of where a line happened to wrap. Left to wrap,
+           a fallback face re-broke the question one word later and measured
+           WIDER than the real one, which is the one thing that assertion must
+           never accept. -->
+      <h1>Is Xiaomi MiMo<br />down?</h1>
 
       <!-- The masthead's leading clause, verbatim. Its second clause — the one
            about separating reaching the endpoint from what happens once you are
            there — is dropped: at this measure it runs to seven lines and pushes
            the legend off the card. The legend below carries that idea instead,
            which is the part a reader can take in at preview size. Reword
-           Masthead.tsx and reword this, then re-run gen-og.sh. -->
+           Masthead.tsx and reword this, then re-run gen-og.sh.
+
+           It no longer names Xiaomi MiMo: the heading above does that now, and
+           at preview size the same two words twice in three lines was the most
+           conspicuous thing on the card. The accent moved to what the page does
+           that a plain uptime checker does not. -->
       <p class="lede">
-        Latency, throughput, availability and answer correctness for
-        <em>Xiaomi MiMo</em>.
+        Latency, throughput, availability and <em>answer correctness</em>.
       </p>
 
       <div class="legend">
@@ -280,7 +299,7 @@
            compose.yaml's Host() rule and index.html's og: URLs AND this line,
            then re-running gen-og.sh, or the card keeps advertising an address
            that no longer answers. -->
-      <div class="host">mimostats.trick77.com</div>
+      <div class="host">ismimodown.com</div>
     </div>
   </body>
 </html>

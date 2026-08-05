@@ -3,13 +3,17 @@ import { describe, expect, it } from "vitest";
 import { Masthead } from "./Masthead";
 
 describe("Masthead", () => {
-  it("says what the page measures", () => {
+  // The heading is the question the site is named after, and it names Xiaomi
+  // rather than MiMo alone — "mimo" on its own belongs to an antenna technique
+  // and to a learn-to-code app. The same string is in index.html's <title>, its
+  // static body and the OG card; this asserts the one a reader sees first.
+  it("asks the question the page answers", () => {
     // Given / When
     render(<Masthead />);
 
     // Then
     expect(
-      screen.getByRole("heading", { name: /mimostats/i }),
+      screen.getByRole("heading", { name: /is xiaomi mimo down\?/i }),
     ).toBeInTheDocument();
     expect(screen.getByText(/europe → singapore/i)).toBeInTheDocument();
   });

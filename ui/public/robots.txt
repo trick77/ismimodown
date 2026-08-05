@@ -1,0 +1,12 @@
+# Everything here is public and read-only, so nothing is disallowed. The file
+# exists to name the sitemap: a crawler asks for /robots.txt whether or not it
+# is there, and answering the 404 with a Sitemap line is the cheapest way to
+# point at it.
+#
+# The URL is absolute and hardcodes the production host, for the same reason
+# index.html's og: URLs do — it is read out of context, by something that is not
+# resolving it against the page it came from.
+User-agent: *
+Allow: /
+
+Sitemap: https://ismimodown.com/sitemap.xml

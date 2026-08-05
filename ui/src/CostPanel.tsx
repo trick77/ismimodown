@@ -44,7 +44,7 @@ export function CostPanel({ cost }: { cost: CostBreakdown | null }) {
   return (
     <Card
       title="What this dashboard costs to run"
-      subtitle="Every probe mimostats sends, priced from the usage MiMo reported on it — both models, both probe kinds. The plan bills in credits, so these are list rates rather than an invoice."
+      subtitle="Every probe this page sends, priced from the usage MiMo reported on it — both models, both probe kinds. The plan bills in credits, so these are list rates rather than an invoice."
       right={
         <span
           className={`num rounded-full border px-2 py-[2px] text-micro uppercase tracking-wider ${

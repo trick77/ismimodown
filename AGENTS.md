@@ -110,10 +110,19 @@ attribution — a dead europe reference kills the route-vs-uplink distinction si
 
 ## Naming
 
-The product is `mimostats` — lowercase, one word, always, including sentence-initial. Never
-`MiMoStats`, `MiMo Stats`, `MiMostats`, `Mimostats`. It matches the domain, the repo,
-`cmd/mimostats` and the manifest, none of which can be cased differently. The platform and its
-models are `MiMo`; model IDs verbatim (`mimo-v2.5`, `mimo-v2.5-pro`).
+The SITE is "Is Xiaomi MiMo down?" at `ismimodown.com`. That exact question is the `<h1>`, the
+`<title>`, the static body of `index.html` and the og card — four copies, reword together.
+
+Always `Xiaomi MiMo`, never bare `MiMo`, in anything a stranger reads: "mimo" is also an antenna
+technique and a learn-to-code app, and that disambiguation is the whole point of the name. In
+comments, tests and log lines, bare `MiMo` is fine. Model IDs verbatim (`mimo-v2.5`,
+`mimo-v2.5-pro`).
+
+The CODE is still `mimostats`: Go module, `cmd/mimostats`, GHCR image, compose service, npm
+package, `mimostats.db`. Deliberate. Do NOT "finish the rename" — it breaks clones and published
+images and buys nothing.
+
+The footer denies affiliation with Xiaomi. Keep it; `Footer.test.tsx` asserts it.
 
 ## Conventions
 
@@ -128,6 +137,15 @@ source. A preview is scraped once and cached by the messenger (Slack ~30 min, Wh
 Telegram effectively forever), so any number baked in freezes and is then shown as current.
 Bump `?v=` on the og:/twitter: image URLs in the same commit, or a messenger that already
 scraped the page never re-fetches and the redraw reaches nobody. WhatsApp crops it SQUARE to
-the middle 630px; keep the wordmark and every lede line inside that band. The script asserts
+the middle 630px; keep the heading and every lede line inside that band. The script asserts
 both, and the og: URLs hardcode the `Host()` from `compose.yaml` — change them together, plus
 the `.host` line card.html prints into the picture.
+
+The card's heading width band in `gen-og.sh` is calibrated to the real render (527px) against
+the font-fallback render (481px) — only 46px apart. Re-measure BOTH (break the `@font-face`
+URLs on purpose) before touching it; never just widen it. The `<br>` in that heading is load
+bearing: left to wrap, the fallback broke a word later and measured WIDER than the real face.
+
+**Host and SEO strings move together:** `Host()` in `compose.yaml` (two routers — apex and the
+www 301), og:/twitter: URLs, `rel=canonical`, `robots.txt`, `sitemap.xml`, JSON-LD `@id`s, and
+`.host` in `card.html`.
