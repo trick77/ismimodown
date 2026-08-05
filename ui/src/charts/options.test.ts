@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Point } from "../api/types";
 import {
+  buildCostOption,
   buildDecompositionOption,
   buildLineOption,
   colorForModel,
@@ -434,5 +435,77 @@ describe("censoring bands", () => {
       unit: "ms",
     });
     expect(opt.censoredBands).toBe(0);
+  });
+});
+
+describe("buildCostOption", () => {
+  const HOUR = 3600;
+  const T0 = Date.parse("2026-08-04T10:00:00Z") / 1000;
+  const points = [
+    { t: T0, usd: 0.008 },
+    { t: T0 + HOUR, usd: 0.008 },
+    { t: T0 + 2 * HOUR, usd: 0.0064 },
+  ];
+
+  it("plots one line in seconds-to-milliseconds", () => {
+    const o = buildCostOption(points, []);
+
+    expect(o.series).toHaveLength(1);
+    expect(o.series[0]!.data[0]).toEqual([T0 * 1000, 0.008]);
+  });
+
+  // A bucket with no runs is a gap. Joining across it would draw a cost that was
+  // never billed, and a zero would draw a floor.
+  it("leaves a bucket with no data as a hole", () => {
+    const o = buildCostOption([...points, { t: T0 + 3 * HOUR, usd: null }], []);
+
+    expect(o.series[0]!.connectNulls).toBe(false);
+    expect(o.series[0]!.data[3]).toEqual([(T0 + 3 * HOUR) * 1000, null]);
+  });
+
+  // A bucket's cost belongs to the whole bucket, not to a reading at its left
+  // edge; sloping between them would draw a gradual change the billing has not.
+  it("steps rather than slopes", () => {
+    expect(buildCostOption(points, []).series[0]!.step).toBe("end");
+  });
+
+  // Money over a fixed workload. A floating baseline turns a 20% rebate into a
+  // cliff; a log axis turns it into a shrug.
+  it("anchors the axis at zero and never goes logarithmic", () => {
+    const o = buildCostOption(
+      [
+        { t: T0, usd: 0.0001 },
+        { t: T0 + HOUR, usd: 5 },
+      ],
+      [],
+    );
+
+    expect(o.yAxis.min).toBe(0);
+    expect(o.yAxis.type).toBe("value");
+  });
+
+  it("shades the reduced-rate spans behind the line", () => {
+    const spans: [number, number][] = [[T0 + HOUR, T0 + 2 * HOUR]];
+    const o = buildCostOption(points, spans);
+
+    expect(o.banded).toBe(true);
+    const area = o.series[0]!.markArea!.data[0]!;
+    expect(area[0]!.xAxis).toBe((T0 + HOUR) * 1000);
+    expect(area[1]!.xAxis).toBe((T0 + 2 * HOUR) * 1000);
+    // Silent, so a backdrop never takes the tooltip from the data.
+    expect(o.series[0]!.markArea!.silent).toBe(true);
+  });
+
+  // Ninety nightly stripes are a hatch pattern, which is what took the band off
+  // the latency charts in the first place. The panel drops its caption with it.
+  it("drops the band past two days", () => {
+    const long = [
+      { t: T0, usd: 0.18 },
+      { t: T0 + 80 * 86400, usd: 0.18 },
+    ];
+    const o = buildCostOption(long, [[T0, T0 + HOUR]]);
+
+    expect(o.banded).toBe(false);
+    expect(o.series[0]!.markArea).toBeUndefined();
   });
 });

@@ -65,6 +65,48 @@ const emptyNet = {
   targets: {},
 };
 
+// A priced window. The panel refuses to render below ten runs or without a
+// price table, so a fixture that leaves either out silently tests nothing.
+const cost = () => ({
+  window: "24h",
+  priced: true,
+  currency: "USD",
+  offpeak_coefficient: 0.8,
+  total: {
+    runs: 624,
+    tokens: { prompt: 213000, cached: 0, output: 55000 },
+    usd: 0.1814,
+    list_usd: 0.1944,
+  },
+  phases: [
+    {
+      phase: "offpeak",
+      runs: 208,
+      tokens: { prompt: 71000, cached: 0, output: 18300 },
+      usd: 0.0518,
+      list_usd: 0.0648,
+    },
+  ],
+  probes: [
+    {
+      probe: "infer",
+      runs: 576,
+      tokens: { prompt: 40320, cached: 0, output: 40320 },
+      usd: 0.0908,
+      list_usd: 0.0973,
+    },
+  ],
+  series: [
+    { t: Date.parse("2026-08-04T11:00:00Z") / 1000, usd: 0.008, runs: 26 },
+  ],
+  bucket_s: 3600,
+  unpriced_runs: 0,
+  offpeak_spans: [],
+  offpeak_until: Date.parse("2026-08-04T16:00:00Z") / 1000,
+  offpeak_active: false,
+  generated_at: "2026-08-04T12:00:00Z",
+});
+
 function mockFetch(overrides: Record<string, unknown> = {}) {
   return vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input);
@@ -78,7 +120,9 @@ function mockFetch(overrides: Record<string, unknown> = {}) {
             ? { model_id: "mimo-v2.5", probe: "infer", samples: [] }
             : url.includes("/api/pulse")
               ? { model_id: "mimo-v2.5", probe: "infer", cycles: [] }
-              : {};
+              : url.includes("/api/cost")
+                ? (overrides.cost ?? cost())
+                : {};
     if (url.includes("/api/events")) {
       // eventsStatus makes the stream FAIL instead, which is what the reconnect
       // tests need — streamSSE throws on a non-OK response.
@@ -341,5 +385,45 @@ describe("App", () => {
       await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
       expect(loads()).toBeGreaterThan(before);
     });
+  });
+});
+
+describe("the cost panel", () => {
+  it("sits last, above the raw cycles", async () => {
+    vi.stubGlobal("fetch", mockFetch());
+    render(<App />);
+
+    const panel = await screen.findByText("What this dashboard costs to run");
+    const raw = screen.getByText("Raw cycles");
+    // Node.compareDocumentPosition: FOLLOWING means raw comes after the panel.
+    expect(
+      panel.compareDocumentPosition(raw) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  // Everything else on the page is a reading about MiMo. This one is about us,
+  // and a deployment with no price table must not be handed zeros to render.
+  it("is absent when the daemon serves no prices", async () => {
+    vi.stubGlobal(
+      "fetch",
+      mockFetch({
+        cost: {
+          ...cost(),
+          priced: false,
+          total: {
+            runs: 624,
+            tokens: { prompt: 213000, cached: 0, output: 55000 },
+            usd: null,
+            list_usd: null,
+          },
+        },
+      }),
+    );
+    render(<App />);
+
+    await screen.findByText("Raw cycles");
+    expect(
+      screen.queryByText("What this dashboard costs to run"),
+    ).not.toBeInTheDocument();
   });
 });

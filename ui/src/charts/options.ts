@@ -8,6 +8,7 @@ import {
   formatDate,
   formatDateTime,
   formatTime,
+  formatUSDPrecise,
   shouldUseLogScale,
 } from "../format";
 
@@ -431,4 +432,133 @@ export function buildDecompositionOption(
 
 function round(v: number): string {
   return Number(v.toFixed(v < 100 ? 1 : 0)).toString();
+}
+
+// The off-peak band. Green, because cheap reads as green before it reads as
+// anything else.
+//
+// The same hex as the online green, and that overlap was the reason the band was
+// taken off the latency charts: there, green already meant "up", and a wash
+// behind a latency line had to be read through the measurement it was not about.
+// Here it sits behind money, which is the quantity the rate actually governs,
+// and it is the only green on the card.
+const OFFPEAK = "#5aa06a";
+
+// SPAN_HHMM_MS is where a bare HH:mm stops being unambiguous — past two days it
+// repeats across the plot.
+const COST_SPAN_HHMM_MS = 48 * 3_600_000;
+
+// buildCostOption draws what each bucket of the window cost, with the
+// reduced-rate spans shaded behind it.
+//
+// One line, not one per model or per probe. The panel answers "what did this
+// cost", and a run's cadence is not a fact about its bill: the 5-minute short
+// runs and the hourly wide ones land in whichever bucket they happened in and
+// are summed there.
+export function buildCostOption(
+  points: { t: number; usd: number | null }[],
+  spans: [number, number][],
+) {
+  const data = points.map(
+    (p) => [p.t * 1000, p.usd] as [number, number | null],
+  );
+  const first = data[0]?.[0];
+  const last = data[data.length - 1]?.[0];
+  const spansDays =
+    first !== undefined &&
+    last !== undefined &&
+    last - first > COST_SPAN_HHMM_MS;
+  const stamp = spansDays ? formatDate : formatTime;
+
+  // Past 48 hours the band becomes one thin stripe per day — seven on 7d, ninety
+  // on 3mo — which reads as a hatch pattern rather than as a nightly window and
+  // buries the line under it. The rate is still stated in words below the chart.
+  const bands = spansDays ? [] : spans;
+
+  return {
+    animation: false,
+    grid: { left: 64, right: 16, top: 16, bottom: 28 },
+    tooltip: {
+      trigger: "axis",
+      backgroundColor: "#242422",
+      borderColor: GRID,
+      textStyle: { color: INK, fontSize: 12 },
+      formatter: (raw: AxisTooltipParam | AxisTooltipParam[]) => {
+        const rows = Array.isArray(raw) ? raw : [raw];
+        const pair = rows[0]?.value;
+        const t = Array.isArray(pair) ? pair[0] : undefined;
+        const v = Array.isArray(pair) ? pair[1] : undefined;
+        const head =
+          typeof t === "number"
+            ? `<div style="color:${AXIS};font-size:11px">${formatDateTime(new Date(t))}</div>`
+            : "";
+        const body =
+          typeof v === "number" && Number.isFinite(v)
+            ? `${rows[0]?.marker ?? ""}cost <b>${formatUSDPrecise(v)}</b>`
+            : "no data";
+        return head + body;
+      },
+    },
+    xAxis: {
+      type: "time",
+      axisLine: { lineStyle: { color: GRID } },
+      axisLabel: {
+        color: AXIS,
+        fontSize: 10,
+        // Europe/Zurich, like every other axis on the page — ECharts has no
+        // per-axis timezone, so the label is formatted here.
+        formatter: (value: number) => stamp(new Date(value)),
+        hideOverlap: true,
+      },
+      splitLine: { show: false },
+    },
+    yAxis: {
+      // Always linear and always anchored at zero. This is money over a fixed
+      // workload: a log axis would turn a 20% rebate into a shrug, and a floating
+      // baseline would turn it into a cliff.
+      type: "value",
+      min: 0,
+      axisLine: { show: false },
+      axisLabel: {
+        color: AXIS,
+        fontSize: 10,
+        formatter: (v: number) => formatUSDPrecise(v),
+      },
+      splitLine: { lineStyle: { color: GRID, type: "dashed" } },
+    },
+    series: [
+      {
+        name: "cost",
+        type: "line",
+        // Stepped: a bucket's cost is a quantity for the whole bucket, not a
+        // reading at its left edge, and sloping between them would draw a
+        // gradual change the billing does not have.
+        step: "end",
+        showSymbol: false,
+        // A bucket with no runs is a gap, never a zero — the probe not running
+        // is not the same as it costing nothing.
+        connectNulls: false,
+        lineStyle: { width: 2, color: SERVER_COLOR },
+        itemStyle: { color: SERVER_COLOR },
+        areaStyle: { opacity: 0.12, color: SERVER_COLOR },
+        data,
+        markArea:
+          bands.length > 0
+            ? {
+                // silent, so the band never takes the tooltip from the data.
+                silent: true,
+                data: bands.map(([from, to]) => [
+                  {
+                    xAxis: from * 1000,
+                    itemStyle: { color: OFFPEAK, opacity: 0.13 },
+                  },
+                  { xAxis: to * 1000 },
+                ]),
+              }
+            : undefined,
+      },
+    ],
+    // Surfaced so the panel knows whether to caption a band it can see.
+    banded: bands.length > 0,
+  };
 }

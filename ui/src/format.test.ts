@@ -9,6 +9,8 @@ import {
   LOG_SCALE_THRESHOLD,
   plural,
   shouldUseLogScale,
+  formatUSD,
+  formatUSDPrecise,
 } from "./format";
 
 describe("plural", () => {
@@ -99,5 +101,38 @@ describe("log scale", () => {
   it("treats a single point as no range", () => {
     expect(dynamicRange([500])).toBe(1);
     expect(dynamicRange([])).toBe(1);
+  });
+});
+
+describe("money", () => {
+  // A window total is read in cents.
+  it("formats a total to two decimals", () => {
+    expect(formatUSD(0.1814)).toBe("$0.18");
+    expect(formatUSD(5.4)).toBe("$5.40");
+  });
+
+  // A per-inference figure is a fraction of a cent. Two decimals would print
+  // $0.00 for a number that is not zero, which is the one thing this must not
+  // say.
+  it("keeps three significant figures on small amounts", () => {
+    expect(formatUSDPrecise(0.000158)).toBe("$0.000158");
+    expect(formatUSDPrecise(0.00189)).toBe("$0.00189");
+    expect(formatUSDPrecise(0.013)).toBe("$0.0130");
+    expect(formatUSDPrecise(5.4)).toBe("$5.40");
+  });
+
+  it("stops at six decimals rather than printing float noise", () => {
+    expect(formatUSDPrecise(0.00000012345)).toBe("$0.000000");
+  });
+
+  it("renders a true zero plainly", () => {
+    expect(formatUSDPrecise(0)).toBe("$0.00");
+  });
+
+  // Null is "not priced", which is not the same as free.
+  it("dashes what it cannot price", () => {
+    expect(formatUSD(null)).toBe("—");
+    expect(formatUSDPrecise(undefined)).toBe("—");
+    expect(formatUSD(Number.NaN)).toBe("—");
   });
 });

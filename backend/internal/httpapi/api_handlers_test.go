@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/trick77/mimostats/internal/config"
 	"github.com/trick77/mimostats/internal/probe"
 	"github.com/trick77/mimostats/internal/ratelimit"
 	"github.com/trick77/mimostats/internal/samples"
@@ -562,5 +563,102 @@ func TestSummaryRecentBlockCarriesFaultAndRuns(t *testing.T) {
 	}
 	if run, ok := out.Recent[0].Models["mimo-v2.5"]; !ok || !run.OK {
 		t.Errorf("models = %v, want a successful mimo-v2.5 run", out.Recent[0].Models)
+	}
+}
+
+// seedCost writes runs that carry usage. The shared seed() helper leaves the
+// token columns at zero, which is a legitimate reading and a useless fixture for
+// a bill.
+func seedCost(t *testing.T, store *samples.Store, n int) {
+	t.Helper()
+	yes := true
+	for i := 0; i < n; i++ {
+		if _, err := store.Save(context.Background(), samples.Cycle{
+			StartedAt: testNow.Add(-time.Duration(n-i) * time.Minute),
+			Net: []probe.NetResult{
+				{Target: probe.TargetMimoSGP, ConnectMs: 170, OK: true},
+				{Target: probe.TargetRefSGP, ConnectMs: 265, OK: true},
+			},
+			Infer: []probe.InferResult{{
+				ModelID: "mimo-v2.5", Probe: probe.ProbeInfer,
+				TTFTMs: 900, TotalMs: 1700, ITLP50Ms: 24, OutputTPS: 41,
+				Usage: probe.TokenUsage{PromptTokens: 1000, CompletionTokens: 200},
+				OK:    true, AnswerOK: &yes, QuestionID: "capital-france",
+			}},
+		}); err != nil {
+			t.Fatalf("Save: %v", err)
+		}
+	}
+}
+
+func TestCostEndpointServesTheWholePanel(t *testing.T) {
+	db := openTestDB(t)
+	store := samples.New(db)
+	h := NewServer(Deps{
+		Version: "test", DB: db, Samples: store,
+		Models: []string{"mimo-v2.5"},
+		Prices: map[string]config.ModelPrice{"mimo-v2.5": {In: 1, Out: 10}},
+		Now:    func() time.Time { return testNow },
+	})
+	seedCost(t, store, 3)
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/cost?window=24h", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body %s", rec.Code, rec.Body.String())
+	}
+
+	var got samples.CostBreakdown
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got.Window != "24h" || !got.Priced {
+		t.Errorf("window = %q, priced = %v", got.Window, got.Priced)
+	}
+	if got.Total.USD == nil || *got.Total.USD <= 0 {
+		t.Errorf("total = %+v, want a positive figure", got.Total)
+	}
+	// Figures and series in one response, so the number above the chart and the
+	// line in it cannot describe different instants.
+	if len(got.Series) == 0 || len(got.Phases) == 0 {
+		t.Errorf("series = %d points, phases = %d", len(got.Series), len(got.Phases))
+	}
+	// The price table is published so a total can be checked rather than
+	// trusted.
+	if got.Prices["mimo-v2.5"].Out != 10 {
+		t.Errorf("prices = %+v, want the table that produced the figures", got.Prices)
+	}
+}
+
+func TestCostEndpointRejectsAnUnknownWindow(t *testing.T) {
+	h, _ := newAPIServer(t)
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/cost?window=6mo", nil))
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", rec.Code)
+	}
+}
+
+// With no price table the endpoint still answers, with tokens and no money. The
+// dashboard hides the panel; it must not be handed zeros to render as a bill.
+func TestCostEndpointWithoutPricesServesNoMoney(t *testing.T) {
+	h, store := newAPIServer(t)
+	seedCost(t, store, 3)
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/cost?window=24h", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	var got samples.CostBreakdown
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got.Priced || got.Total.USD != nil {
+		t.Errorf("money served with no price table: %+v", got.Total)
+	}
+	if got.Total.Tokens.Total() == 0 {
+		t.Error("tokens must be served regardless of prices")
 	}
 }

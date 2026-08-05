@@ -1,5 +1,6 @@
 import { api } from "./http";
 import type {
+  CostBreakdown,
   ModelSeries,
   ModelsResponse,
   NetSeries,
@@ -59,5 +60,14 @@ export const getPulse = (
 ) =>
   api.get<PulseResponse>(
     `/api/pulse?model=${encodeURIComponent(model)}&probe=${encodeURIComponent(probe)}&limit=${limit}`,
+    signal,
+  );
+
+// One request for the whole cost panel — figures, splits and the series behind
+// the chart. Three requests would let the number above the chart and the line
+// inside it describe different instants.
+export const getCost = (window: string, signal?: AbortSignal) =>
+  api.get<CostBreakdown>(
+    `/api/cost?window=${encodeURIComponent(window)}`,
     signal,
   );

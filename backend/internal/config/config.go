@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -70,6 +71,39 @@ const DefaultSystemPrompt = "You are a helpful assistant."
 // rather than a limitation.
 var DefaultModels = []string{"mimo-v2.5", "mimo-v2.5-pro"}
 
+// ModelPrice is one model's list price, in USD per MILLION tokens.
+//
+// Three rates, because the bill has three parts and two of them are nested
+// inside a third: cached_tokens is a SUBSET of prompt_tokens, so the input side
+// is (prompt - cached) at In plus cached at Cached. reasoning_tokens gets no
+// rate at all — it is already inside output_tokens, and giving it one would bill
+// it twice.
+type ModelPrice struct {
+	In     float64 `json:"in_per_mtok"`
+	Out    float64 `json:"out_per_mtok"`
+	Cached float64 `json:"cached_per_mtok"`
+}
+
+// OffPeakCoefficient is MiMo's reduced-rate multiplier, applied to credits
+// consumed between OffPeakStartUTCHour and midnight UTC.
+//
+// It multiplies the CREDITS, not the dollars: price the tokens at list, apply
+// this to the off-peak share, then convert. The other order rounds in the wrong
+// place.
+const OffPeakCoefficient = 0.8
+
+// OffPeakStartUTCHour opens the reduced-rate window. It closes at 24:00 UTC.
+//
+// 00:00-08:00 Beijing, and Beijing is UTC+8 with no DST, so the window is
+// exactly 16:00-24:00 UTC every day. Held in UTC and never in local time: the
+// probe host reads Europe/Zurich, which does observe DST, so the same window
+// lands at 18:00-02:00 in summer and 17:00-01:00 in winter.
+//
+// This is a BILLING window and nothing else. MiMo publishes no load or demand
+// figures, so nothing derived from it may be presented as a claim about when the
+// platform is busy.
+const OffPeakStartUTCHour = 16
+
 // Config holds all runtime settings.
 type Config struct {
 	Addr     string // HTTP listen address
@@ -92,6 +126,13 @@ type Config struct {
 	// ProbeUserAgent and ProbeSystemPrompt shape the outgoing inference request.
 	ProbeUserAgent    string
 	ProbeSystemPrompt string
+
+	// Prices is the per-model list price, keyed by model id. Empty when
+	// BACKEND_PRICES is unset, and that is a supported state: /api/cost then
+	// serves token counts with no money in them and the dashboard hides the
+	// panel. A made-up default price would publish a number that looks like a
+	// bill and is not one.
+	Prices map[string]ModelPrice
 
 	// Retention bounds how far back raw samples are kept. Swept nightly.
 	Retention time.Duration
@@ -149,6 +190,9 @@ func Load() (Config, error) {
 	}
 
 	var err error
+	if cfg.Prices, err = parsePrices(os.Getenv("BACKEND_PRICES")); err != nil {
+		return Config{}, err
+	}
 	if cfg.Retention, err = envDuration("BACKEND_RETENTION", 2160*time.Hour); err != nil {
 		return Config{}, err
 	}
@@ -230,6 +274,64 @@ func Load() (Config, error) {
 // that is present but yields nothing usable returns empty rather than silently
 // reverting to the default: "BACKEND_MODELS=," is a mistake worth failing on,
 // not a request for the defaults.
+// parsePrices reads BACKEND_PRICES.
+//
+// Format is one entry per model, comma separated:
+//
+//	mimo-v2.5=0.30/1.20/0.30,mimo-v2.5-pro=0.60/2.40/0.60
+//
+// The three numbers are USD per million tokens: input, output, cached-input. The
+// third is optional and defaults to the input rate, which OVERSTATES the bill on
+// a cache hit rather than flattering it — the honest direction to be wrong in,
+// and cached_tokens is required to sit near zero anyway.
+//
+// Unset is not an error. A missing price table means the cost endpoint serves
+// tokens without money; a MALFORMED one is an error, because it means someone
+// tried to configure prices and the deployment would otherwise come up silently
+// publishing none.
+func parsePrices(raw string) (map[string]ModelPrice, error) {
+	if strings.TrimSpace(raw) == "" {
+		return nil, nil
+	}
+	out := make(map[string]ModelPrice, 2)
+	for _, entry := range strings.Split(raw, ",") {
+		entry = strings.TrimSpace(entry)
+		if entry == "" {
+			continue
+		}
+		model, rates, ok := strings.Cut(entry, "=")
+		model = strings.TrimSpace(model)
+		if !ok || model == "" {
+			return nil, fmt.Errorf("BACKEND_PRICES entry %q must be model=in/out[/cached]", entry)
+		}
+		parts := strings.Split(rates, "/")
+		if len(parts) < 2 || len(parts) > 3 {
+			return nil, fmt.Errorf("BACKEND_PRICES entry %q must be model=in/out[/cached]", entry)
+		}
+		var p ModelPrice
+		for i, target := range []*float64{&p.In, &p.Out, &p.Cached} {
+			if i >= len(parts) {
+				break
+			}
+			v, err := strconv.ParseFloat(strings.TrimSpace(parts[i]), 64)
+			if err != nil {
+				return nil, fmt.Errorf("BACKEND_PRICES entry %q: %q is not a number", entry, parts[i])
+			}
+			// Negative is rejected, zero is not: a model on a free tier is a
+			// real thing to configure, and it produces a true total of nothing.
+			if v < 0 {
+				return nil, fmt.Errorf("BACKEND_PRICES entry %q: rates must not be negative", entry)
+			}
+			*target = v
+		}
+		if len(parts) == 2 {
+			p.Cached = p.In
+		}
+		out[model] = p
+	}
+	return out, nil
+}
+
 func splitList(raw string, def []string) []string {
 	if strings.TrimSpace(raw) == "" {
 		return append([]string(nil), def...)
