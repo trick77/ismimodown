@@ -59,6 +59,65 @@ describe("PulseStrip", () => {
     expect(barAt(1).style.height).toBe("50%");
   });
 
+  // The case the strip is for: a normal day with one timeout in it. Linear,
+  // 900ms against 150s is 0.6% and every healthy bar clamps to the floor —
+  // a row of dots. Asserted as a bound rather than a string, because the
+  // anchor arithmetic should be tunable without rewriting the test.
+  it("keeps the healthy bars legible when one cycle times out", () => {
+    render(
+      <PulseStrip
+        perModel={[
+          [
+            sample(0, { ttft_ms: 900 }),
+            sample(5, { ttft_ms: 950 }),
+            sample(10, { ttft_ms: 150_000 }),
+          ],
+        ]}
+      />,
+    );
+    expect(barAt(2).style.height).toBe("100%");
+    expect(parseFloat(barAt(0).style.height)).toBeGreaterThan(20);
+    expect(parseFloat(barAt(0).style.height)).toBeLessThan(
+      parseFloat(barAt(1).style.height),
+    );
+  });
+
+  // A log scale read as linear is worse than no chart at all, and the strip
+  // has no axis to give it away.
+  it("says so when it switches to a log scale, and only then", () => {
+    const { unmount } = render(
+      <PulseStrip
+        perModel={[
+          [sample(0, { ttft_ms: 900 }), sample(5, { ttft_ms: 150_000 })],
+        ]}
+      />,
+    );
+    expect(screen.getByTestId("pulse-note")).toHaveTextContent("log-scaled");
+    unmount();
+
+    render(
+      <PulseStrip
+        perModel={[[sample(0, { ttft_ms: 900 }), sample(5, { ttft_ms: 1800 })]]}
+      />,
+    );
+    expect(screen.getByTestId("pulse-note")).not.toHaveTextContent(
+      "log-scaled",
+    );
+  });
+
+  // A window with nothing to spread has no log domain: dividing by that range
+  // renders NaN%, which the browser drops, and the bars vanish.
+  it("draws a real height when every reading is identical", () => {
+    render(
+      <PulseStrip
+        perModel={[[sample(0, { ttft_ms: 900 }), sample(5, { ttft_ms: 900 })]]}
+      />,
+    );
+    for (const i of [0, 1]) {
+      expect(barAt(i).style.height).toBe("100%");
+    }
+  });
+
   it("summarises the strip for assistive tech", () => {
     render(<PulseStrip perModel={[[sample(0), sample(5, { ok: false })]]} />);
     expect(screen.getByTestId("pulse-strip")).toHaveAttribute(
