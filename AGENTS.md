@@ -163,3 +163,9 @@ bearing: left to wrap, the fallback broke a word later and measured WIDER than t
 **Host and SEO strings move together:** `Host()` in `compose.yaml` (two routers — apex and the
 www 301), og:/twitter: URLs, `rel=canonical`, `robots.txt`, `sitemap.xml`, JSON-LD `@id`s, and
 `.host` in `card.html`.
+
+**Comments in `ui/index.html` and `ui/public/` never ship.** `ui/build/strip-comments.ts` strips
+them at build time — `<!-- -->` from html/svg/xml, whole `#` lines from `robots.txt` (a trailing
+`# why` after a directive stays, so do not write one). So keep writing
+them next to what they explain; do NOT thin them out for the reader's sake, and do NOT put a
+path, a script name or a `compose.yaml` reference anywhere OUTSIDE a comment in those files.

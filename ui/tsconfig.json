@@ -13,7 +13,10 @@
     "verbatimModuleSyntax": true,
     "skipLibCheck": true,
     "noEmit": true,
-    "types": ["vitest/globals"]
+    // vite.config.ts imports build/ with its .ts extension, which the native
+    // config loader needs. Nothing is emitted, so nothing has to rewrite it.
+    "allowImportingTsExtensions": true,
+    "types": ["vitest/globals", "node"]
   },
-  "include": ["src", "vite.config.ts"]
+  "include": ["src", "build", "vite.config.ts"]
 }

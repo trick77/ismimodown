@@ -1,9 +1,12 @@
 import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
+// Extension included: Vite's native config loader does not resolve it
+// otherwise, and warns on every build without it.
+import { stripCommentsPlugin } from "./build/strip-comments.ts";
 
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  plugins: [react(), tailwindcss(), stripCommentsPlugin()],
   // Straight into the Go binary's embed directory, so `go build` bakes the real
   // bundle in. Never the Vite default ui/dist.
   build: { outDir: "../backend/web/dist", emptyOutDir: true },
