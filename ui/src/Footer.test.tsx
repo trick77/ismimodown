@@ -31,15 +31,31 @@ describe("Footer", () => {
     ).toBeInTheDocument();
   });
 
-  // The disclaimer is the whole footer. Anything else that lands here is
-  // restating the page above it, which is how a footer turns into padding
-  // around the one sentence that has to be in it.
-  it("carries nothing but the disclaimer", () => {
+  // Times on this page follow the reader's browser, and this is the only place
+  // that says which zone that resolved to. Without it the whole page is stamped
+  // in a clock the reader has to guess at.
+  it("names the zone its times are shown in", () => {
+    // Given
+    const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+    // When
+    render(<Footer />);
+
+    // Then
+    expect(
+      screen.getByText(/times are shown in your browser/i),
+    ).toHaveTextContent(zone);
+  });
+
+  // The disclaimer and the zone are the whole footer. Anything else that lands
+  // here is restating the page above it, which is how a footer turns into
+  // padding around the two lines that have to be in it.
+  it("carries nothing but the disclaimer and the zone", () => {
     // Given / When
     const { container } = render(<Footer />);
 
     // Then
-    expect(container.querySelectorAll("p")).toHaveLength(1);
+    expect(container.querySelectorAll("p")).toHaveLength(2);
     expect(screen.queryByRole("link")).not.toBeInTheDocument();
   });
 });
