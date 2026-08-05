@@ -20,10 +20,12 @@ import { zoneLabel } from "./format";
 //
 // The zone line earns its place on a different footing. It is not a restatement
 // — nothing anywhere else on the page says which clock its times are on — and
-// it qualifies every stamp above it: the samples table, both chart axes, the
-// pulse strip's hover titles and the off-peak chip. Times follow the reader's
-// browser (see format.ts), so this line is the only thing that tells a reader
-// which zone they are looking at, and it changes with whoever is reading.
+// it qualifies every stamp above it: both chart axes, the pulse strip's hover
+// titles, the off-peak chip, and the exact instant the raw-cycles table hangs
+// on each row's title (the column itself prints a distance, which needs no
+// zone — the stamp behind it does). Times follow the reader's browser (see
+// format.ts), so this line is the only thing that tells a reader which zone
+// they are looking at, and it changes with whoever is reading.
 //
 // Second, under the disclaimer, and quieter still: whose page this is qualifies
 // the whole thing, while this qualifies the numbers.

@@ -136,9 +136,10 @@ five minutes". The interval is a deployment detail that can change; code, commen
 
 ## Conventions
 
-`.yaml` never `.yml`. English UI, Europe/Zurich, 24-hour clock — chart axes too: ECharts has no
-per-axis timezone, so stamp `axisLabel`/tooltip via `format.ts`, never leave them on the
-viewer's clock. Swiss orthography in German text: `ss` never `ß`. Anything visual → Safari
+`.yaml` never `.yml`. English UI, 24-hour clock, times in the READER's zone — never pin
+`timeZone` in `format.ts`; the footer names the resolved zone. Chart axes too: ECharts has no
+per-axis timezone, so stamp `axisLabel`/tooltip via `format.ts`, never leave them on ECharts'
+own formatting. Swiss orthography in German text: `ss` never `ß`. Anything visual → Safari
 (`open -a Safari …`), never Chrome.
 
 **The link-preview card never carries a measurement.** `ui/public/og.png` is committed, drawn

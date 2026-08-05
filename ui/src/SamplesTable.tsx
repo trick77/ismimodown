@@ -96,6 +96,7 @@ export function newestFirst(perGroup: Sample[][]): Sample[] {
 // times, and only the counts say which happened. Cached and reasoning tokens
 // stay out: both are invariants pinned at zero rather than per-run
 // measurements, and the model cards are where a breach of either surfaces.
+
 // How often the ages are recomputed.
 //
 // The rows themselves only change when a cycle completes, five minutes apart,
