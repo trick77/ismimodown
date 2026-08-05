@@ -75,9 +75,12 @@ const NOW_WINDOW = "24h";
 // that wants this many, and it wants them narrow — see /api/pulse.
 const PULSE_CYCLES = 288;
 
-// What the Raw cycles table shows. It is also exactly what is fetched at full
-// detail: the table is the only place every column of a cycle is displayed, so
-// it is the only place they are requested.
+// How many rows to ask for PER model and probe. The table's own cap is what
+// decides how many are drawn; this is the supply.
+//
+// Asking this many of each rather than a share of it: wide runs hourly per
+// model, so it contributes a row every twelfth cycle, and a smaller ask would
+// only shorten how far back the table reaches without saving a request.
 const TABLE_ROWS = 20;
 
 // The window lives in the query string rather than in component state, so a
@@ -107,8 +110,8 @@ export default function App() {
   const [cost, setCost] = useState<CostBreakdown | null>(null);
   // One array per probed model; the strip merges them.
   const [cycles, setCycles] = useState<Cycle[][]>([]);
-  // One array per probe kind; the table merges them, as the strip does for
-  // models.
+  // One array per model and probe kind — the full cross product; the table
+  // merges them, as the strip does for models.
   const [samples, setSamples] = useState<Sample[][]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -150,8 +153,7 @@ export default function App() {
       setError(null);
 
       const probed = s.models.map((m) => m.model_id);
-      const first = probed[0];
-      if (first !== undefined) {
+      if (probed.length > 0) {
         // Requests with two different shapes, because the two consumers want
         // two different things and neither should pay for the other.
         //
@@ -168,22 +170,34 @@ export default function App() {
         // measurement. Asking /api/samples for the day and rendering a score of
         // it is how a page ends up holding a detail series it never displays.
         //
-        // Both probes, because the table claims to be the raw record and the
-        // hourly wide run was missing from it: it is stored against the same
-        // cycle as the short run and served by the same endpoint, and the page
-        // simply never asked. /api/samples filters on the probe by design —
-        // mixing the two TTFTs inside one response is exactly what it exists to
-        // prevent — so, as with the pulse, the merge happens here.
+        // EVERY model and both probes, which is the whole cross product: the
+        // table calls itself the raw record, and it was showing one quarter of
+        // one.
         //
-        // TABLE_ROWS of each rather than half of each: wide runs hourly, so it
-        // contributes a row every twelfth cycle and asking for fewer would only
-        // shorten how far back the table reaches.
+        // Two separate omissions, with the same shape. The wide run was never
+        // asked for at all — stored against the same cycle as the short one,
+        // served by the same endpoint, simply never requested. And every
+        // request named probed[0], so the second model's runs were absent from
+        // the one surface that promises nothing is aggregated away, on a page
+        // whose entire subject is the two of them side by side.
+        //
+        // The wide stagger made the second omission acute rather than merely
+        // wrong: wide now alternates between models, so half the fleet's wide
+        // runs landed on the model the table did not fetch, and the panel
+        // looked like it was missing runs that had in fact happened.
+        //
+        // /api/samples filters on model and probe by design — mixing two TTFTs
+        // inside one response is exactly what it exists to prevent — so, as
+        // with the pulse, the merge happens here. Order matters: the table
+        // sorts on the instant, and these arrive as one group per pair.
         const [pulses, ...raw] = await Promise.all([
           Promise.all(
             probed.map((id) => getPulse(id, "short", PULSE_CYCLES, signal)),
           ),
-          getSamples(first, "short", TABLE_ROWS, signal),
-          getSamples(first, "wide", TABLE_ROWS, signal),
+          ...probed.flatMap((id) => [
+            getSamples(id, "short", TABLE_ROWS, signal),
+            getSamples(id, "wide", TABLE_ROWS, signal),
+          ]),
         ]);
         setCycles(pulses.map((p) => p.cycles));
         setSamples(raw.map((r) => r.samples));
@@ -356,7 +370,7 @@ export default function App() {
               which is a fact about us rather than about MiMo — so it reads as a
               footnote to the page rather than as one of its findings. */}
           <CostPanel cost={cost} />
-          <SamplesTable perProbe={samples} />
+          <SamplesTable perGroup={samples} />
         </div>
       </div>
     </>

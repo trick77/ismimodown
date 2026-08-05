@@ -235,6 +235,41 @@ describe("App", () => {
     expect(new Set(asked)).toEqual(new Set(["short", "wide"]));
   });
 
+  // The other half of the same omission: every /api/samples call named the
+  // FIRST model, so the second model's runs were absent from the page's only
+  // raw record. Once the wide probe alternates between models, half the fleet's
+  // wide runs land on the model this never asked about — the table looked like
+  // it was missing runs that had happened.
+  it("asks for every model's samples, not just the first", async () => {
+    const base = summary();
+    const first = base.models[0]!;
+    const fetchMock = mockFetch({
+      summary: {
+        ...base,
+        models: [first, { ...first, model_id: "mimo-v2.5-pro" }],
+      },
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<App />);
+
+    await screen.findByTestId("model-card-mimo-v2.5-pro");
+    const asked = fetchMock.mock.calls
+      .map((c) => String(c[0]))
+      .filter((u) => u.includes("/api/samples"))
+      .map(
+        (u) =>
+          `${new URL(u, "http://x").searchParams.get("model")}/${probeOf(u)}`,
+      );
+    expect(new Set(asked)).toEqual(
+      new Set([
+        "mimo-v2.5/short",
+        "mimo-v2.5/wide",
+        "mimo-v2.5-pro/short",
+        "mimo-v2.5-pro/wide",
+      ]),
+    );
+  });
+
   // The residual must never be called model time anywhere on the page.
   it("labels the residual as server-side time", async () => {
     vi.stubGlobal("fetch", mockFetch());
