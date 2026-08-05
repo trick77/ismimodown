@@ -43,7 +43,7 @@ export function CostPanel({ cost }: { cost: CostBreakdown | null }) {
   return (
     <Card
       title="What this dashboard costs to run"
-      subtitle="Every probe mimostats sends, priced from the usage MiMo reported on it. Both models and both probe kinds, summed."
+      subtitle="Every probe mimostats sends, priced from the usage MiMo reported on it — both models, both probe kinds. The plan bills in credits, so these are list rates rather than an invoice."
       right={
         <span
           className="num rounded-full border border-online/40 bg-online/10 px-2 py-[2px] text-micro uppercase tracking-wider text-online"
@@ -56,7 +56,7 @@ export function CostPanel({ cost }: { cost: CostBreakdown | null }) {
     >
       <div className="mb-5 grid grid-cols-2 gap-5 border-b border-border-soft pb-5 sm:grid-cols-4">
         <Money
-          label={`Billed, ${cost.window}`}
+          label={`At list, ${cost.window}`}
           value={formatUSD(cost.total.usd)}
           hint={`${formatInt(cost.total.runs)} runs · ${formatInt(
             cost.total.tokens.prompt + cost.total.tokens.output,

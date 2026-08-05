@@ -84,6 +84,28 @@ type ModelPrice struct {
 	Cached float64 `json:"cached_per_mtok"`
 }
 
+// DefaultPrices is what a million tokens costs for each probed model, in USD.
+//
+// Source: LiteLLM's model_prices_and_context_window.json, read 2026-08-05, for
+// openrouter/xiaomi/mimo-v2.5 and openrouter/xiaomi/mimo-v2.5-pro. Vendored
+// rather than fetched: the container is distroless and offline by design, and a
+// third party editing a number should not silently change a figure this
+// dashboard publishes as its own cost. Overridable via BACKEND_PRICES when they
+// move.
+//
+// These are LIST rates for these models, not an invoice. The probe runs against
+// a token plan, which consumes credits rather than dollars, so the panel reads
+// "at list" and never claims to be a bill. It is the right order of magnitude
+// and the wrong document to argue with an accountant about.
+var DefaultPrices = map[string]ModelPrice{
+	"mimo-v2.5":     {In: 0.40, Out: 2.00, Cached: 0.08},
+	"mimo-v2.5-pro": {In: 1.00, Out: 3.00, Cached: 0.20},
+}
+
+// PricesOff disables pricing outright, for a deployment that would rather show
+// nothing than show a list-rate estimate. Any other value is parsed as a table.
+const PricesOff = "none"
+
 // OffPeakCoefficient is MiMo's reduced-rate multiplier, applied to credits
 // consumed between OffPeakStartUTCHour and midnight UTC.
 //
@@ -127,11 +149,10 @@ type Config struct {
 	ProbeUserAgent    string
 	ProbeSystemPrompt string
 
-	// Prices is the per-model list price, keyed by model id. Empty when
-	// BACKEND_PRICES is unset, and that is a supported state: /api/cost then
-	// serves token counts with no money in them and the dashboard hides the
-	// panel. A made-up default price would publish a number that looks like a
-	// bill and is not one.
+	// Prices is the per-model list price, keyed by model id. DefaultPrices
+	// unless BACKEND_PRICES says otherwise, and empty when it says "none" — in
+	// which case /api/cost serves token counts with no money in them and the
+	// dashboard hides the panel.
 	Prices map[string]ModelPrice
 
 	// Retention bounds how far back raw samples are kept. Swept nightly.
@@ -145,6 +166,29 @@ type Config struct {
 	TTFTTimeout   time.Duration // no first token at all
 	IdleTimeout   time.Duration // silence between chunks mid-stream
 	ProbeTimeout  time.Duration // overall deadline
+}
+
+// UnpricedModels names the probed models the price table has no entry for, in
+// the order they are probed.
+//
+// Not an error: the daemon's job is to keep probing, and a missing price costs
+// nothing but a panel. It is worth a line in the log, though — now that prices
+// ship by default, the failure mode is a cost panel that silently disappears
+// because BACKEND_MODELS named a model the shipped table has never heard of, and
+// nothing on the page can say so.
+func (c Config) UnpricedModels() []string {
+	// Nil prices is pricing turned off, which is a decision rather than an
+	// oversight and has nothing to warn about.
+	if len(c.Prices) == 0 {
+		return nil
+	}
+	var missing []string
+	for _, m := range c.Models {
+		if _, ok := c.Prices[m]; !ok {
+			missing = append(missing, m)
+		}
+	}
+	return missing
 }
 
 func env(key, def string) string {
@@ -285,12 +329,24 @@ func Load() (Config, error) {
 // a cache hit rather than flattering it — the honest direction to be wrong in,
 // and cached_tokens is required to sit near zero anyway.
 //
-// Unset is not an error. A missing price table means the cost endpoint serves
-// tokens without money; a MALFORMED one is an error, because it means someone
-// tried to configure prices and the deployment would otherwise come up silently
-// publishing none.
+// Unset means DefaultPrices — the point of shipping a table is that a
+// deployment does not have to carry one. "none" turns pricing off and the panel
+// with it. A MALFORMED value is an error, because someone tried to configure
+// prices and coming up with none would look identical to not having tried.
+//
+// A table given here REPLACES the defaults rather than merging into them: a
+// half-overridden price list is the kind of state where one model quietly keeps
+// a stale rate, and the whole table is two short lines to write.
 func parsePrices(raw string) (map[string]ModelPrice, error) {
-	if strings.TrimSpace(raw) == "" {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		out := make(map[string]ModelPrice, len(DefaultPrices))
+		for k, v := range DefaultPrices {
+			out[k] = v
+		}
+		return out, nil
+	}
+	if trimmed == PricesOff {
 		return nil, nil
 	}
 	out := make(map[string]ModelPrice, 2)

@@ -309,11 +309,60 @@ func TestSetButEmptyIsTreatedAsUnset(t *testing.T) {
 	}
 }
 
-// BACKEND_PRICES unset is a supported state: the cost endpoint then serves
-// tokens with no money in them, which is honest. A default price would publish
-// a number that looks like a bill and is not one.
-func TestLoadWithoutPricesIsNotAnError(t *testing.T) {
+// Unset means the shipped table. A deployment should not have to carry prices
+// for the two models this thing exists to probe.
+func TestLoadWithoutPricesUsesTheShippedTable(t *testing.T) {
 	setMinimalEnv(t)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	for _, model := range DefaultModels {
+		if _, ok := cfg.Prices[model]; !ok {
+			t.Errorf("no default price for %s, which is probed by default", model)
+		}
+	}
+}
+
+// The shipped values, pinned. They are read off a third party's table and will
+// drift; this is what makes the drift a failing test rather than a quietly wrong
+// figure on a public page.
+func TestDefaultPricesMatchTheirSource(t *testing.T) {
+	want := map[string]ModelPrice{
+		"mimo-v2.5":     {In: 0.40, Out: 2.00, Cached: 0.08},
+		"mimo-v2.5-pro": {In: 1.00, Out: 3.00, Cached: 0.20},
+	}
+	for model, price := range want {
+		if got := DefaultPrices[model]; got != price {
+			t.Errorf("%s = %+v, want %+v", model, got, price)
+		}
+	}
+	if len(DefaultPrices) != len(want) {
+		t.Errorf("DefaultPrices has %d entries, want %d", len(DefaultPrices), len(want))
+	}
+}
+
+// A mutable package-level map is one careless write away from a process that
+// prices differently after its first Load.
+func TestLoadDoesNotHandOutTheDefaultTableItself(t *testing.T) {
+	setMinimalEnv(t)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	cfg.Prices["mimo-v2.5"] = ModelPrice{In: 999}
+	if DefaultPrices["mimo-v2.5"].In == 999 {
+		t.Error("Load returned the package-level map; a caller can rewrite the prices")
+	}
+}
+
+// Off is a supported state for a deployment that would rather show nothing than
+// a list-rate estimate.
+func TestLoadPricesOff(t *testing.T) {
+	setMinimalEnv(t)
+	t.Setenv("BACKEND_PRICES", "none")
 
 	cfg, err := Load()
 	if err != nil {
@@ -334,6 +383,11 @@ func TestLoadParsesPrices(t *testing.T) {
 	}
 	if got, want := cfg.Prices["mimo-v2.5"], (ModelPrice{In: 0.30, Out: 1.20, Cached: 0.15}); got != want {
 		t.Errorf("mimo-v2.5 = %+v, want %+v", got, want)
+	}
+	// A given table REPLACES the shipped one. Merging would let a model keep a
+	// stale default while its neighbour was updated.
+	if len(cfg.Prices) != 2 {
+		t.Errorf("Prices = %+v, want only what was configured", cfg.Prices)
 	}
 	// The cached rate is optional and falls back to the INPUT rate, which
 	// overstates a cache hit rather than flattering it.
@@ -378,5 +432,49 @@ func TestLoadAcceptsZeroPrices(t *testing.T) {
 	}
 	if _, ok := cfg.Prices["mimo-v2.5"]; !ok {
 		t.Error("a zero-priced model must still be in the table")
+	}
+}
+
+// Now that prices ship by default, the failure mode is a cost panel that
+// silently disappears because BACKEND_MODELS named a model the table has never
+// heard of. The page cannot say so, so the log has to.
+func TestUnpricedModelsNamesWhatTheTableIsMissing(t *testing.T) {
+	setMinimalEnv(t)
+	t.Setenv("BACKEND_MODELS", "mimo-v2.5,mimo-v2-flash")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	missing := cfg.UnpricedModels()
+	if len(missing) != 1 || missing[0] != "mimo-v2-flash" {
+		t.Errorf("UnpricedModels() = %v, want [mimo-v2-flash]", missing)
+	}
+}
+
+func TestUnpricedModelsIsEmptyForTheDefaultPair(t *testing.T) {
+	setMinimalEnv(t)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if missing := cfg.UnpricedModels(); len(missing) > 0 {
+		t.Errorf("UnpricedModels() = %v; the shipped table must cover the probed pair", missing)
+	}
+}
+
+// Pricing turned off is a decision, not an oversight, and has nothing to warn
+// about.
+func TestUnpricedModelsSaysNothingWhenPricingIsOff(t *testing.T) {
+	setMinimalEnv(t)
+	t.Setenv("BACKEND_PRICES", "none")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if missing := cfg.UnpricedModels(); missing != nil {
+		t.Errorf("UnpricedModels() = %v, want nothing", missing)
 	}
 }

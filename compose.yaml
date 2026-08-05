@@ -61,7 +61,7 @@ services:
       BACKEND_MODELS: "${BACKEND_MODELS:-}"
 
       # Per-model list price, model=in/out[/cached] in USD per million tokens.
-      # Empty means the cost panel is hidden rather than priced at a guess.
+      # Empty means the shipped table; "none" hides the cost panel.
       BACKEND_PRICES: "${BACKEND_PRICES:-}"
 
       # Must stay inside the mounted volume below, or the history is written to
