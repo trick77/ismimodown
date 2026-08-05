@@ -253,6 +253,24 @@ func TestCostPricesAnUnknownModelAtZeroAndStillTotals(t *testing.T) {
 		t.Errorf("prompt tokens = %d, want 2000 — tokens are counted for both",
 			got.Total.Tokens.Prompt)
 	}
+	// Total is pre-seeded with a zero, so it would carry a figure even if the
+	// per-group path did not. The phase and probe groups are built purely by
+	// accumulate, which is the path that has to hold: a group left with a nil
+	// USD renders as "not priced" in the panel, which is the state this whole
+	// change is supposed to have made unreachable.
+	for _, p := range got.Phases {
+		if p.USD == nil || p.ListUSD == nil {
+			t.Errorf("phase %q came back unpriced: %+v", p.Phase, p.CostGroup)
+		}
+	}
+	for _, p := range got.Probes {
+		if p.USD == nil || p.ListUSD == nil {
+			t.Errorf("probe %q came back unpriced: %+v", p.Probe, p.CostGroup)
+		}
+	}
+	if len(got.Phases) == 0 || len(got.Probes) == 0 {
+		t.Fatal("no phase or probe groups; the assertions above checked nothing")
+	}
 }
 
 func TestCostSeriesIsBucketedAndOrdered(t *testing.T) {
