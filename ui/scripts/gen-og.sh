@@ -116,8 +116,20 @@ fi
 # The band is y=140..270; the wordmark's ink sits at 171..258, clear of the
 # eyebrow above and the lede below. Keep the slack — a band that clips the
 # wordmark measures a fragment and reports a fallback that is not there.
+#
+# If the band comes back all black — type gone, or the band moved off the
+# wordmark — -trim has nothing to trim. ImageMagick 7 treats that as a WARNING,
+# not an error: it prints "geometry does not contain image" on stderr, reports a
+# width of 1 and still exits 0, so the range check below catches it and prints
+# the diagnosis. Verified against `magick -size 1200x630 xc:black`, not assumed.
+#
+# The `|| echo 0` is only insurance against a version that decides to exit
+# non-zero instead, where `set -e` would otherwise kill the script on the raw
+# ImageMagick error. stderr is deliberately NOT silenced: on a real failure that
+# warning names the cause, and this is the check most likely to be the first
+# sign that something moved.
 MARK_W="$(magick "$SHOT" -crop "${W}x130+0+140" +repage -alpha off \
-	-colorspace gray -threshold 60% -trim -format '%w' info:)"
+	-colorspace gray -threshold 60% -trim -format '%w' info: || echo 0)"
 if ((MARK_W < 480 || MARK_W > 600)); then
 	echo "gen-og: wordmark measures ${MARK_W}px, expected 480-600 — font fallback, or type resized past the square crop" >&2
 	fail=1

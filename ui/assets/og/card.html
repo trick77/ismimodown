@@ -275,6 +275,11 @@
           server-side time
         </div>
       </div>
+      <!-- The domain, printed INTO the picture. It is the one copy that a
+           deploy cannot fix on its own: moving the host means editing
+           compose.yaml's Host() rule and index.html's og: URLs AND this line,
+           then re-running gen-og.sh, or the card keeps advertising an address
+           that no longer answers. -->
       <div class="host">mimostats.trick77.com</div>
     </div>
   </body>

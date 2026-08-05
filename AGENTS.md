@@ -126,6 +126,8 @@ viewer's clock. Swiss orthography in German text: `ss` never `ß`. Anything visu
 from `ui/assets/og/card.html` by `ui/scripts/gen-og.sh` — re-run and commit after editing the
 source. A preview is scraped once and cached by the messenger (Slack ~30 min, WhatsApp and
 Telegram effectively forever), so any number baked in freezes and is then shown as current.
-WhatsApp crops it SQUARE to the middle 630px; keep the wordmark and every lede line inside
-that band. The script asserts both, and the og: URLs hardcode the `Host()` from `compose.yaml`
-— change them together.
+Bump `?v=` on the og:/twitter: image URLs in the same commit, or a messenger that already
+scraped the page never re-fetches and the redraw reaches nobody. WhatsApp crops it SQUARE to
+the middle 630px; keep the wordmark and every lede line inside that band. The script asserts
+both, and the og: URLs hardcode the `Host()` from `compose.yaml` — change them together, plus
+the `.host` line card.html prints into the picture.
