@@ -195,10 +195,19 @@ export default function App() {
     };
   }, [load]);
 
+  // The default needs no parameter to describe it: a bare URL already means
+  // 24h, because readWindow falls back to it. So the default DELETES the
+  // parameter rather than writing it, and the address bar stays clean for the
+  // view most people are on. Every other window still writes itself, so those
+  // stay linkable.
   const selectWindow = (key: string) => {
     setWindowKey(key);
     const url = new URL(window.location.href);
-    url.searchParams.set("window", key);
+    if (key === DEFAULT_WINDOW) {
+      url.searchParams.delete("window");
+    } else {
+      url.searchParams.set("window", key);
+    }
     window.history.replaceState(null, "", url);
   };
 
