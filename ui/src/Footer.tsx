@@ -10,8 +10,12 @@
 //
 // Bottom of the page and quiet, because it is a qualifier and not a finding.
 // The panels above are the content.
-const REPO_URL = "https://github.com/trick77/mimostats";
-
+//
+// The disclaimer is ALL of it. A paragraph restating the vantage and the
+// cadence was cut: the eyebrow says both, and the panels that depend on the
+// single-vantage caveat already carry it where it applies. A footer that
+// re-explains the page it sits under is padding around the one sentence that
+// has to be here.
 export function Footer() {
   return (
     <footer className="mt-14 border-t border-border pt-6 text-label text-muted">
@@ -22,23 +26,6 @@ export function Footer() {
         Not operated by, endorsed by or connected with Xiaomi. “Xiaomi” and
         “MiMo” are trademarks of their respective owner, named here only to
         identify what is measured.
-      </p>
-      <p className="mt-2 max-w-[64ch]">
-        Every figure on this page is measured from a single European egress,
-        every five minutes, against the public API. One vantage point sees one
-        path: a fault it reports may be on the route rather than at the
-        endpoint, and the network panel above is where that distinction is
-        drawn.
-      </p>
-      <p className="mt-2">
-        <a
-          className="underline underline-offset-2 hover:text-ink-dim"
-          href={REPO_URL}
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Source on GitHub
-        </a>
       </p>
     </footer>
   );

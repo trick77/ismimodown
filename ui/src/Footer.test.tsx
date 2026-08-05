@@ -31,27 +31,15 @@ describe("Footer", () => {
     ).toBeInTheDocument();
   });
 
-  // A single vantage point is a real limit on every number above, and the
-  // footer is where it is stated plainly rather than inferred from a chart.
-  it("says the measurements come from one vantage point", () => {
+  // The disclaimer is the whole footer. Anything else that lands here is
+  // restating the page above it, which is how a footer turns into padding
+  // around the one sentence that has to be in it.
+  it("carries nothing but the disclaimer", () => {
     // Given / When
-    render(<Footer />);
+    const { container } = render(<Footer />);
 
     // Then
-    expect(screen.getByText(/single European egress/i)).toBeInTheDocument();
-  });
-
-  it("links to the source in a new tab", () => {
-    // Given / When
-    render(<Footer />);
-
-    // Then
-    const link = screen.getByRole("link", { name: /source on github/i });
-    expect(link).toHaveAttribute(
-      "href",
-      "https://github.com/trick77/mimostats",
-    );
-    expect(link).toHaveAttribute("target", "_blank");
-    expect(link).toHaveAttribute("rel", expect.stringContaining("noopener"));
+    expect(container.querySelectorAll("p")).toHaveLength(1);
+    expect(screen.queryByRole("link")).not.toBeInTheDocument();
   });
 });
