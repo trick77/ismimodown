@@ -1,5 +1,5 @@
 import type { Cycle } from "./api/types";
-import { formatMs, formatTime } from "./format";
+import { formatMs, formatTime, plural } from "./format";
 import { isOffPeak, OFFPEAK_COEFFICIENT } from "./offpeak";
 import { OffPeakChip } from "./ui";
 
@@ -53,9 +53,12 @@ export function PulseStrip({ cycles }: { cycles: Cycle[] }) {
       <div
         className="flex h-12 items-end gap-px overflow-hidden max-[720px]:gap-0"
         role="img"
-        aria-label={`Last ${ordered.length} cycles: ${
-          ordered.filter((s) => s.ok).length
-        } succeeded, ${ordered.filter((s) => !s.ok).length} failed${
+        aria-label={`Last ${ordered.length} ${plural(
+          ordered.length,
+          "cycle",
+        )}: ${ordered.filter((s) => s.ok).length} succeeded, ${
+          ordered.filter((s) => !s.ok).length
+        } failed${
           shaded ? ", shaded cycles billed at MiMo's off-peak rate" : ""
         }`}
         data-testid="pulse-strip"

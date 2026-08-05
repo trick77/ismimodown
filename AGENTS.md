@@ -40,6 +40,12 @@ survivors and improves as truncation worsens. Classes in `probe.CensoringErrorCl
 add to that list, never to a literal in a query. Connection failures are not censoring —
 nothing was measured. Never fold censored runs back INTO the percentiles.
 
+**The API always publishes it; a UI surface may hold the prose below `MIN_FAILURES_FOR_STATE`.**
+The model card's banner is gated there, like every chip: one cut-off run out of 288 daily
+cycles is a rounding error, and an amber box about it sits on the card forever. The count
+itself is never suppressed — chart bands still draw it, and the payload always carries it.
+Gate prose, never data.
+
 **Cycles run models concurrently, probes within a model sequentially.** Sequential models
 make a cycle cost the sum, so the cadence breaks at ~`CycleInterval / len(Models)` and the
 series thins out during the incident it exists to record. Two probes at once against one

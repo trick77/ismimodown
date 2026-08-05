@@ -1,7 +1,8 @@
 import type { Summary } from "./api/types";
 import { Figure, StateChip } from "./ui";
-import { formatMs, formatPct, formatTps } from "./format";
+import { formatMs, formatPct, formatTps, plural } from "./format";
 import {
+  MIN_FAILURES_FOR_STATE,
   scoreAvailability,
   scoreCorrectness,
   scoreRatio,
@@ -86,20 +87,31 @@ export function ModelCards({
               />
             </div>
 
-            {m.censored > 0 && (
+            {m.censored >= MIN_FAILURES_FOR_STATE && (
               // Not a StateChip, and deliberately not folded into the
               // availability figure: these runs ARE counted there. This says
               // something the numbers above structurally cannot — that the
               // slowest runs in the window are missing from the percentiles
               // beside it, and that the worse the endpoint gets the more
               // flattering those percentiles become.
+              //
+              // Gated on the same floor the chips use, for the same reason: a
+              // single cut-off run is a rounding error, not a finding, and an
+              // amber box about it sits on the card every day forever. The
+              // floor is also what keeps the two halves of this card from
+              // contradicting each other — a censored run is a SUBSET of a
+              // failed one, so censored >= 3 implies at least 3 failures, and
+              // this banner can never appear while the Availability chip
+              // beside it is still suppressed by its own floor.
               <p
                 className="mt-4 rounded-ui border border-fault-edge/40 bg-fault-edge/10 px-3 py-2 text-label text-fault-edge"
                 data-testid={`censored-${m.model_id}`}
               >
                 {m.censored} of {m.attempts} runs were cut off by the timeout
-                limits. Only runs that finished reach the percentiles above, so
-                the slowest runs in this window are not in them.
+                limits. They count as failures in Availability above. The p50s
+                do not include them — those are medians of the runs that
+                finished, so the more runs get cut off, the faster this model
+                looks here.
               </p>
             )}
 
@@ -108,9 +120,9 @@ export function ModelCards({
                 className="mt-4 rounded-ui border border-danger/40 bg-danger/10 px-3 py-2 text-label text-danger"
                 role="alert"
               >
-                Reasoning returned {m.max_reasoning_tokens} tokens despite being
-                disabled — these latency figures are not measuring what they
-                claim.
+                Reasoning returned {m.max_reasoning_tokens}{" "}
+                {plural(m.max_reasoning_tokens, "token")} despite being disabled
+                — these latency figures are not measuring what they claim.
               </p>
             )}
           </section>

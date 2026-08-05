@@ -7,8 +7,22 @@ import {
   formatTps,
   formatTime,
   LOG_SCALE_THRESHOLD,
+  plural,
   shouldUseLogScale,
 } from "./format";
+
+describe("plural", () => {
+  it("uses the singular only at exactly one", () => {
+    expect(plural(1, "cycle")).toBe("cycle");
+    expect(plural(0, "cycle")).toBe("cycles");
+    expect(plural(2, "cycle")).toBe("cycles");
+  });
+
+  it("takes an irregular plural when the suffix will not do", () => {
+    expect(plural(2, "query", "queries")).toBe("queries");
+    expect(plural(1, "query", "queries")).toBe("query");
+  });
+});
 
 describe("formatMs", () => {
   // Values auto-scale their unit, because a normal ~900ms reading and a
