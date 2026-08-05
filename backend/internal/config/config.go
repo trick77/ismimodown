@@ -151,7 +151,7 @@ type Config struct {
 
 	// Prices is the per-model list price, keyed by model id. DefaultPrices
 	// unless BACKEND_PRICES says otherwise, and empty when it says "none" — in
-	// which case /api/cost serves token counts with no money in them and the
+	// which case the cost panel carries token counts with no money in them and the
 	// dashboard hides the panel.
 	Prices map[string]ModelPrice
 

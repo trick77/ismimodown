@@ -144,12 +144,41 @@ export type PulseResponse = {
   cycles: Cycle[];
 };
 
-export type ModelInfo = { id: string; note: string };
+// The five lines the page draws.
+//
+// Named fields rather than a map keyed by metric, because two of them ARE the
+// same metric: ttft on the short probe and on the wide one. The gap between
+// those two is the prefill signal, so a shape that could only hold one of them
+// would delete the thing wide exists to measure.
+export type DashboardSeries = {
+  ttft: ModelSeries;
+  ttft_wide: ModelSeries;
+  tps: ModelSeries;
+  total: ModelSeries;
+  network: NetSeries;
+};
 
-export type ModelsResponse = {
-  models: ModelInfo[];
-  probes: string[];
-  windows: string[];
+// Everything one render needs, in one response.
+//
+// `now` and `baseline` are the two fixed windows the verdict compares the
+// selected one against — 24h against 7d — chosen by the server rather than
+// asked for, because they are the page's question rather than a caller's.
+//
+// `pulse` is one group per model; `samples` is the whole model-and-probe cross
+// product, model-major with short before wide. Both arrive as groups rather
+// than pre-merged: mixing two models' TTFTs into one array is exactly what the
+// probe filter exists to prevent, so the merge stays here, where the component
+// that needs it can sort on the instant.
+export type Dashboard = {
+  window: string;
+  generated_at: string;
+  summary: Summary;
+  now: Summary;
+  baseline: Summary;
+  series: DashboardSeries;
+  cost: CostBreakdown;
+  pulse: PulseResponse[];
+  samples: SamplesResponse[];
 };
 
 export const TARGET_MIMO = "mimo_sgp";

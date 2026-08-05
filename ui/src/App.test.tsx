@@ -107,39 +107,43 @@ const cost = () => ({
   generated_at: "2026-08-04T12:00:00Z",
 });
 
-const probeOf = (url: string) =>
-  new URL(url, "http://x").searchParams.get("probe") ?? "";
+// One group per model and probe, as the daemon composes them: model-major,
+// short before wide. Spelled out rather than echoed off the query, because
+// there is no query left to echo — the fan-out is the server's now, and a
+// fixture that collapsed it would hide a merge that dropped a group.
+const sampleGroups = (over: Record<string, unknown[]> = {}) => [
+  { model_id: "mimo-v2.5", probe: "short", samples: over["short"] ?? [] },
+  { model_id: "mimo-v2.5", probe: "wide", samples: over["wide"] ?? [] },
+];
+
+// The whole page, in one body. Overrides stay per-part, so every call site
+// still says which part it is about.
+const dashboard = (overrides: Record<string, unknown> = {}) => ({
+  window: "24h",
+  generated_at: "2026-08-04T12:00:00Z",
+  summary: overrides.summary ?? summary(),
+  now: overrides.now ?? overrides.summary ?? summary(),
+  baseline: overrides.baseline ?? overrides.summary ?? summary(),
+  series: {
+    ttft: overrides.ttft ?? emptySeries,
+    ttft_wide: overrides.ttftWide ?? emptySeries,
+    tps: overrides.tps ?? emptySeries,
+    total: overrides.total ?? emptySeries,
+    network: overrides.net ?? emptyNet,
+  },
+  cost: overrides.cost ?? cost(),
+  pulse: overrides.pulse ?? [
+    { model_id: "mimo-v2.5", probe: "short", cycles: [] },
+  ],
+  samples:
+    overrides.samples ??
+    sampleGroups(overrides.sampleRows as Record<string, unknown[]>),
+});
 
 function mockFetch(overrides: Record<string, unknown> = {}) {
   return vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input);
-    const body = url.includes("/api/summary")
-      ? (overrides.summary ?? summary())
-      : url.includes("metric=network")
-        ? emptyNet
-        : url.includes("/api/series")
-          ? emptySeries
-          : url.includes("/api/samples")
-            ? // Echoed back off the query, because the page now asks twice —
-              // once per probe — and a mock that answered "short" to both would
-              // hide a merge that dropped one of them.
-              {
-                model_id: "mimo-v2.5",
-                probe: probeOf(url),
-                samples:
-                  (overrides.samples as Record<string, unknown[]>)?.[
-                    probeOf(url)
-                  ] ?? [],
-              }
-            : url.includes("/api/pulse")
-              ? (overrides.pulse ?? {
-                  model_id: "mimo-v2.5",
-                  probe: "short",
-                  cycles: [],
-                })
-              : url.includes("/api/cost")
-                ? (overrides.cost ?? cost())
-                : {};
+    const body = dashboard(overrides);
     if (url.includes("/api/events")) {
       // eventsStatus makes the stream FAIL instead, which is what the reconnect
       // tests need — streamSSE throws on a non-OK response.
@@ -182,27 +186,45 @@ describe("App", () => {
   });
 
   // End-to-end latency is the one number a reader waits for, and it is a
-  // SEPARATE series — total_ms, not ttft_ms and not derived from tps. The URL is
-  // asserted alongside the heading because the panel renders identically off
-  // whichever metric it is handed, so the heading alone cannot tell the two
-  // apart.
+  // SEPARATE series — total_ms, not ttft_ms and not derived from tps. The panel
+  // renders identically off whichever series it is handed, so the heading alone
+  // cannot tell the two apart.
+  //
+  // There is no URL to assert on any more, so the fixture does the telling: only
+  // `total` carries points, so only the whole-wait panel may have something to
+  // draw. Wiring series.ttft into it — the mistake a field-name payload makes
+  // possible — puts the empty state in the wrong card and fails here.
   it("charts total response time off the total metric", async () => {
-    const fetchMock = mockFetch();
-    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal(
+      "fetch",
+      mockFetch({
+        total: {
+          ...emptySeries,
+          metric: "total",
+          models: { "mimo-v2.5": [{ t: 0, n: 1, censored: 0, p50: 1700 }] },
+        },
+      }),
+    );
     render(<App />);
 
-    expect(await screen.findByText("The whole wait")).toBeInTheDocument();
-    expect(
-      fetchMock.mock.calls.some((c) =>
-        String(c[0]).includes("metric=total&window=24h&probe=short"),
-      ),
-    ).toBe(true);
+    const whole = (await screen.findByText("The whole wait")).closest(
+      "section",
+    );
+    expect(whole).not.toHaveTextContent(/Not enough data yet/);
+    const ttft = screen
+      .getByText("Time to first token")
+      .closest("section") as HTMLElement;
+    expect(ttft).toHaveTextContent(/Not enough data yet/);
   });
 
   // The table promises the raw record, and the hourly wide run was missing
   // from it — stored against the same cycle, served by the same endpoint, never
-  // asked for. /api/samples filters on the probe by design, so the page has to
-  // ask twice and merge.
+  // asked for.
+  //
+  // Which groups get FETCHED is the daemon's business now, and its own test
+  // asserts the cross product. What is still this page's business, and what
+  // this checks, is that it draws every group it is handed rather than the
+  // first: the merge is the half of the bug that lives here.
   it("asks for both probes and draws them in one table", async () => {
     const row = (over: Record<string, unknown>) => ({
       at: "2026-08-04T12:00:00Z",
@@ -216,58 +238,70 @@ describe("App", () => {
       error_class: null,
       ...over,
     });
-    const fetchMock = mockFetch({
-      samples: {
-        short: [row({ probe: "short" })],
-        // Ungraded, as every wide run is, and sharing the short run's cycle.
-        wide: [row({ probe: "wide", answer_ok: null, ttft_ms: 4200 })],
-      },
-    });
-    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal(
+      "fetch",
+      mockFetch({
+        sampleRows: {
+          short: [row({ probe: "short" })],
+          // Ungraded, as every wide run is, and sharing the short run's cycle.
+          wide: [row({ probe: "wide", answer_ok: null, ttft_ms: 4200 })],
+        },
+      }),
+    );
     render(<App />);
 
     expect(await screen.findByText("short")).toBeInTheDocument();
     expect(screen.getByText("wide")).toBeInTheDocument();
-    const asked = fetchMock.mock.calls
-      .map((c) => String(c[0]))
-      .filter((u) => u.includes("/api/samples"))
-      .map(probeOf);
-    expect(new Set(asked)).toEqual(new Set(["short", "wide"]));
   });
 
-  // The other half of the same omission: every /api/samples call named the
-  // FIRST model, so the second model's runs were absent from the page's only
-  // raw record. Once the wide probe alternates between models, half the fleet's
-  // wide runs land on the model this never asked about — the table looked like
-  // it was missing runs that had happened.
+  // The other half of the same omission: every request named the FIRST model,
+  // so the second model's runs were absent from the page's only raw record.
+  // Once the wide probe alternates between models, half the fleet's wide runs
+  // land on the model that was never asked about — the table looked like it was
+  // missing runs that had happened.
+  //
+  // Same division as above: the daemon sends a group per model, and this is
+  // where drawing only the first would still show up.
   it("asks for every model's samples, not just the first", async () => {
-    const base = summary();
-    const first = base.models[0]!;
-    const fetchMock = mockFetch({
-      summary: {
-        ...base,
-        models: [first, { ...first, model_id: "mimo-v2.5-pro" }],
-      },
+    const row = (model: string, ttft: number) => ({
+      at: "2026-08-04T12:00:00Z",
+      model_id: model,
+      probe: "short",
+      ttft_ms: ttft,
+      total_ms: 1700,
+      itl_p50_ms: 24,
+      output_tps: 41,
+      ok: true,
+      answer_ok: true,
+      error_class: null,
     });
-    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal(
+      "fetch",
+      mockFetch({
+        samples: [
+          {
+            model_id: "mimo-v2.5",
+            probe: "short",
+            samples: [row("mimo-v2.5", 916)],
+          },
+          {
+            model_id: "mimo-v2.5-pro",
+            probe: "short",
+            samples: [row("mimo-v2.5-pro", 242)],
+          },
+        ],
+      }),
+    );
     render(<App />);
 
-    await screen.findByTestId("model-card-mimo-v2.5-pro");
-    const asked = fetchMock.mock.calls
-      .map((c) => String(c[0]))
-      .filter((u) => u.includes("/api/samples"))
-      .map(
-        (u) =>
-          `${new URL(u, "http://x").searchParams.get("model")}/${probeOf(u)}`,
-      );
-    expect(new Set(asked)).toEqual(
-      new Set([
-        "mimo-v2.5/short",
-        "mimo-v2.5/wide",
-        "mimo-v2.5-pro/short",
-        "mimo-v2.5-pro/wide",
-      ]),
-    );
+    // Both models' rows inside the table, not just the group that happened to
+    // come first. Scoped to the card, because the model ids appear in the
+    // cards above it too.
+    const table = (await screen.findByText("Raw cycles")).closest(
+      "section",
+    ) as HTMLElement;
+    expect(table).toHaveTextContent("916 ms");
+    expect(table).toHaveTextContent("242 ms");
   });
 
   // The residual must never be called model time anywhere on the page.
@@ -434,11 +468,14 @@ describe("App", () => {
       expect(opens()).toBe(3);
     });
 
-    // The banner reads a fixed window and the cards read the selected one, so a
-    // load wants three summaries — but on the default window two of them are
-    // the same URL. Every /api/* call spends a token from the per-IP limiter,
-    // and this runs on every cycle and every stream event.
-    it("asks for each summary window once, not once per consumer", async () => {
+    // Every /api/* call spends a token from the per-IP limiter, the bucket
+    // holds twenty, and this runs on every cycle and every stream event as well
+    // as on every pill click. A load used to cost fifteen — three summaries,
+    // five series, the cost panel, a pulse per model and the raw rows for every
+    // model-and-probe pair — so two clicks in a row answered "rate limited".
+    //
+    // An exact count rather than a set: it is the number that was wrong.
+    it("asks the daemon once per load, not once per panel", async () => {
       const fetchMock = mockFetch();
       vi.stubGlobal("fetch", fetchMock);
       render(<App />);
@@ -446,13 +483,10 @@ describe("App", () => {
       await waitFor(() =>
         expect(screen.getByTestId("verdict")).toHaveTextContent(/normal/i),
       );
-      const windows = fetchMock.mock.calls
+      const asked = fetchMock.mock.calls
         .map((c) => String(c[0]))
-        .filter((u) => u.includes("/api/summary"))
-        .map((u) => new URL(u, "http://x").searchParams.get("window"));
-      expect(new Set(windows).size).toBe(windows.length);
-      // 24h serves both the selected window and the banner's.
-      expect(windows.sort()).toEqual(["24h", "7d"]);
+        .filter((u) => !u.includes("/api/events"));
+      expect(asked).toEqual(["/api/dashboard?window=24h"]);
     });
 
     it("refetches on the probe's cadence even while the stream stays open", async () => {
@@ -463,7 +497,7 @@ describe("App", () => {
 
       const loads = () =>
         fetchMock.mock.calls.filter((c) =>
-          String(c[0]).includes("/api/summary"),
+          String(c[0]).includes("/api/dashboard"),
         ).length;
 
       await waitFor(() => expect(loads()).toBeGreaterThan(0));
@@ -517,17 +551,6 @@ describe("the cost panel", () => {
 });
 
 describe("the pulse strip", () => {
-  // The strip probes whatever the summary lists, so a one-model fixture cannot
-  // exercise the merge.
-  const twoModelSummary = () => {
-    const base = summary();
-    const first = base.models[0]!;
-    return {
-      ...base,
-      models: [first, { ...first, model_id: "mimo-v2.5-pro" }],
-    };
-  };
-
   const cycle = (model: string, over: Record<string, unknown> = {}) => ({
     model_id: model,
     probe: "short",
@@ -549,30 +572,17 @@ describe("the pulse strip", () => {
   it("shows a failure on either model", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(async (input: RequestInfo | URL) => {
-        const url = String(input);
-        if (url.includes("/api/events")) return new Promise<Response>(() => {});
-        const body = url.includes("/api/pulse")
-          ? url.includes("mimo-v2.5-pro")
-            ? cycle("mimo-v2.5-pro", {
-                ok: false,
-                ttft_ms: null,
-                error_class: "timeout",
-              })
-            : cycle("mimo-v2.5")
-          : url.includes("/api/summary")
-            ? twoModelSummary()
-            : url.includes("metric=network")
-              ? emptyNet
-              : url.includes("/api/series")
-                ? emptySeries
-                : url.includes("/api/samples")
-                  ? { model_id: "mimo-v2.5", probe: "short", samples: [] }
-                  : {};
-        return new Response(JSON.stringify(body), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        });
+      mockFetch({
+        // One group per model, as the daemon sends them. The strip merges
+        // them; a page that drew only the first would paint this cycle green.
+        pulse: [
+          cycle("mimo-v2.5"),
+          cycle("mimo-v2.5-pro", {
+            ok: false,
+            ttft_ms: null,
+            error_class: "timeout",
+          }),
+        ],
       }),
     );
     render(<App />);

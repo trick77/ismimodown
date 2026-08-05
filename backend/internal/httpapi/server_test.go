@@ -174,7 +174,7 @@ func TestRedactErrPassesNilAndCleanErrorsThrough(t *testing.T) {
 // the client, since that error can carry a provider body or a credential.
 func TestServerErrorDoesNotLeakTheCause(t *testing.T) {
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/summary", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/dashboard", nil)
 
 	serverError(rec, req, errors.New("sqlite: no such table: tp-secret-detail"), "internal error")
 
