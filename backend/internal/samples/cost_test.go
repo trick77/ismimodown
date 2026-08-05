@@ -310,6 +310,47 @@ func TestCostSeriesIsBucketedAndOrdered(t *testing.T) {
 	}
 }
 
+// A bucket must hold the cycles whose TICKS fall in it, not the ones whose
+// jitter happened to land there.
+//
+// Cycle ticks are epoch-aligned to five minutes and every bucket width is a
+// multiple of that, so a bucket boundary always sits exactly on a tick. The
+// scheduler then jitters each cycle by ±30 s around it, which — flooring the raw
+// instant — put the boundary cycle on either side of the line at random and left
+// buckets holding two, three or four cycles instead of three. In a series that
+// SUMS that is a ±50% sawtooth describing nothing that was spent.
+func TestCostBucketsByTheTickNotTheJitter(t *testing.T) {
+	s := New(openTestDB(t))
+	w, _ := LookupWindow("24h") // 15-minute buckets, 3 cycles each
+	base := time.Date(2026, 8, 4, 10, 0, 0, 0, time.UTC)
+	now := base.Add(2 * time.Hour)
+
+	// Twelve ticks across an hour, each pushed off its tick by 20 s — the ones at
+	// 10:00, 10:15, 10:30 and 10:45 sit on a bucket boundary, and alternating the
+	// sign drags half of them backwards over it.
+	for i := 0; i < 12; i++ {
+		off := 20 * time.Second
+		if i%2 == 0 {
+			off = -off
+		}
+		saveAt(t, s, base.Add(time.Duration(i)*5*time.Minute+off),
+			costRun("mimo-v2.5", probe.ProbeInfer, 1000, 0, 0))
+	}
+
+	got, err := s.Cost(context.Background(), w, testPrices, now)
+	if err != nil {
+		t.Fatalf("Cost: %v", err)
+	}
+	if len(got.Series) != 4 {
+		t.Fatalf("got %d buckets, want 4 — a cycle straddled a boundary", len(got.Series))
+	}
+	for i, p := range got.Series {
+		if p.Runs != 3 {
+			t.Errorf("bucket %d at %d holds %d runs, want 3", i, p.T, p.Runs)
+		}
+	}
+}
+
 func TestOffPeakSpansClipToTheWindow(t *testing.T) {
 	// 12:00 to 20:00 UTC: the window opens at 16:00 and the span must stop at
 	// the right edge rather than running to midnight.
