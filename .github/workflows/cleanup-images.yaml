@@ -24,18 +24,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       # container-retention-policy panics rather than no-op'ing when the package
-      # does not exist. mimostats has not cut its first release yet, so this guard
+      # does not exist. ismimodown has not cut its first release yet, so this guard
       # is load-bearing here rather than merely defensive.
       - id: package-check
-        name: Check whether the mimostats package exists
+        name: Check whether the ismimodown package exists
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          if gh api "users/${{ github.repository_owner }}/packages/container/mimostats" --silent 2>/dev/null; then
+          if gh api "users/${{ github.repository_owner }}/packages/container/ismimodown" --silent 2>/dev/null; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
           else
             echo "exists=false" >> "$GITHUB_OUTPUT"
-            echo "No mimostats container package yet — nothing to clean." >> "$GITHUB_STEP_SUMMARY"
+            echo "No ismimodown container package yet — nothing to clean." >> "$GITHUB_STEP_SUMMARY"
           fi
 
       # Keeps the 10 most recent tagged versions per image and removes the rest,
@@ -47,7 +47,7 @@ jobs:
         with:
           account: user
           token: ${{ secrets.GITHUB_TOKEN }}
-          image-names: "mimostats"
+          image-names: "ismimodown"
           tag-selection: both
           keep-n-most-recent: 10
           # Protect anything pushed in the last hour so a fresh release is never

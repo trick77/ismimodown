@@ -1,4 +1,4 @@
-// Command mimostats runs the probe daemon and serves the public dashboard.
+// Command ismimodown runs the probe daemon and serves the public dashboard.
 package main
 
 import (
@@ -17,18 +17,18 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/trick77/mimostats/internal/config"
-	"github.com/trick77/mimostats/internal/httpapi"
-	"github.com/trick77/mimostats/internal/probe"
-	"github.com/trick77/mimostats/internal/ratelimit"
-	"github.com/trick77/mimostats/internal/retention"
-	"github.com/trick77/mimostats/internal/samples"
-	sched2 "github.com/trick77/mimostats/internal/sched"
-	"github.com/trick77/mimostats/internal/scheduler"
-	"github.com/trick77/mimostats/internal/sse"
-	"github.com/trick77/mimostats/internal/store"
-	"github.com/trick77/mimostats/internal/version"
-	"github.com/trick77/mimostats/web"
+	"github.com/trick77/ismimodown/internal/config"
+	"github.com/trick77/ismimodown/internal/httpapi"
+	"github.com/trick77/ismimodown/internal/probe"
+	"github.com/trick77/ismimodown/internal/ratelimit"
+	"github.com/trick77/ismimodown/internal/retention"
+	"github.com/trick77/ismimodown/internal/samples"
+	sched2 "github.com/trick77/ismimodown/internal/sched"
+	"github.com/trick77/ismimodown/internal/scheduler"
+	"github.com/trick77/ismimodown/internal/sse"
+	"github.com/trick77/ismimodown/internal/store"
+	"github.com/trick77/ismimodown/internal/version"
+	"github.com/trick77/ismimodown/web"
 )
 
 // healthcheckFlag makes the binary probe itself.
@@ -95,7 +95,7 @@ func run() error {
 	}
 	setupLogging(cfg.LogLevel)
 
-	slog.Info("starting mimostats",
+	slog.Info("starting ismimodown",
 		"version", version.Version,
 		"base_url", cfg.BaseURL,
 		"db", cfg.DBPath,

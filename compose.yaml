@@ -1,4 +1,4 @@
-# Production stack: one mimostats service behind an external Traefik reverse
+# Production stack: one ismimodown service behind an external Traefik reverse
 # proxy that terminates TLS. Requires an external "traefik" network
 # (`docker network create traefik`) shared with your Traefik instance.
 #
@@ -6,8 +6,8 @@
 #   docker compose up -d
 #
 services:
-  mimostats:
-    image: ghcr.io/trick77/mimostats:latest
+  ismimodown:
+    image: ghcr.io/trick77/ismimodown:latest
     restart: unless-stopped
 
     # Non-root, no capabilities, no writable rootfs. The process opens TCP
@@ -70,7 +70,7 @@ services:
       # --health-cmd, are CMD-SHELL: Docker wraps them in /bin/sh, which this
       # image does not have, so the check fails forever while the service is
       # perfectly healthy. Verified both ways.
-      test: ["CMD", "/usr/local/bin/mimostats", "-healthcheck"]
+      test: ["CMD", "/usr/local/bin/ismimodown", "-healthcheck"]
       interval: 60s
       timeout: 5s
       start_period: 15s

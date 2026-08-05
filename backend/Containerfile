@@ -23,17 +23,17 @@ COPY --from=ui /app/backend/web/dist ./web/dist
 # An empty directory to hand the runtime stage, so /data can be created with the
 # right ownership. distroless has no shell, so mkdir/chown cannot be run there.
 RUN mkdir -p /out/data
-RUN CGO_ENABLED=0 go build -ldflags="-s -w -X github.com/trick77/mimostats/internal/version.Version=${BACKEND_VERSION}" -o /out/mimostats ./cmd/mimostats
+RUN CGO_ENABLED=0 go build -ldflags="-s -w -X github.com/trick77/ismimodown/internal/version.Version=${BACKEND_VERSION}" -o /out/ismimodown ./cmd/ismimodown
 
 # --- Stage 3: minimal runtime ---
 #
 # distroless/static, unlike peeq's debian:13-slim: peeq shells out to ffmpeg and
-# yt-dlp for every download and needs a real userland. mimostats shells out to
+# yt-dlp for every download and needs a real userland. ismimodown shells out to
 # nothing — it opens TCP sockets and talks HTTPS — so it gets the smaller,
 # shell-less base. ca-certificates comes with the image, which matters because
 # every inference probe is an outbound TLS call.
 FROM gcr.io/distroless/static-debian12:nonroot AS runtime
-COPY --from=build /out/mimostats /usr/local/bin/mimostats
+COPY --from=build /out/ismimodown /usr/local/bin/ismimodown
 
 # /data exists in the image, owned by the UID the container runs as.
 #
@@ -53,4 +53,4 @@ COPY --from=build --chown=1000:1000 /out/data /data
 # across these deployments.
 USER 1000:1000
 EXPOSE 8080
-ENTRYPOINT ["/usr/local/bin/mimostats"]
+ENTRYPOINT ["/usr/local/bin/ismimodown"]

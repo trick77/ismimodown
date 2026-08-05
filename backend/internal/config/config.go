@@ -1,4 +1,4 @@
-// Package config loads mimostats' runtime configuration from environment
+// Package config loads ismimodown's runtime configuration from environment
 // variables. Secrets come from the environment only — never from a file the
 // repo could accidentally carry, since this repo is public and the MiMo
 // token-plan key is a live billable credential.
@@ -225,14 +225,19 @@ func env(key, def string) string {
 
 // Load reads configuration from the environment, applying defaults.
 //
-// Six variables reach this function. Everything else about how mimostats probes
+// Six variables reach this function. Everything else about how ismimodown probes
 // — the model pair, the price table, the system prompt, the retention window,
 // the whole timeout ladder — is a constant above, because it describes what the
 // dashboard measures rather than where it runs. A deployment that could change
 // those could publish a differently-shaped number under the same page.
 func Load() (Config, error) {
 	cfg := Config{
-		Addr:              env("BACKEND_ADDR", ":8080"),
+		Addr: env("BACKEND_ADDR", ":8080"),
+		// Still mimostats.db, and deliberately so: this is the one name the
+		// rename to ismimodown left alone. A running deployment bind-mounts
+		// ./data, and its entire history lives in this file — renaming the
+		// default orphans it, silently, on the next restart. config_test
+		// pins the string. Do not "finish" this one.
 		DBPath:            env("BACKEND_DB_PATH", "/data/mimostats.db"),
 		LogLevel:          env("BACKEND_LOG_LEVEL", "info"),
 		BaseURL:           env("BACKEND_MIMO_BASE_URL", DefaultBaseURL),

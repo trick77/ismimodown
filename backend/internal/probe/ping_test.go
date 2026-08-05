@@ -119,7 +119,7 @@ func TestPingClosedPortRecordsAClassAndDoesNotPanic(t *testing.T) {
 func TestPingUnresolvableHostIsADNSError(t *testing.T) {
 	// .invalid is reserved by RFC 2606 and must never resolve.
 	res := NewPinger(3*time.Second).Ping(context.Background(), TargetMimoSGP,
-		"mimostats-does-not-exist.invalid")
+		"ismimodown-does-not-exist.invalid")
 
 	if res.OK {
 		t.Fatal("expected failure")

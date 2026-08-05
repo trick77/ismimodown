@@ -70,7 +70,7 @@ batch, ~0.008 ms).
 
 ## Backend
 
-`backend/`, module `github.com/trick77/mimostats`. stdlib `net/http` with Go 1.22+ method
+`backend/`, module `github.com/trick77/ismimodown`. stdlib `net/http` with Go 1.22+ method
 routing, `Deps` struct DI, `slog` with `err` as the error key, `config.Load()` from `BACKEND_*`
 env only. SQLite via pure-Go `ncruces/go-sqlite3`, WAL, `CGO_ENABLED=0`, `STRICT` tables.
 
@@ -99,7 +99,7 @@ Both coverage gates must pass: absolute floor (75%) and patch coverage (75%).
 ## Deploy
 
 Container is distroless — no shell, no curl. Healthcheck is the binary probing itself:
-`mimostats -healthcheck`. Do NOT add a shell to the image to run one.
+`ismimodown -healthcheck`. Do NOT add a shell to the image to run one.
 
 `compose.yaml`: external traefik network, `read_only`, `cap_drop: ALL`, non-root, resource
 limits. Keep all of them.
@@ -123,9 +123,12 @@ technique and a learn-to-code app, and that disambiguation is the whole point of
 comments, tests and log lines, bare `MiMo` is fine. Model IDs verbatim (`mimo-v2.5`,
 `mimo-v2.5-pro`).
 
-The CODE is still `mimostats`: Go module, `cmd/mimostats`, GHCR image, compose service, npm
-package, `mimostats.db`. Deliberate. Do NOT "finish the rename" — it breaks clones and published
-images and buys nothing.
+The CODE is `ismimodown` too, lowercase everywhere: Go module, `cmd/ismimodown`, GHCR image,
+compose service, npm package. Never `IsMimoDown`, `isMimoDown` or `Is Mimo Down` as an identifier.
+
+One exception: the database file stays `/data/mimostats.db`. A deployment's whole history lives in
+that file on a bind mount; renaming the default orphans it on the next restart. `config_test` pins
+the string. Do NOT "finish" that last one.
 
 The footer denies affiliation with Xiaomi. Keep it; `Footer.test.tsx` asserts it.
 

@@ -4,7 +4,7 @@
 #
 #   BACKEND_MIMO_API_KEY=tp-... docker compose -f compose.dev.yaml up --build
 services:
-  mimostats:
+  ismimodown:
     build:
       context: .
       dockerfile: backend/Containerfile

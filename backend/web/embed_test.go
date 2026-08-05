@@ -90,7 +90,8 @@ func TestHandlerDoesNotFallBackForAssets(t *testing.T) {
 		}
 		// The mount point, not the product name — the same reasoning as
 		// TestHandlerServesIndex above, and for a sharper reason on a NEGATIVE
-		// assertion. This read "mimostats" until the site was renamed, and a
+		// assertion. This used to match the product name — which has since been
+		// renamed twice, first the site and then the code — and a
 		// negative check whose needle no longer exists does not fail: it passes
 		// forever, including on the day the shell really is served for a
 		// missing asset. `id="root"` is in every shell and in no 404 body.

@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/trick77/mimostats/internal/config"
-	"github.com/trick77/mimostats/internal/probe"
+	"github.com/trick77/ismimodown/internal/config"
+	"github.com/trick77/ismimodown/internal/probe"
 )
 
 // testPrices are round numbers so every expected figure below can be worked out

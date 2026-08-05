@@ -14,8 +14,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/trick77/mimostats/internal/config"
-	"github.com/trick77/mimostats/internal/probe"
+	"github.com/trick77/ismimodown/internal/config"
+	"github.com/trick77/ismimodown/internal/probe"
 )
 
 func main() {

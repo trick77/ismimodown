@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/trick77/mimostats/internal/probe"
-	"github.com/trick77/mimostats/internal/ratelimit"
-	"github.com/trick77/mimostats/internal/samples"
+	"github.com/trick77/ismimodown/internal/probe"
+	"github.com/trick77/ismimodown/internal/ratelimit"
+	"github.com/trick77/ismimodown/internal/samples"
 )
 
 // dashboardBody is what the page reads. Only the fields a test asserts on are

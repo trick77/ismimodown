@@ -7,7 +7,7 @@
 // keeps Traefik from dropping a five-minute-idle connection — is ignored rather
 // than treated as an error.
 //
-// peeq's 401 -> AuthExpiredError branch is dropped: mimostats is public, so a
+// peeq's 401 -> AuthExpiredError branch is dropped: ismimodown is public, so a
 // 401 here would be a server bug rather than an expired session.
 export type SSEEvent = { event: string; data: unknown };
 

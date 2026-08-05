@@ -4,7 +4,7 @@ updates:
   #
   # No ncruces/go-sqlite3 ignore here, deliberately. peeq pins that driver at
   # v0.23.3 because sqlite-vec's Go bindings are welded to its older API and
-  # host-function ABI. mimostats has no sqlite-vec — percentiles are plain SQL
+  # host-function ABI. ismimodown has no sqlite-vec — percentiles are plain SQL
   # over a rolling window — so the pin has no reason to exist and the driver
   # tracks its current release (v0.35.3 at time of writing).
   - package-ecosystem: gomod

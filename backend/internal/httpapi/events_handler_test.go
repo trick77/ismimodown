@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/trick77/mimostats/internal/ratelimit"
-	"github.com/trick77/mimostats/internal/samples"
-	"github.com/trick77/mimostats/internal/sse"
+	"github.com/trick77/ismimodown/internal/ratelimit"
+	"github.com/trick77/ismimodown/internal/samples"
+	"github.com/trick77/ismimodown/internal/sse"
 )
 
 // The stream is the reason the dashboard updates without polling, so it has to

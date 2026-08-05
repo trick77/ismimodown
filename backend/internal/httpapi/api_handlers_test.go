@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/trick77/mimostats/internal/config"
-	"github.com/trick77/mimostats/internal/probe"
-	"github.com/trick77/mimostats/internal/ratelimit"
-	"github.com/trick77/mimostats/internal/samples"
+	"github.com/trick77/ismimodown/internal/config"
+	"github.com/trick77/ismimodown/internal/probe"
+	"github.com/trick77/ismimodown/internal/ratelimit"
+	"github.com/trick77/ismimodown/internal/samples"
 )
 
 var testNow = time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC)

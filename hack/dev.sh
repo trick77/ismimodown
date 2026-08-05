@@ -7,7 +7,7 @@
 set -eu
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-DB_PATH=${BACKEND_DB_PATH:-/tmp/mimostats-dev.db}
+DB_PATH=${BACKEND_DB_PATH:-/tmp/ismimodown-dev.db}
 
 # The probe needs a real key to reach MiMo. Read it from .env if present rather
 # than baking a placeholder in — .env is gitignored precisely because this is a
@@ -35,7 +35,7 @@ trap cleanup EXIT INT TERM
     BACKEND_ADDR=127.0.0.1:8080 \
     BACKEND_DB_PATH="$DB_PATH" \
     BACKEND_LOG_LEVEL="${BACKEND_LOG_LEVEL:-debug}" \
-    go run ./cmd/mimostats
+    go run ./cmd/ismimodown
 ) &
 BACKEND_PID=$!
 

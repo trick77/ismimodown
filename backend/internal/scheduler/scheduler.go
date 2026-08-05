@@ -13,10 +13,10 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/trick77/mimostats/internal/probe"
-	"github.com/trick77/mimostats/internal/redact"
-	"github.com/trick77/mimostats/internal/samples"
-	"github.com/trick77/mimostats/internal/sched"
+	"github.com/trick77/ismimodown/internal/probe"
+	"github.com/trick77/ismimodown/internal/redact"
+	"github.com/trick77/ismimodown/internal/samples"
+	"github.com/trick77/ismimodown/internal/sched"
 )
 
 // CycleInterval is the base cadence. Everything in a cycle happens on the same

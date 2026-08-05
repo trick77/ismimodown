@@ -1,6 +1,6 @@
 -- The aligned probe cycle, modelled explicitly.
 --
--- The whole point of mimostats is subtracting the network layer from the
+-- The whole point of ismimodown is subtracting the network layer from the
 -- inference layer, and that subtraction is a JOIN on cycle_id — never a
 -- nearest-timestamp guess. Every net_probes and infer_probes row therefore
 -- hangs off a cycle, and a cycle with no network reading cannot silently

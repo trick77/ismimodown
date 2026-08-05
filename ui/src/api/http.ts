@@ -1,5 +1,5 @@
 // http.ts — the shared fetch/JSON core. Ported from peeq's api/http.ts, with
-// AuthExpiredError removed: mimostats is public and unauthenticated, so a 401
+// AuthExpiredError removed: ismimodown is public and unauthenticated, so a 401
 // would be a server bug rather than an expired session, and a branch for it
 // would be dead code pretending to be a feature.
 

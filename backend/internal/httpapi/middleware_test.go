@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/trick77/mimostats/internal/samples"
+	"github.com/trick77/ismimodown/internal/samples"
 )
 
 // The logging middleware wraps the ResponseWriter, and a wrapper that swallows

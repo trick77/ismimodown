@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/trick77/mimostats/internal/probe"
+	"github.com/trick77/ismimodown/internal/probe"
 )
 
 // MinSamplesForPercentile is the suppression threshold.
