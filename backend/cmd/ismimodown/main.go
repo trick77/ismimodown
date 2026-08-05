@@ -129,22 +129,30 @@ func run() error {
 	// loading a dashboard (a handful of parallel fetches), tight enough that a
 	// scraper cannot pin the process.
 	limiter := ratelimit.New(2, 20)
+	// Ten 404s free, then one forgiven every 30 seconds. A real visitor spends
+	// maybe one or two per visit (/favicon.ico, an apple-touch-icon) and never
+	// notices the budget; a wordlist scanner is cut off inside its first dozen
+	// paths and, because the bucket runs to -10 while it keeps trying, stays cut
+	// off for five and a half minutes rather than the thirty seconds a
+	// zero-floored bucket would cost it.
+	notFoundLimiter := ratelimit.New(1.0/30.0, 10)
 
 	// Closed when shutdown begins, so long-lived SSE handlers return instead of
 	// holding http.Server.Shutdown open until its timeout expires.
 	shutdownCh := make(chan struct{})
 
 	apiServer := httpapi.NewServer(httpapi.Deps{
-		Version:        version.Version,
-		DB:             db,
-		Samples:        sampleStore,
-		Static:         static,
-		Broker:         broker,
-		Limiter:        limiter,
-		Shutdown:       shutdownCh,
-		Models:         cfg.Models,
-		Prices:         cfg.Prices,
-		ProbeUserAgent: cfg.ProbeUserAgent,
+		Version:         version.Version,
+		DB:              db,
+		Samples:         sampleStore,
+		Static:          static,
+		Broker:          broker,
+		Limiter:         limiter,
+		NotFoundLimiter: notFoundLimiter,
+		Shutdown:        shutdownCh,
+		Models:          cfg.Models,
+		Prices:          cfg.Prices,
+		ProbeUserAgent:  cfg.ProbeUserAgent,
 	})
 
 	sched := scheduler.New(scheduler.Deps{
@@ -195,14 +203,16 @@ func run() error {
 	wg.Add(3)
 	go func() { defer wg.Done(); sched.Run(ctx) }()
 	go func() { defer wg.Done(); sweeper.Run(ctx) }()
-	// The rate limiter's bucket map is keyed by client IP, so it is an
-	// unbounded caller-controlled allocation without a sweep. A full bucket is
+	// Both limiters' bucket maps are keyed by client IP, so each is an unbounded
+	// caller-controlled allocation without a sweep. A full bucket is
 	// indistinguishable from a fresh one, so dropping idle entries loses
-	// nothing.
+	// nothing — and Sweep keeps any bucket still in debt, so a scanner cannot
+	// clear its record by pausing for the sweep interval.
 	go func() {
 		defer wg.Done()
 		for sched2.Sleep(ctx, 10*time.Minute) {
 			limiter.Sweep(30 * time.Minute)
+			notFoundLimiter.Sweep(30 * time.Minute)
 		}
 	}()
 

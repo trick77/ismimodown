@@ -39,11 +39,56 @@ func New(rate, burst float64) *Limiter {
 	}
 }
 
-// Allow reports whether a request from key may proceed.
+// Allow reports whether a request from key may proceed, consuming a token when
+// it does.
 func (l *Limiter) Allow(key string) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
+	b := l.refilled(key)
+	if b.tokens < 1 {
+		return false
+	}
+	b.tokens--
+	return true
+}
+
+// Permitted reports whether key has a token left WITHOUT consuming one.
+//
+// It exists for the misbehaviour limiter, where the request being gated is not
+// the request being charged for: a caller pays for the 404s it caused, not for
+// the dashboard it is loading. Consuming here instead would put a second,
+// invisible budget on ordinary traffic — one page load is a dozen asset
+// requests, and they would drain a bucket sized for a handful of 404s.
+func (l *Limiter) Permitted(key string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	return l.refilled(key).tokens >= 1
+}
+
+// Charge debits cost tokens from key whether or not any remain, letting the
+// bucket run negative down to -burst.
+//
+// Debt is the point: a bucket floored at zero forgives a scanner after one
+// refill interval no matter how many more paths it sprays, so the block would
+// be the same length for the tenth probe as for the ten-thousandth. Letting it
+// go negative makes continued spraying extend the block, and the floor keeps
+// that bounded — the worst case is 2*burst/rate, not forever.
+func (l *Limiter) Charge(key string, cost float64) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	b := l.refilled(key)
+	b.tokens -= cost
+	if b.tokens < -l.burst {
+		b.tokens = -l.burst
+	}
+}
+
+// refilled returns key's bucket, created full if new and topped up for the time
+// elapsed since it was last touched. Caller must hold l.mu.
+func (l *Limiter) refilled(key string) *bucket {
 	now := l.now()
 	b, ok := l.buckets[key]
 	if !ok {
@@ -60,30 +105,33 @@ func (l *Limiter) Allow(key string) bool {
 		}
 		b.last = now
 	}
-
-	if b.tokens < 1 {
-		return false
-	}
-	b.tokens--
-	return true
+	return b
 }
 
-// Sweep drops buckets untouched for longer than idle.
+// Sweep drops buckets untouched for longer than idle that have refilled to
+// full in the meantime.
 //
 // Without it the map is an unbounded, caller-controlled allocation: one IP per
 // entry, and the internet has plenty of those. A full bucket is
-// indistinguishable from a new one, so dropping it loses nothing.
+// indistinguishable from a new one, so dropping it loses nothing — but a bucket
+// still in debt is NOT, and deleting one would hand a scanner a clean slate
+// simply for pausing. Hence the refill check rather than age alone.
 func (l *Limiter) Sweep(idle time.Duration) int {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	cutoff := l.now().Add(-idle)
+	now := l.now()
+	cutoff := now.Add(-idle)
 	var n int
 	for k, b := range l.buckets {
-		if b.last.Before(cutoff) {
-			delete(l.buckets, k)
-			n++
+		if !b.last.Before(cutoff) {
+			continue
 		}
+		if b.tokens+now.Sub(b.last).Seconds()*l.rate < l.burst {
+			continue
+		}
+		delete(l.buckets, k)
+		n++
 	}
 	return n
 }

@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"net/http"
 	"runtime/debug"
+	"strings"
 	"time"
 
 	"github.com/trick77/ismimodown/internal/ratelimit"
@@ -124,6 +125,83 @@ func (rec *statusRecorder) Flush() {
 // Unwrap exposes the underlying writer for http.ResponseController.
 func (rec *statusRecorder) Unwrap() http.ResponseWriter {
 	return rec.ResponseWriter
+}
+
+// notFoundPenalty throttles a caller by the 404s it causes rather than by the
+// requests it makes.
+//
+// The request limiter guards /api/* only, and rightly so: the SPA and its
+// hashed assets are served from memory, and one page load is a dozen of them at
+// once. But that leaves the entire non-API surface unmetered, and that is
+// exactly where a scanner works — /wp-login.php, /.env, /.git/config, a
+// wordlist of them, none of which the request limiter ever sees. Every one is a
+// 404, and a caller producing nothing but 404s is not reading the page.
+//
+// Gate and charge are deliberately separate. EVERY request is checked against
+// the caller's budget, including a static one — a scanner cut off from
+// /wp-login.php must not still be free to pull the shell a thousand times — but
+// only a 404 SPENDS from it. A visitor's page load therefore costs nothing and
+// can never be throttled here, while a wordlist runs the bucket into debt
+// within a handful of paths and stays there while it keeps spraying.
+//
+// Only 404 charges, not 4xx at large. A 429 from the request limiter and a 400
+// from a bad window parameter are both things a real client produces; charging
+// for those would compound the two limiters into something far harsher than
+// either was sized for.
+//
+// The budget still has to absorb the 404s an honest browser makes without being
+// asked to: /favicon.ico above all — the page ships /icon.svg and no .ico, so
+// every first visit misses once — plus apple-touch-icon variants, robots.txt, a
+// source map, and whatever a stale shell requests across a deploy.
+//
+// A nil limiter disables it, so tests and callers that want no such limit need
+// wire nothing.
+func notFoundPenalty(l *ratelimit.Limiter, next http.Handler) http.Handler {
+	if l == nil {
+		return next
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// The container healthcheck is never throttled. It cannot 404, so it
+		// could only ever be collateral from another caller sharing its key —
+		// and a health probe that fails because someone else scanned the box
+		// restarts a healthy container.
+		if r.URL.Path == "/healthz" {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		key := ratelimit.ClientIP(r)
+		if !l.Permitted(key) {
+			writeTooManyRequests(w, r)
+			return
+		}
+
+		rec := &statusRecorder{ResponseWriter: w}
+		next.ServeHTTP(rec, r)
+		if rec.status == http.StatusNotFound {
+			l.Charge(key, 1)
+		}
+	})
+}
+
+// writeTooManyRequests answers a throttled caller in the content type its path
+// implies: a client that parses every /api/* response as JSON must not be
+// handed text/plain, and a browser asking for a page gains nothing from JSON.
+//
+// Retry-After is minutes, not the request limiter's one second, because this
+// block is minutes — a client that obeys it and comes back too early only digs
+// the bucket deeper.
+func writeTooManyRequests(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Retry-After", "120")
+	if strings.HasPrefix(r.URL.Path, "/api/") {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte(`{"error":"rate limited"}` + "\n"))
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.WriteHeader(http.StatusTooManyRequests)
+	_, _ = w.Write([]byte("too many requests\n"))
 }
 
 // logging logs each request with method, path, status, duration and caller.

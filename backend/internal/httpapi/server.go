@@ -52,6 +52,10 @@ type Deps struct {
 	Broker Broker
 	// Limiter bounds /api/* per caller. Optional in tests.
 	Limiter *ratelimit.Limiter
+	// NotFoundLimiter bounds every route by the 404s a caller causes, which is
+	// the only budget the non-API surface has — see notFoundPenalty. Optional:
+	// nil means a caller may 404 forever.
+	NotFoundLimiter *ratelimit.Limiter
 	// Shutdown is closed when the process begins shutting down. Only the SSE
 	// handler watches it, and that is the point.
 	//
@@ -120,7 +124,15 @@ func NewServer(deps Deps) *Server {
 	// EVERY response — the SPA, the JSON API, a 404, a 429 from the limiter and
 	// the 500 that recovery writes alike. Placed outermost-but-one it would
 	// miss nothing; placed inside the mux it would miss the limiter's rejection.
-	return &Server{Handler: recovery(logging(securityHeaders(s.mux))), cache: s.cache}
+	//
+	// notFoundPenalty innermost of the three, wrapping the mux: it must see the
+	// status the mux produced — a 404 from the SPA handler or from an unmatched
+	// /api path alike — and its own 429 must still be logged and still carry the
+	// security headers.
+	return &Server{
+		Handler: recovery(logging(securityHeaders(notFoundPenalty(s.deps.NotFoundLimiter, s.mux)))),
+		cache:   s.cache,
+	}
 }
 
 // OnCycle drops the cached responses so a new measurement is visible
