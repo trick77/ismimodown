@@ -1,6 +1,12 @@
 // The header says what the page measures. The scope shows itself — two model
 // cards, one endpoint — so it is not also spelled out in prose here.
 //
+// The eyebrow's arrow reads from → to, so it names both ends of the measured
+// path: we dial out of Europe, the endpoint answers in Singapore. It said only
+// "live" before, which spent the left side of the arrow on a word the "every 5
+// min" beside it already implies. A latency number means nothing without the
+// vantage it was taken from, and this is the only place that says it.
+//
 // The subtitle says "the API endpoint in Singapore", not just "Singapore": the
 // eyebrow above already names the place, but on its own it reads as if that is
 // where the model runs. Singapore is the address we dial, and the subtitle is
@@ -27,7 +33,7 @@ export function Masthead() {
           title still starts the page. */}
       <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
         <p className="num text-micro uppercase tracking-[0.22em] text-faint">
-          live → singapore · every 5 min
+          europe → singapore · every 5 min
         </p>
         <a
           className="pill pill-link"
