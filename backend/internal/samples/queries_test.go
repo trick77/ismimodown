@@ -288,6 +288,51 @@ func TestRecentSamplesClampsTheLimit(t *testing.T) {
 	}
 }
 
+// output_tokens is what the run actually produced, and it is served beside
+// output_tps because the rate alone cannot distinguish a fast short answer from
+// a fast long one. A failed run generated nothing measurable, so it carries null
+// rather than 0 — the same rule the other measurement columns follow, and the
+// difference between "no answer" and "an empty answer".
+func TestRecentSamplesServesOutputTokens(t *testing.T) {
+	s := New(openTestDB(t))
+	now := time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC)
+	ctx := context.Background()
+
+	if _, err := s.Save(ctx, Cycle{
+		StartedAt: now.Add(-2 * time.Minute), Net: okNet(),
+		Infer: []probe.InferResult{okInfer("mimo-v2.5", 900)},
+	}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	if _, err := s.Save(ctx, Cycle{
+		StartedAt: now.Add(-time.Minute), Net: okNet(),
+		Infer: []probe.InferResult{{
+			ModelID: "mimo-v2.5", Probe: probe.ProbeInfer,
+			OK: false, ErrorClass: probe.ErrClassHTTP,
+		}},
+	}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	rows, err := s.RecentSamples(ctx, "mimo-v2.5", probe.ProbeInfer, 10)
+	if err != nil {
+		t.Fatalf("RecentSamples: %v", err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("got %d rows, want 2", len(rows))
+	}
+	// Newest first: the failure, then the successful run.
+	if rows[0].OutputTokens != nil {
+		t.Errorf("failed run carries %d output tokens, want null", *rows[0].OutputTokens)
+	}
+	if rows[1].OutputTokens == nil {
+		t.Fatal("successful run carries no output tokens")
+	}
+	if *rows[1].OutputTokens != 59 {
+		t.Errorf("output tokens = %d, want the 59 completion tokens the run reported", *rows[1].OutputTokens)
+	}
+}
+
 // error_detail is operator-only: a provider error body can echo request
 // fragments. The public Sample type must have no way to carry it.
 func TestSampleTypeCannotCarryErrorDetail(t *testing.T) {

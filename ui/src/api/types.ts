@@ -109,6 +109,9 @@ export type Sample = {
   total_ms: number | null;
   itl_p50_ms: number | null;
   output_tps: number | null;
+  // Completion tokens generated. Null on a failed run, like every other
+  // measurement here — nothing was produced, which is not the same as zero.
+  output_tokens: number | null;
   ok: boolean;
   answer_ok: boolean | null;
   // Note what is absent: error_detail, and which question produced answer_ok.

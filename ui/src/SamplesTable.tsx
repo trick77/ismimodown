@@ -1,6 +1,12 @@
 import type { Sample } from "./api/types";
 import { Card } from "./ui";
-import { formatMs, formatTime, formatTps, probeName } from "./format";
+import {
+  formatInt,
+  formatMs,
+  formatTime,
+  formatTps,
+  probeName,
+} from "./format";
 
 // How many cycles the table renders.
 //
@@ -56,6 +62,15 @@ export function newestFirst(perProbe: Sample[][]): Sample[] {
 // than hidden: the pair shares a timestamp, so Time repeats and the Probe
 // column beside it is what tells the rows apart; and wide has no single
 // assertable answer, so it is never graded and its Answer cell is a dash.
+//
+// Tokens sits between Total and Throughput because that is the order the three
+// explain each other in: how long the run took, how much it produced, and the
+// rate those two imply. Throughput on its own is the number that misleads —
+// tok/s is measured over the decode window, so a 40-token reply and a
+// 400-token one can post the same rate while taking wildly different times,
+// and only the count says which happened. It is the generated tokens, not the
+// prompt or cached ones: those are what the run cost, and the cost panel
+// already carries them.
 export function SamplesTable({ perProbe }: { perProbe: Sample[][] }) {
   const rows = newestFirst(perProbe).slice(0, ROWS);
   // "At most" rather than a flat count: a fresh database has two cycles, and a
@@ -66,13 +81,17 @@ export function SamplesTable({ perProbe }: { perProbe: Sample[][] }) {
     <Card title="Raw cycles" subtitle={subtitle}>
       {rows.length > 0 ? (
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[640px] text-label">
+          {/* The min-width went 640 → 700 with the Tokens column. It is what
+              stops the columns being squeezed to the point of wrapping on a
+              phone; the wrapper scrolls instead. */}
+          <table className="w-full min-w-[700px] text-label">
             <thead>
               <tr className="text-micro uppercase tracking-wider text-ghost">
                 <th className="py-2 pr-4 text-left font-medium">Time</th>
                 <th className="py-2 pr-4 text-left font-medium">Probe</th>
                 <th className="py-2 pr-4 text-right font-medium">TTFT</th>
                 <th className="py-2 pr-4 text-right font-medium">Total</th>
+                <th className="py-2 pr-4 text-right font-medium">Tokens</th>
                 <th className="py-2 pr-4 text-right font-medium">Throughput</th>
                 <th className="py-2 pr-4 text-left font-medium">Answer</th>
                 <th className="py-2 text-left font-medium">Outcome</th>
@@ -91,6 +110,9 @@ export function SamplesTable({ perProbe }: { perProbe: Sample[][] }) {
                   </td>
                   <td className="num py-2 pr-4 text-right">
                     {formatMs(s.total_ms)}
+                  </td>
+                  <td className="num py-2 pr-4 text-right">
+                    {formatInt(s.output_tokens)}
                   </td>
                   <td className="num py-2 pr-4 text-right">
                     {formatTps(s.output_tps)}
