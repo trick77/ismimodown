@@ -503,56 +503,86 @@ func (s *Scheduler) RunCycle(ctx context.Context) {
 	// wideModel.
 	wideFor := s.wideModel(ctx, started)
 
-	// The models run CONCURRENTLY, and the probes within one model do not.
+	// The models run SEQUENTIALLY, but no model may hold the next one up for
+	// longer than StaggerCap.
 	//
-	// Sequentially across models, a cycle costs the SUM of the models' latencies,
-	// so the cadence breaks at a per-model latency of roughly CycleInterval
-	// divided by the model count — about 145 s with two models. mimo-v2.5-pro
-	// genuinely takes minutes when things go bad, and the cycle that overran then
-	// ran through the next slot entirely: the series thinned out precisely during
-	// the incident it exists to record, and the surviving samples were the fast
-	// ones. Concurrently the cycle costs the MAX instead, so one slow model no
-	// longer spends the other's budget.
+	// Fully concurrent — which this was — every model's probe is dispatched on
+	// the same instant, so two TLS handshakes and two prefills share the uplink
+	// and each run measures a share of the other's queueing. That is the exact
+	// confound the within-model sequencing exists to avoid, and it does not stop
+	// being one because the runs are aimed at different models.
 	//
-	// It also stops one model's stall from displacing the other's reading in
-	// time. Every row in a cycle is stamped with the cycle's start, and under the
-	// sequential order the second model's probe could begin minutes after that
-	// stamp — including minutes after the ping its residual is subtracted
-	// against. Same JOIN, same cycle_id, much less staleness inside it.
+	// Fully sequential — which this was before that — a cycle costs the SUM of
+	// the models' latencies, so the cadence breaks at a per-model latency of
+	// roughly CycleInterval divided by the model count, about 145 s with two.
+	// mimo-v2.5-pro genuinely takes minutes when things go bad, and the cycle
+	// that overran then ran through the next slot entirely: the series thinned
+	// out precisely during the incident it exists to record, and the surviving
+	// samples were the fast ones.
 	//
-	// Within one model, short and wide stay strictly sequential. Two runs at once
-	// against the same model contend for the same upstream node and each measures
-	// the other's queueing, which is the exact confound this probe exists to
-	// avoid — and it is why the in-flight guard is keyed by model+probe rather
-	// than held globally.
+	// Both failures are real and they pull opposite ways, so neither end of the
+	// dial is the answer. The gate below is sequential in the case that matters —
+	// a healthy cycle, where the isolation is what the measurement needs — and
+	// falls back to concurrent exactly when sequential would start costing
+	// samples. A cycle now costs at most max(models) + (N-1)*StaggerCap rather
+	// than the sum, which is bounded, small, and does not grow with how badly one
+	// model is behaving.
+	//
+	// It also bounds how far one model's stall can displace another's reading in
+	// time. Every row in a cycle is stamped with the cycle's start, and under
+	// plain sequential order the last model's probe could begin minutes after
+	// that stamp — including minutes after the ping its residual is subtracted
+	// against. The cap holds that skew to (N-1)*StaggerCap.
+	//
+	// Within one model, short and wide stay strictly sequential, and the gate
+	// opens on the model's WHOLE sequence rather than on its short run. Opening
+	// it earlier would put the next model's short probe alongside this one's
+	// ~3800-token wide prefill, which is the heaviest overlap on the page and the
+	// one worth avoiding most.
 	//
 	// The PINGS are unaffected: they all completed before the first probe is
 	// dispatched, so nothing here contends with the measurement the residual is
 	// subtracted against.
-	//
-	// The probes' OWN handshakes do now overlap, and that is a real if small
-	// cost. probe.NewClient sets DisableKeepAlives, so each run opens a fresh
-	// DNS+TCP+TLS connection, and two of those now share the uplink for a few
-	// milliseconds. It lands inside ttft_ms and therefore inside the published
-	// residual. Accepted rather than hidden: the residual is hundreds to
-	// thousands of milliseconds, the overlap is a fraction of one RTT, and the
-	// alternative — serialising the models — is the multi-minute sampling
-	// collapse this change exists to remove.
-	//
-	// A wide cycle costs short+wide for the ONE model carrying wide and short
-	// alone for the rest, so it is bounded by the slower of those two rather than
-	// by short+wide across the board. It can still run through its slot at the
-	// per-model latencies that motivated this; recordMissedTicks makes that
-	// visible rather than silent, which is the honest outcome, and serialising
-	// less than this would cost the isolation above.
 	var (
 		mu sync.Mutex
 		wg sync.WaitGroup
 	)
-	for _, model := range s.deps.Models {
+	// One gate per model. The first is already open; each later one opens when
+	// its predecessor finishes, or on a timer, whichever comes first.
+	//
+	// The timers are armed from the cycle's start rather than chained off each
+	// other, so a run of slow models cannot accumulate delay: model i starts no
+	// later than i*StaggerCap into the cycle, whatever happened before it.
+	gates := make([]*gate, len(s.deps.Models))
+	for i := range gates {
+		gates[i] = newGate()
+	}
+	if len(gates) > 0 {
+		gates[0].open()
+	}
+	for i := 1; i < len(gates); i++ {
+		t := time.AfterFunc(time.Duration(i)*StaggerCap, gates[i].open)
+		defer t.Stop()
+	}
+
+	for i, model := range s.deps.Models {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			// Releasing the next model is a defer, so it happens on every exit
+			// path. A model whose probes were skipped by the overrun guard must
+			// not be able to hold the rest of the cycle behind it.
+			if i+1 < len(gates) {
+				defer gates[i+1].open()
+			}
+
+			// Shutdown must not be spent waiting on a gate that a cancelled
+			// predecessor will never reach through.
+			select {
+			case <-gates[i].ch:
+			case <-ctx.Done():
+				return
+			}
 
 			var got []probe.InferResult
 			if res, ok := s.runProbe(ctx, model, probe.ProbeShort, n, started); ok {
