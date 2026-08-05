@@ -10,7 +10,6 @@ export function SeriesPanel({
   models,
   unit,
   forceLinear = false,
-  offPeak = false,
 }: {
   title: string;
   subtitle: string;
@@ -18,11 +17,6 @@ export function SeriesPanel({
   models: string[];
   unit: string;
   forceLinear?: boolean;
-  // offPeak shades MiMo's reduced-rate billing hours behind the plot. Opt-in
-  // per panel rather than automatic: it belongs on the chart a reader consults
-  // before deciding when to send work, and on every other chart it would be one
-  // more band competing with the measurement.
-  offPeak?: boolean;
 }) {
   const data = series?.models ?? {};
   const hasData = Object.values(data).some((points) => points.length > 0);
@@ -33,16 +27,12 @@ export function SeriesPanel({
     unit,
     forceLinear,
     bucketMs: series ? series.bucket_s * 1000 : undefined,
-    offPeak,
   });
 
   return (
     <Card
       title={title}
       subtitle={subtitle}
-      /* No off-peak chip in the header — the rate is one fact and did not
-         want three copies of itself. The band still says which stretch of the
-         plot it applies to. */
       right={option.logScale ? <LogScaleChip /> : null}
     >
       {hasData ? (
