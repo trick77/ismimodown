@@ -267,8 +267,8 @@ describe("dashed series", () => {
 
 describe("the time axis", () => {
   // The axis followed the VIEWER's machine, while the samples table below it
-  // rendered Europe/Zurich — two clocks on one page, and a band drawn at 18:00
-  // sitting under a tick reading noon.
+  // rendered Europe/Zurich — two clocks on one page, so a spike a reader
+  // located on the plot was an hour or nine off the row describing it.
   it("stamps ticks in Europe/Zurich rather than the viewer's zone", () => {
     const opt = buildLineOption({
       series: { a: [pt(1, 1)] },
