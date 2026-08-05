@@ -132,7 +132,8 @@ fi
 # Repainting the accent to white before the mask was tried instead and does not
 # work; the aura's warm corners are within any usable -fuzz of it.
 #
-# The crop is 960x190+120+135, and both offsets earn their place:
+# The crop is $((W - 240))x190+120+135 — 960 wide at the current canvas — and
+# both offsets earn their place:
 #
 #   x — inset 120px from each edge. At 50% the aura's bright corner survives as
 #   a few stray pixels at the extreme left, and -trim measures to them: 858px
