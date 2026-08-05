@@ -41,7 +41,7 @@ func seed(t *testing.T, store *samples.Store, n int, ttft float64) {
 				{Target: probe.TargetRefSGP, ConnectMs: 265, OK: true},
 			},
 			Infer: []probe.InferResult{{
-				ModelID: "mimo-v2.5", Probe: probe.ProbeInfer,
+				ModelID: "mimo-v2.5", Probe: probe.ProbeShort,
 				TTFTMs: ttft, TotalMs: ttft + 800, ITLP50Ms: 24, OutputTPS: 41,
 				OK: true, AnswerOK: &yes, QuestionID: "capital-france",
 			}},
@@ -140,11 +140,45 @@ func TestUnknownParametersAreRejected(t *testing.T) {
 	}
 }
 
-func TestSeriesIsBucketedAndPerModel(t *testing.T) {
+// `infer` was the short probe's name until migration 0003. The page and the
+// daemon ship in one binary, so the instant it rolls, every browser still
+// holding the previous bundle asks for the old name — and a 400 there does not
+// degrade one card, it rejects the whole load and blanks the dashboard on an
+// error banner.
+//
+// Translated, never echoed: the response says what the server actually served,
+// so nothing downstream learns the old name exists.
+func TestLegacyProbeNameIsTranslatedNotRejected(t *testing.T) {
 	h, store := newAPIServer(t)
 	seed(t, store, 40, 900)
 
 	rec := get(t, h, "/api/series?metric=ttft&window=24h&probe=infer")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want the pre-rename name to still be served: %s",
+			rec.Code, rec.Body.String())
+	}
+	var out struct {
+		Probe  string                           `json:"probe"`
+		Models map[string]([]struct{ T int64 }) `json:"models"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if out.Probe != "short" {
+		t.Errorf("probe = %q, want the response to name what was served", out.Probe)
+	}
+	// Served the same rows as the current name, not an empty series that would
+	// pass the status check while charting nothing.
+	if len(out.Models) == 0 {
+		t.Error("the legacy name returned no models; it was accepted and then filtered to nothing")
+	}
+}
+
+func TestSeriesIsBucketedAndPerModel(t *testing.T) {
+	h, store := newAPIServer(t)
+	seed(t, store, 40, 900)
+
+	rec := get(t, h, "/api/series?metric=ttft&window=24h&probe=short")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
 	}
@@ -166,7 +200,7 @@ func TestSeriesIsBucketedAndPerModel(t *testing.T) {
 	if _, ok := out.Models["mimo-v2.5"]; !ok {
 		t.Errorf("series is missing mimo-v2.5: %v", out.Models)
 	}
-	if out.Probe != "infer" {
+	if out.Probe != "short" {
 		t.Errorf("probe = %q; it must be echoed so a chart cannot mix the two", out.Probe)
 	}
 }
@@ -209,7 +243,7 @@ func TestNoPublicEndpointEmitsErrorDetail(t *testing.T) {
 			{Target: probe.TargetRefSGP, OK: true, ConnectMs: 265},
 		},
 		Infer: []probe.InferResult{{
-			ModelID: "mimo-v2.5", Probe: probe.ProbeInfer, TotalMs: 500,
+			ModelID: "mimo-v2.5", Probe: probe.ProbeShort, TotalMs: 500,
 			OK: false, ErrorClass: probe.ErrClassHTTP, ErrorDetail: secret,
 		}},
 	}); err != nil {
@@ -265,7 +299,7 @@ func TestRequestShapeIsNotServed(t *testing.T) {
 			{Target: probe.TargetRefSGP, OK: true, ConnectMs: 265},
 		},
 		Infer: []probe.InferResult{{
-			ModelID: "mimo-v2.5", Probe: probe.ProbeInfer, TTFTMs: 900,
+			ModelID: "mimo-v2.5", Probe: probe.ProbeShort, TTFTMs: 900,
 			OK: true, QuestionID: "capital-france",
 		}},
 	}); err != nil {
@@ -307,7 +341,7 @@ func TestErrorClassIsServedEvenThoughDetailIsNot(t *testing.T) {
 			{Target: probe.TargetRefSGP, OK: true, ConnectMs: 265},
 		},
 		Infer: []probe.InferResult{{
-			ModelID: "mimo-v2.5", Probe: probe.ProbeInfer, TotalMs: 240000,
+			ModelID: "mimo-v2.5", Probe: probe.ProbeShort, TotalMs: 240000,
 			OK: false, ErrorClass: probe.ErrClassTimeout, ErrorDetail: "internal detail",
 		}},
 	}); err != nil {
@@ -580,7 +614,7 @@ func seedCost(t *testing.T, store *samples.Store, n int) {
 				{Target: probe.TargetRefSGP, ConnectMs: 265, OK: true},
 			},
 			Infer: []probe.InferResult{{
-				ModelID: "mimo-v2.5", Probe: probe.ProbeInfer,
+				ModelID: "mimo-v2.5", Probe: probe.ProbeShort,
 				TTFTMs: 900, TotalMs: 1700, ITLP50Ms: 24, OutputTPS: 41,
 				Usage: probe.TokenUsage{PromptTokens: 1000, CompletionTokens: 200},
 				OK:    true, AnswerOK: &yes, QuestionID: "capital-france",

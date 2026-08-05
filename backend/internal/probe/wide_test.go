@@ -91,8 +91,8 @@ func TestWidePromptIsStableApartFromTheNonce(t *testing.T) {
 // The two probes must stay far apart in output length: wide exists partly to
 // observe sustained decode, which infer's ~1.5 s window cannot show.
 func TestOutputCapsKeepTheTwoProbesDistinct(t *testing.T) {
-	if InferMaxTokens >= WideMaxTokens {
-		t.Errorf("infer cap (%d) must be well below wide's (%d)", InferMaxTokens, WideMaxTokens)
+	if ShortMaxTokens >= WideMaxTokens {
+		t.Errorf("infer cap (%d) must be well below wide's (%d)", ShortMaxTokens, WideMaxTokens)
 	}
 	if WideMaxTokens < 250 {
 		t.Errorf("wide cap %d is too low to observe throughput degrading mid-stream", WideMaxTokens)

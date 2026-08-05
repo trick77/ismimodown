@@ -50,14 +50,14 @@ A wide cycle can still overrun: recorded, not prevented.
 **`itl_p50_ms` is a chunk gap, not inter-token latency.** MiMo batches into bursts — a real run
 measured 0.0075 ms against 70 tok/s. Never lead a chart with it; `output_tps` is the robust one.
 
-**`probe` is a filter, never an aggregation.** Mixing `infer` (40 tok) and `wide` (4k tok)
+**`probe` is a filter, never an aggregation.** Mixing `short` (40 tok) and `wide` (4k tok)
 destroys the prefill signal, which IS the gap between them.
 
 **`error_detail` is operator-only** — no public endpoint serves it; a provider error body can
 echo request fragments. A test asserts this.
 
 **`cached_tokens` must stay near zero.** A rise on `wide` means the cache-defeat nonce broke;
-on `infer`, the system prompt went missing.
+on `short`, the system prompt went missing.
 
 **`reasoning_tokens` must be 0.** Send both `{"thinking":{"type":"disabled"}}` and
 `enable_thinking:false`. This, not the `ttft_ms`/`ttfat_ms` delta, is the primary alarm —

@@ -51,8 +51,8 @@ func main() {
 	for _, model := range []string{"mimo-v2.5", "mimo-v2.5-pro"} {
 		q := probe.Pick(0)
 		res, err := client.Run(context.Background(), probe.Request{
-			ModelID: model, Probe: probe.ProbeInfer, Prompt: q.Prompt(),
-			MaxTokens: probe.InferMaxTokens, QuestionID: q.ID, Assert: q.Assert,
+			ModelID: model, Probe: probe.ProbeShort, Prompt: q.Prompt(),
+			MaxTokens: probe.ShortMaxTokens, QuestionID: q.ID, Assert: q.Assert,
 		})
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "run %s: %v\n", model, err)
@@ -62,7 +62,7 @@ func main() {
 		if res.AnswerOK != nil {
 			answerOK = fmt.Sprintf("%v", *res.AnswerOK)
 		}
-		fmt.Printf("\ninfer %s  ok=%v class=%s\n", model, res.OK, res.ErrorClass)
+		fmt.Printf("\nshort %s  ok=%v class=%s\n", model, res.OK, res.ErrorClass)
 		// ttfat-ttft printed at sub-millisecond resolution: in the healthy case
 		// MiMo's role chunk and first content chunk arrive in the same batch, so
 		// the gap is microseconds and %.0f would render it as zero.

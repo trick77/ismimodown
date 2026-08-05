@@ -7,7 +7,7 @@ import { formatTime } from "./format";
 const sample = (over: Partial<Sample> = {}): Sample => ({
   at: "2026-08-04T12:00:00Z",
   model_id: "mimo-v2.5",
-  probe: "infer",
+  probe: "short",
   ttft_ms: 900,
   total_ms: 1700,
   itl_p50_ms: 24,
@@ -112,9 +112,10 @@ describe("SamplesTable", () => {
     expect(screen.getByText("wide")).toBeInTheDocument();
   });
 
-  // Both probes run an inference; the prompt size is what differs. Naming one
-  // of them "infer" says nothing, and the schema's word is not the reader's.
-  it("calls the short probe short, whatever the wire calls it", () => {
+  // `infer` was this probe's name until migration 0003 rewrote every row, so
+  // nothing should send it any more. The row still renders under the current
+  // word rather than printing a name the page retired at a reader.
+  it("still names a pre-rename row the way the page names it now", () => {
     render(<SamplesTable perProbe={[[sample({ probe: "infer" })]]} />);
     expect(screen.queryByText("infer")).not.toBeInTheDocument();
     expect(screen.getByText("short")).toBeInTheDocument();

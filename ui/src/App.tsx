@@ -128,11 +128,11 @@ export default function App() {
       // cycle and every stream event.
       const wanted = [...new Set([key, NOW_WINDOW, BASELINE_WINDOW])];
       const [summaries, t, w, p, tot, n, c] = await Promise.all([
-        Promise.all(wanted.map((k) => getSummary(k, "infer", signal))),
-        getSeries("ttft", key, "infer", signal),
+        Promise.all(wanted.map((k) => getSummary(k, "short", signal))),
+        getSeries("ttft", key, "short", signal),
         getSeries("ttft", key, "wide", signal),
-        getSeries("tps", key, "infer", signal),
-        getSeries("total", key, "infer", signal),
+        getSeries("tps", key, "short", signal),
+        getSeries("total", key, "short", signal),
         getNetSeries(key, signal),
         getCost(key, signal),
       ]);
@@ -180,9 +180,9 @@ export default function App() {
         // shorten how far back the table reaches.
         const [pulses, ...raw] = await Promise.all([
           Promise.all(
-            probed.map((id) => getPulse(id, "infer", PULSE_CYCLES, signal)),
+            probed.map((id) => getPulse(id, "short", PULSE_CYCLES, signal)),
           ),
-          getSamples(first, "infer", TABLE_ROWS, signal),
+          getSamples(first, "short", TABLE_ROWS, signal),
           getSamples(first, "wide", TABLE_ROWS, signal),
         ]);
         setCycles(pulses.map((p) => p.cycles));
@@ -339,7 +339,7 @@ export default function App() {
               it read as one more component the sum was made of. After it, the
               question it answers is the one a reader actually arrives with:
               given the wait above, what does a bigger prompt add to it? */}
-          <PrefillPanel infer={ttft} wide={wideTtft} models={models} />
+          <PrefillPanel short={ttft} wide={wideTtft} models={models} />
           {/* Everything from here down rests on the handshake, so the panel
               that measures it comes first. Above, both of these forward-
               referenced an edge RTT and a Singapore reference host the reader

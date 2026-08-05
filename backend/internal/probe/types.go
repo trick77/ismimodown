@@ -1,13 +1,19 @@
 package probe
 
 // Probe kinds, matching the infer_probes CHECK constraint.
+//
+// Named for their PROMPTS, never for their operation. Both run an inference —
+// which is what the table they land in is named for — so the pair is short and
+// wide. Calling one of them "infer" said nothing about it and implied the other
+// was some different sort of thing; migration 0003 renamed the value.
 const (
-	// ProbeInfer is the ~20-token question, run every cycle.
-	ProbeInfer = "infer"
+	// ProbeShort is the ~20-token question, run every cycle.
+	ProbeShort = "short"
 	// ProbeWide is the ~4 000-token summarisation, run hourly. It exists for
-	// the two things infer structurally cannot see: prefill scaling (40 -> 4 000
-	// tokens is a real gradient; at 40 alone there is no slope) and sustained
-	// decode (300 output tokens is ~7 s, long enough to watch throughput degrade).
+	// the two things the short probe structurally cannot see: prefill scaling
+	// (40 -> 4 000 tokens is a real gradient; at 40 alone there is no slope) and
+	// sustained decode (300 output tokens is ~7 s, long enough to watch
+	// throughput degrade).
 	ProbeWide = "wide"
 )
 
@@ -84,7 +90,7 @@ type TokenUsage struct {
 
 type PromptTokenDetails struct {
 	// CachedTokens must stay near zero. On wide a rise means the cache-defeat
-	// nonce stopped working; on infer it means the system message went missing
+	// nonce stopped working; on short it means the system message went missing
 	// and MiMo's own injected prompt is being served from cache.
 	CachedTokens int `json:"cached_tokens"`
 }

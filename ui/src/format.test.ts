@@ -172,12 +172,18 @@ describe("money", () => {
 });
 
 describe("probeName", () => {
-  // Both probes run an inference; the prompt size is what differs. The schema's
-  // word is not the reader's, and one card saying "short" while another says
-  // "infer" is worse than either on its own.
-  it("calls the short probe short, whatever the wire calls it", () => {
-    expect(probeName("infer")).toBe("short");
+  // The wire agrees since migration 0003, so both current kinds pass straight
+  // through under the name they arrive with.
+  it("shows the current kinds as they are sent", () => {
+    expect(probeName("short")).toBe("short");
     expect(probeName("wide")).toBe("wide");
+  });
+
+  // `infer` was the short probe's name until 0003 rewrote every row. Nothing
+  // should still send it — but the cost card reads a kind straight out of a
+  // response, and printing a retired name at a reader is the worse outcome.
+  it("still renders the pre-rename name under the current word", () => {
+    expect(probeName("infer")).toBe("short");
   });
 
   // A kind the page has no name for is still something an operator must see.

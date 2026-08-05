@@ -28,12 +28,12 @@ const series = (models: Record<string, Point[]>): ModelSeries => ({
   window: "24h",
   bucket_s: 900,
   metric: "ttft",
-  probe: "infer",
+  probe: "short",
   models,
 });
 
 describe("PrefillPanel", () => {
-  const infer = series({ "mimo-v2.5": day(900) });
+  const short = series({ "mimo-v2.5": day(900) });
   const wide = series({ "mimo-v2.5": day(2600) });
 
   // This panel plots two probes an order of magnitude apart, so it is the one
@@ -41,19 +41,19 @@ describe("PrefillPanel", () => {
   it("announces a log axis when the spread forces one", () => {
     const wideLog = series({ "mimo-v2.5": day(36_000) });
     render(
-      <PrefillPanel infer={infer} wide={wideLog} models={["mimo-v2.5"]} />,
+      <PrefillPanel short={short} wide={wideLog} models={["mimo-v2.5"]} />,
     );
     expect(screen.getByText(/log scale/i)).toBeInTheDocument();
   });
 
   it("leaves the badge off when the axis stayed linear", () => {
-    render(<PrefillPanel infer={infer} wide={wide} models={["mimo-v2.5"]} />);
+    render(<PrefillPanel short={short} wide={wide} models={["mimo-v2.5"]} />);
     expect(screen.queryByText(/log scale/i)).not.toBeInTheDocument();
   });
 
   // The wide probe runs hourly, so the panel exists before its subject does.
   it("says the gap is not readable yet when the wide probe has no data", () => {
-    render(<PrefillPanel infer={infer} wide={null} models={["mimo-v2.5"]} />);
+    render(<PrefillPanel short={short} wide={null} models={["mimo-v2.5"]} />);
     expect(screen.getByText(/takes an hour/)).toBeInTheDocument();
   });
 });

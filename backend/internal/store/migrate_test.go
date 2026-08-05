@@ -1,7 +1,10 @@
 package store
 
 import (
+	"database/sql"
+	"io/fs"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -81,5 +84,156 @@ func TestMigrateErrorNamesTheFailingMigration(t *testing.T) {
 	}
 	if n != 0 {
 		t.Error("a failed migration was recorded as applied; the runner would skip it forever")
+	}
+}
+
+// migrateUpTo applies every migration ordered before prefix, recording each the
+// way Migrate does so a later Migrate picks up exactly where this left off.
+//
+// It exists so a test can hold a database at an OLDER schema and put rows in it.
+// That is the only way to exercise a data migration: against an empty database
+// every migration passes, because there is nothing to convert.
+func migrateUpTo(t *testing.T, db *sql.DB, prefix string) {
+	t.Helper()
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
+		version    TEXT PRIMARY KEY,
+		applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+	)`); err != nil {
+		t.Fatalf("create schema_migrations: %v", err)
+	}
+	entries, err := fs.ReadDir(migrationsFS, "migrations")
+	if err != nil {
+		t.Fatalf("read migrations: %v", err)
+	}
+	names := make([]string, 0, len(entries))
+	for _, e := range entries {
+		if !e.IsDir() {
+			names = append(names, e.Name())
+		}
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		if name >= prefix {
+			break
+		}
+		body, err := migrationsFS.ReadFile("migrations/" + name)
+		if err != nil {
+			t.Fatalf("read %s: %v", name, err)
+		}
+		if _, err := db.Exec(string(body)); err != nil {
+			t.Fatalf("apply %s: %v", name, err)
+		}
+		if _, err := db.Exec(
+			`INSERT INTO schema_migrations (version) VALUES (?)`, name); err != nil {
+			t.Fatalf("record %s: %v", name, err)
+		}
+	}
+}
+
+// The rename has to move the DATA, not just the constraint.
+//
+// Applying migrations to an empty database proves only that the new schema is
+// valid. Every deployed database is full of rows written under the old name, and
+// a migration that swapped the CHECK without rewriting them would leave history
+// the daemon can no longer see: every query filters on `probe = 'short'`, so a
+// surviving `infer` row goes invisible rather than wrong — the harder failure to
+// notice, because the charts simply get shorter.
+func TestRenameMigrationRewritesExistingRows(t *testing.T) {
+	db, err := Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer db.Close()
+
+	// Stopped before the rename, so the rows below are written under the old
+	// CHECK exactly as a deployed database holds them.
+	migrateUpTo(t, db, "0003")
+
+	if _, err := db.Exec(
+		`INSERT INTO cycles (id, started_at) VALUES (1, '2026-08-04T06:00:00Z')`); err != nil {
+		t.Fatalf("seed cycle: %v", err)
+	}
+	// Explicit ids first, so the bulk rows below cannot claim them.
+	for _, q := range []string{
+		`INSERT INTO infer_probes (id, cycle_id, model_id, probe, ttft_ms, ok, answer_ok) VALUES (7, 1, 'mimo-v2.5', 'infer', 912.0, 1, 1)`,
+		`INSERT INTO infer_probes (id, cycle_id, model_id, probe, ttft_ms, ok) VALUES (8, 1, 'mimo-v2.5', 'wide', 1543.0, 1)`,
+		`INSERT INTO skipped_runs (occurred_at, model_id, probe) VALUES ('2026-08-04T06:00:00Z', 'mimo-v2.5', 'infer')`,
+	} {
+		if _, err := db.Exec(q); err != nil {
+			t.Fatalf("seed pre-rename row: %v", err)
+		}
+	}
+	// And bulk alongside them, because the failure this guards is a rebuild that
+	// copies SOME rows: a mistyped WHERE in the INSERT...SELECT loses history
+	// silently, and three hand-written rows all survive a filter that a month of
+	// real ones would not.
+	const bulk = 5000
+	tx, err := db.Begin()
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	for i := 0; i < bulk; i++ {
+		if _, err := tx.Exec(
+			`INSERT INTO infer_probes (cycle_id, model_id, probe, ttft_ms, ok) VALUES (1, 'mimo-v2.5', 'infer', 900.0, 1)`,
+		); err != nil {
+			t.Fatalf("seed bulk row %d: %v", i, err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("commit bulk: %v", err)
+	}
+
+	if err := Migrate(db); err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
+
+	// Nothing was left behind and nothing was lost: the named short row, the
+	// wide one, and every bulk row.
+	var total, short int
+	if err := db.QueryRow(
+		`SELECT count(*), sum(probe = 'short') FROM infer_probes`).Scan(&total, &short); err != nil {
+		t.Fatalf("count infer_probes: %v", err)
+	}
+	if want := bulk + 2; total != want {
+		t.Errorf("infer_probes holds %d rows, want %d — the rebuild dropped history", total, want)
+	}
+	if want := bulk + 1; short != want {
+		t.Errorf("%d rows renamed, want %d", short, want)
+	}
+
+	for _, table := range []string{"infer_probes", "skipped_runs"} {
+		var leftover int
+		if err := db.QueryRow(
+			`SELECT count(*) FROM ` + table + ` WHERE probe = 'infer'`).Scan(&leftover); err != nil {
+			t.Fatalf("read %s: %v", table, err)
+		}
+		if leftover != 0 {
+			t.Errorf("%s still holds %d rows under the old name", table, leftover)
+		}
+	}
+
+	// The wide row is untouched, and found by its ORIGINAL id: RecentSamples
+	// breaks ties within a cycle on it, so renumbering would silently reorder
+	// history without changing a single value.
+	var kind string
+	if err := db.QueryRow(`SELECT probe FROM infer_probes WHERE id = 8`).Scan(&kind); err != nil {
+		t.Fatalf("read the wide row by its original id: %v", err)
+	}
+	if kind != "wide" {
+		t.Errorf("wide row = %q, want it untouched", kind)
+	}
+
+	// The constraint moved with the data: the old name is now rejected.
+	if _, err := db.Exec(
+		`INSERT INTO infer_probes (cycle_id, model_id, probe, ok) VALUES (1, 'mimo-v2.5', 'infer', 1)`,
+	); err == nil {
+		t.Error("expected a CHECK violation inserting the pre-rename probe name")
+	}
+	// And the new one is accepted — a CHECK rejecting everything would also
+	// satisfy the assertion above.
+	if _, err := db.Exec(
+		`INSERT INTO infer_probes (cycle_id, model_id, probe, ok) VALUES (1, 'mimo-v2.5', 'short', 1)`,
+	); err != nil {
+		t.Errorf("inserting the current probe name failed: %v", err)
 	}
 }
