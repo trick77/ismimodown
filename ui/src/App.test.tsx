@@ -332,9 +332,7 @@ describe("App", () => {
     render(<App />);
 
     await userEvent.click(screen.getByRole("button", { name: "24h" }));
-    await waitFor(() =>
-      expect(new URL(window.location.href).search).toBe(""),
-    );
+    await waitFor(() => expect(new URL(window.location.href).search).toBe(""));
   });
 
   it("reads the initial window from the query string", async () => {
