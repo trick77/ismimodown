@@ -97,7 +97,7 @@ curl -sSI https://ismimodown.com/ | \
 
 CSP, `nosniff`, `X-Frame-Options` and `Referrer-Policy` come from the binary and
 are present with or without Traefik. `Strict-Transport-Security` comes from the
-`mimostats-hsts` middleware in `compose.yaml` and is the one that disappears if
+`ismimodown-hsts` middleware in `compose.yaml` and is the one that disappears if
 those labels are dropped. Each header must appear exactly ONCE: a duplicate
 means Traefik is setting its own copy too, and two conflicting CSPs are enforced
 as their intersection, which breaks the page rather than hardening it.
@@ -162,7 +162,7 @@ the probe host**, not from wherever it was last checked.
 ```sh
 python3 - <<'PY'
 import socket, statistics, time
-for h in ["token-plan-sgp.xiaomimimo.com", "sgp1.digitaloceanspaces.com"]:
+for h in ["token-plan-sgp.xiaomimimo.com", "sgp.proof.ovh.net"]:
     try:
         ip = socket.getaddrinfo(h, 443, socket.AF_INET, socket.SOCK_STREAM)[0][4][0]
     except Exception as e:
@@ -190,12 +190,21 @@ then lands in the excluded bucket instead of being attributed:
 echo 'BACKEND_PING_REF_SGP_HOST=<a real Singapore host>' >> .env && docker compose up -d
 ```
 
+This is the only probe target with a setting. MiMo's own ping host is derived
+from `BACKEND_MIMO_BASE_URL` and cannot be pointed elsewhere on its own.
+
+The default is `sgp.proof.ovh.net`, OVH's Singapore speedtest node — same
+carrier as the probe box, which is what makes "the route is fine" a claim about
+MiMo's own transit rather than about some other network's. Replace it if you
+deploy somewhere OVH is not the relevant path, or if it stops answering.
+
 Pick a genuine Singapore endpoint, and verify it with the script above rather
 than by name: several plausible-looking hostnames answer from anycast PoPs in
 Europe, which would put a European host in the Singapore slot — the precise
-failure this reference exists to detect. Bare resolver IPs are a poor choice
-too: `1.1.1.1`, `9.9.9.9` and `8.8.8.8` are provisioned for DNS and their port
-443 is filtered on many networks.
+failure this reference exists to detect. `sgp.ovh` is exactly this trap; it is
+Cloudflare anycast and answers from Europe in ~18 ms. Bare resolver IPs are a
+poor choice too: `1.1.1.1`, `9.9.9.9` and `8.8.8.8` are provisioned for DNS and
+their port 443 is filtered on many networks.
 
 ## Upgrading
 

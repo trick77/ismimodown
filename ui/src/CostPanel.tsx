@@ -31,10 +31,10 @@ const PROBE_HINTS: Record<string, string> = {
 };
 
 export function CostPanel({ cost }: { cost: CostBreakdown | null }) {
-  // No panel at all when there is no price table. A cost card showing tokens
-  // and dashes answers a question nobody asked, and one showing $0.00 answers
-  // it wrongly — see CostBreakdown.priced.
-  if (cost === null || !cost.priced || cost.total.runs < MIN_RUNS) {
+  // Still no panel below MIN_RUNS: a total over three runs is technically
+  // correct and reads as the daily bill. The "no price table configured" case
+  // this also used to guard is gone — prices are a constant now.
+  if (cost === null || cost.total.runs < MIN_RUNS) {
     return null;
   }
 

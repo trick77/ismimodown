@@ -13,42 +13,45 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"time"
 
 	"github.com/trick77/mimostats/internal/config"
 	"github.com/trick77/mimostats/internal/probe"
 )
 
 func main() {
-	key := os.Getenv("BACKEND_MIMO_API_KEY")
-	if key == "" {
-		fmt.Fprintln(os.Stderr, "BACKEND_MIMO_API_KEY is required")
+	// The real config.Load, not a hand-built one. This used to restate the base
+	// URL, the user agent and all six timeouts as literals, which made the smoke
+	// check drift from the daemon it is meant to smoke — and MimoHost is now
+	// derived inside Load and cannot be restated at all.
+	cfg, err := config.Load()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 
 	client := probe.NewClient(probe.Config{
-		BaseURL:       config.DefaultBaseURL,
-		APIKey:        key,
-		UserAgent:     config.DefaultUserAgent,
-		SystemPrompt:  config.DefaultSystemPrompt,
-		DialTimeout:   10 * time.Second,
-		HeaderTimeout: 60 * time.Second,
-		TTFTTimeout:   150 * time.Second,
-		IdleTimeout:   45 * time.Second,
-		Timeout:       240 * time.Second,
+		BaseURL:       cfg.BaseURL,
+		APIKey:        cfg.APIKey,
+		UserAgent:     cfg.ProbeUserAgent,
+		SystemPrompt:  cfg.ProbeSystemPrompt,
+		DialTimeout:   cfg.DialTimeout,
+		HeaderTimeout: cfg.HeaderTimeout,
+		TTFTTimeout:   cfg.TTFTTimeout,
+		IdleTimeout:   cfg.IdleTimeout,
+		Timeout:       cfg.ProbeTimeout,
 	})
 
-	pinger := probe.NewPinger(5 * time.Second)
+	pinger := probe.NewPinger(cfg.PingTimeout)
 	for _, target := range []struct{ name, host string }{
-		{probe.TargetMimoSGP, config.DefaultMimoHost},
-		{probe.TargetRefSGP, config.DefaultRefSGPHost},
+		{probe.TargetMimoSGP, cfg.MimoHost},
+		{probe.TargetRefSGP, cfg.RefSGPHost},
 	} {
 		r := pinger.Ping(context.Background(), target.name, target.host)
 		fmt.Printf("ping  %-10s %-38s ok=%-5v dns=%6.1fms connect=%7.1fms %s\n",
 			r.Target, target.host, r.OK, r.DNSMs, r.ConnectMs, r.ErrorClass)
 	}
 
-	for _, model := range []string{"mimo-v2.5", "mimo-v2.5-pro"} {
+	for _, model := range cfg.Models {
 		q := probe.Pick(0)
 		res, err := client.Run(context.Background(), probe.Request{
 			ModelID: model, Probe: probe.ProbeShort, Prompt: q.Prompt(),

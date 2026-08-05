@@ -65,11 +65,10 @@ const emptyNet = {
   targets: {},
 };
 
-// A priced window. The panel refuses to render below ten runs or without a
-// price table, so a fixture that leaves either out silently tests nothing.
+// A priced window. The panel refuses to render below ten runs, so a fixture
+// under that floor silently tests nothing.
 const cost = () => ({
   window: "24h",
-  priced: true,
   currency: "USD",
   offpeak_coefficient: 0.8,
   total: {
@@ -523,32 +522,6 @@ describe("the cost panel", () => {
     expect(
       panel.compareDocumentPosition(raw) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
-  });
-
-  // Everything else on the page is a reading about MiMo. This one is about us,
-  // and a deployment with no price table must not be handed zeros to render.
-  it("is absent when the daemon serves no prices", async () => {
-    vi.stubGlobal(
-      "fetch",
-      mockFetch({
-        cost: {
-          ...cost(),
-          priced: false,
-          total: {
-            runs: 624,
-            tokens: { prompt: 213000, cached: 0, output: 55000 },
-            usd: null,
-            list_usd: null,
-          },
-        },
-      }),
-    );
-    render(<App />);
-
-    await screen.findByText("Raw cycles");
-    expect(
-      screen.queryByText("What this dashboard costs to run"),
-    ).not.toBeInTheDocument();
   });
 });
 

@@ -75,9 +75,6 @@ func TestCostPricesTheUncachedRemainder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Cost: %v", err)
 	}
-	if !got.Priced {
-		t.Fatal("Priced = false with a price table configured")
-	}
 	if want := 0.00264; !near(usd(t, got.Total.USD), want) {
 		t.Errorf("USD = %v, want %v", *got.Total.USD, want)
 	}
@@ -215,44 +212,26 @@ func TestCostCountsRunsItCannotPrice(t *testing.T) {
 	}
 }
 
-// No price table is a supported state, not an error: tokens are served and every
-// money field is null, so the client shows counts rather than a $0.00 bill.
-func TestCostWithoutPricesServesTokensAndNoMoney(t *testing.T) {
-	s := New(openTestDB(t))
-	w, _ := LookupWindow("24h")
-	at := time.Date(2026, 8, 4, 10, 0, 0, 0, time.UTC)
-	now := at.Add(time.Hour)
-	saveAt(t, s, at, costRun("mimo-v2.5", probe.ProbeShort, 1000, 0, 200))
-
-	got, err := s.Cost(context.Background(), w, nil, now)
-	if err != nil {
-		t.Fatalf("Cost: %v", err)
-	}
-	if got.Priced {
-		t.Error("Priced = true with no price table")
-	}
-	if got.Total.USD != nil || got.Total.ListUSD != nil {
-		t.Errorf("money served without prices: %+v", got.Total)
-	}
-	if got.Total.Tokens.Prompt != 1000 || got.Total.Tokens.Output != 200 {
-		t.Errorf("tokens = %+v, want them served regardless", got.Total.Tokens)
-	}
-	if len(got.Series) != 1 || got.Series[0].USD != nil || got.Series[0].Runs != 1 {
-		t.Errorf("series = %+v", got.Series)
-	}
-	if got.Prices != nil {
-		t.Error("an empty price table must not be published")
-	}
-}
-
-// One model without a price makes the totals it belongs to unpriced, rather than
-// publishing the other model's cost as if it were the whole bill.
-func TestCostRefusesToTotalAPartiallyPricedWindow(t *testing.T) {
+// A model the price table has never heard of prices at ZERO and is folded into
+// the total anyway. This window used to come back unpriced instead, with every
+// money field null and the panel hidden.
+//
+// Not reachable from configuration: DefaultModels and DefaultPrices are both
+// constants and config_test.go pins them against each other. It IS reachable
+// from history — retention keeps samples for 3 months, so renaming a probed
+// model leaves that long a tail of rows carrying the old id. Those runs are
+// counted and cost nothing, which makes the total quietly low.
+//
+// Pinned deliberately, so the tradeoff is a documented behaviour rather than a
+// surprise: if a model is ever renamed, delete or remap its rows.
+func TestCostPricesAnUnknownModelAtZeroAndStillTotals(t *testing.T) {
 	s := New(openTestDB(t))
 	w, _ := LookupWindow("24h")
 	at := time.Date(2026, 8, 4, 10, 0, 0, 0, time.UTC)
 	now := at.Add(time.Hour)
 
+	// Only mimo-v2.5 is in testPrices. 1000 prompt @ $1/M = 0.001; the
+	// mimo-v2.5-pro run contributes nothing.
 	saveAt(t, s, at,
 		costRun("mimo-v2.5", probe.ProbeShort, 1000, 0, 0),
 		costRun("mimo-v2.5-pro", probe.ProbeShort, 1000, 0, 0))
@@ -261,14 +240,36 @@ func TestCostRefusesToTotalAPartiallyPricedWindow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Cost: %v", err)
 	}
-	if got.Priced {
-		t.Error("Priced = true while one probed model has no price")
+	if got.Total.USD == nil {
+		t.Fatal("Total.USD = nil; every group carries a figure now")
 	}
-	if got.Total.USD != nil {
-		t.Errorf("a partially priced window published a total: %v", *got.Total.USD)
+	if want := 0.001; !near(*got.Total.USD, want) {
+		t.Errorf("USD = %v, want %v — the unknown model contributes zero", *got.Total.USD, want)
 	}
 	if got.Total.Runs != 2 {
 		t.Errorf("Runs = %d, want 2 — the runs still happened", got.Total.Runs)
+	}
+	if got.Total.Tokens.Prompt != 2000 {
+		t.Errorf("prompt tokens = %d, want 2000 — tokens are counted for both",
+			got.Total.Tokens.Prompt)
+	}
+	// Total is pre-seeded with a zero, so it would carry a figure even if the
+	// per-group path did not. The phase and probe groups are built purely by
+	// accumulate, which is the path that has to hold: a group left with a nil
+	// USD renders as "not priced" in the panel, which is the state this whole
+	// change is supposed to have made unreachable.
+	for _, p := range got.Phases {
+		if p.USD == nil || p.ListUSD == nil {
+			t.Errorf("phase %q came back unpriced: %+v", p.Phase, p.CostGroup)
+		}
+	}
+	for _, p := range got.Probes {
+		if p.USD == nil || p.ListUSD == nil {
+			t.Errorf("probe %q came back unpriced: %+v", p.Probe, p.CostGroup)
+		}
+	}
+	if len(got.Phases) == 0 || len(got.Probes) == 0 {
+		t.Fatal("no phase or probe groups; the assertions above checked nothing")
 	}
 }
 
@@ -432,9 +433,6 @@ func TestCostTreatsAZeroPriceAsAPrice(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Cost: %v", err)
 	}
-	if !got.Priced {
-		t.Fatal("a free tier is a configured price")
-	}
 	if v := usd(t, got.Total.USD); v != 0 {
 		t.Errorf("total = %v, want 0", v)
 	}
@@ -476,9 +474,6 @@ func TestCostOnAnEmptyWindowIsZeroNotUnknown(t *testing.T) {
 		time.Date(2026, 8, 4, 10, 0, 0, 0, time.UTC))
 	if err != nil {
 		t.Fatalf("Cost: %v", err)
-	}
-	if !got.Priced {
-		t.Error("Priced = false with a price table configured")
 	}
 	if v := usd(t, got.Total.USD); v != 0 {
 		t.Errorf("total = %v, want 0", v)

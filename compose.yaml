@@ -33,61 +33,33 @@ services:
       # the container.
       BACKEND_MIMO_BASE_URL: "${BACKEND_MIMO_BASE_URL:-https://token-plan-sgp.xiaomimimo.com/v1}"
       BACKEND_MIMO_API_KEY: "${BACKEND_MIMO_API_KEY:?BACKEND_MIMO_API_KEY is required}"
-      # 3 months of raw samples, swept nightly.
-      BACKEND_RETENTION: "${BACKEND_RETENTION:-2160h}"
-      # Ping targets. Overridable because the right reference host depends on
-      # where this is deployed — see the DefaultRefSGPHost comment in
-      # backend/internal/config/config.go for what each answers.
-      BACKEND_PING_MIMO_HOST: "${BACKEND_PING_MIMO_HOST:-token-plan-sgp.xiaomimimo.com}"
-      BACKEND_PING_REF_SGP_HOST: "${BACKEND_PING_REF_SGP_HOST:-sgp1.digitaloceanspaces.com}"
 
-      # Everything below is passed through with an EMPTY fallback rather than a
-      # repeated literal, and that is deliberate: config.Load treats unset and
-      # set-but-empty identically and applies its own default, so this file does
-      # not restate a value it would then have to be kept in sync with.
-      #
-      # The timeout ladder is the case that makes it matter. Its bounds are
-      # validated against each other at boot (TTFT and idle must stay under the
-      # overall deadline), so a literal here that outlived a change to the Go
-      # default would keep silently forcing the old value — with the invariant
-      # still passing, because the numbers would still be internally consistent.
-      # The one place any of these defaults is written stays config.Load.
-      #
-      # Same reason there is no `env_file:`. It would pass the WHOLE .env,
-      # including BACKEND_MIMO_API_KEY, into every future service in this file
-      # by accident. Listing each variable keeps that explicit.
-
-      # Which models are probed, comma-separated. Empty means the built-in pair.
-      BACKEND_MODELS: "${BACKEND_MODELS:-}"
-
-      # Per-model list price, model=in/out[/cached] in USD per million tokens.
-      # Empty means the shipped table; "none" hides the cost panel.
-      BACKEND_PRICES: "${BACKEND_PRICES:-}"
+      # The Europe->Singapore reference host, and the only probe target that is
+      # configurable — see the DefaultRefSGPHost comment in
+      # backend/internal/config/config.go. MiMo's own ping target is derived
+      # from BACKEND_MIMO_BASE_URL above and has no setting.
+      BACKEND_PING_REF_SGP_HOST: "${BACKEND_PING_REF_SGP_HOST:-sgp.proof.ovh.net}"
 
       # Must stay inside the mounted volume below, or the history is written to
-      # the read-only rootfs and lost on every restart.
+      # the read-only rootfs and lost on every restart. Empty fallback rather
+      # than a repeated literal: config.Load treats unset and set-but-empty
+      # identically and applies its own default, so this file does not restate a
+      # value it would then have to be kept in sync with.
       BACKEND_DB_PATH: "${BACKEND_DB_PATH:-}"
 
-      # NOT cosmetic, and not safe to blank: with no system message MiMo injects
-      # its own (~250 prompt tokens, most of it cache-served), which inflates the
-      # token budget and turns the prefill this probe exists to time into a cache
-      # lookup. config.Load rejects an empty one at boot.
-      BACKEND_PROBE_SYSTEM_PROMPT: "${BACKEND_PROBE_SYSTEM_PROMPT:-}"
       # Probes present as a real coding agent on purpose — a neutral client would
       # not measure what production traffic experiences.
       BACKEND_PROBE_USER_AGENT: "${BACKEND_PROBE_USER_AGENT:-}"
 
-      # The timeout ladder. Each layer has its own bound and its own error class,
-      # because a single outer deadline records "slow" and "dead" identically.
-      # Raising one moves the point at which a slow run stops being a latency
-      # sample and becomes a censored one — see the censoring note on the
-      # dashboard.
-      BACKEND_PING_TIMEOUT: "${BACKEND_PING_TIMEOUT:-}"
-      BACKEND_PROBE_DIAL_TIMEOUT: "${BACKEND_PROBE_DIAL_TIMEOUT:-}"
-      BACKEND_PROBE_HEADER_TIMEOUT: "${BACKEND_PROBE_HEADER_TIMEOUT:-}"
-      BACKEND_PROBE_TTFT_TIMEOUT: "${BACKEND_PROBE_TTFT_TIMEOUT:-}"
-      BACKEND_PROBE_IDLE_TIMEOUT: "${BACKEND_PROBE_IDLE_TIMEOUT:-}"
-      BACKEND_PROBE_TIMEOUT: "${BACKEND_PROBE_TIMEOUT:-}"
+      # That is the whole list. The model pair, the price table, the system
+      # prompt, the retention window and the six-layer timeout ladder are
+      # constants in config.go rather than settings: they describe what this
+      # dashboard measures, and a deployment able to change them could publish a
+      # differently-shaped number under the same page.
+      #
+      # There is deliberately no `env_file:`. It would pass the WHOLE .env,
+      # including BACKEND_MIMO_API_KEY, into every future service in this file
+      # by accident. Listing each variable keeps that explicit.
 
     healthcheck:
       # The binary probes itself: the runtime is distroless and carries no curl
@@ -135,8 +107,8 @@ services:
       # robots.txt, sitemap.xml and — printed into the pixels — the .host line
       # of assets/og/card.html. Move the host and move all of them, then re-run
       # ui/scripts/gen-og.sh.
-      traefik.http.routers.mimostats.rule: Host(`ismimodown.com`)
-      traefik.http.routers.mimostats.entrypoints: websecure
+      traefik.http.routers.ismimodown.rule: Host(`ismimodown.com`)
+      traefik.http.routers.ismimodown.entrypoints: websecure
       # certresolver, not a bare `tls: "true"`. On the old host this router got
       # its certificate from the wildcard Traefik already held for
       # *.trick77.com, so naming a resolver was unnecessary. A separate apex
@@ -151,8 +123,8 @@ services:
       # and there is no /.well-known/acme-challenge/ route to expose. DNS must
       # resolve BEFORE this deploys, or the ACME order fails against a rate
       # limit that then has to be waited out.
-      traefik.http.routers.mimostats.tls.certresolver: letsencrypt
-      traefik.http.services.mimostats.loadbalancer.server.port: "8080"
+      traefik.http.routers.ismimodown.tls.certresolver: letsencrypt
+      traefik.http.services.ismimodown.loadbalancer.server.port: "8080"
       # HSTS is set HERE and not in the Go handler, because only the TLS
       # terminator knows the site is reachable over TLS at all: the container
       # serves plain HTTP, and a Strict-Transport-Security header emitted on an
@@ -168,8 +140,8 @@ services:
       # preloading is now merely a decision nobody has taken. Left off
       # deliberately: it is hard to undo and buys little for a site whose
       # visitors arrive by search rather than by typing the bare host.
-      traefik.http.middlewares.mimostats-hsts.headers.stsSeconds: "31536000"
-      traefik.http.middlewares.mimostats-hsts.headers.stsIncludeSubdomains: "true"
+      traefik.http.middlewares.ismimodown-hsts.headers.stsSeconds: "31536000"
+      traefik.http.middlewares.ismimodown-hsts.headers.stsIncludeSubdomains: "true"
       # Compression belongs to the terminator, not the binary — the app should
       # not be negotiating encodings with a client it never speaks to directly.
       # It was simply never switched on: /api/dashboard is one JSON document
@@ -180,10 +152,10 @@ services:
       # Traefik does not compress below minResponseBodyBytes (1024 by default),
       # which is the right shape for this: /healthz and an error body stay
       # uncompressed, the dashboard does not.
-      traefik.http.middlewares.mimostats-compress.compress: "true"
+      traefik.http.middlewares.ismimodown-compress.compress: "true"
       # Order matters: hsts first, so the header is attached whatever the
       # encoding negotiation does.
-      traefik.http.routers.mimostats.middlewares: mimostats-hsts@docker,mimostats-compress@docker
+      traefik.http.routers.ismimodown.middlewares: ismimodown-hsts@docker,ismimodown-compress@docker
 
       # www exists only to send people to the apex. Someone will type it, and a
       # hostname that resolves to nothing looks like the outage this site is
@@ -199,14 +171,14 @@ services:
       # duplicate content this exists to prevent. The canonical link in
       # index.html says the same thing a second way, for the case where this
       # router is missing entirely.
-      traefik.http.routers.mimostats-www.rule: Host(`www.ismimodown.com`)
-      traefik.http.routers.mimostats-www.entrypoints: websecure
-      traefik.http.routers.mimostats-www.tls.certresolver: letsencrypt
-      traefik.http.routers.mimostats-www.service: mimostats
-      traefik.http.middlewares.mimostats-www-redirect.redirectregex.regex: ^https://www\.ismimodown\.com/(.*)
-      traefik.http.middlewares.mimostats-www-redirect.redirectregex.replacement: https://ismimodown.com/$${1}
-      traefik.http.middlewares.mimostats-www-redirect.redirectregex.permanent: "true"
-      traefik.http.routers.mimostats-www.middlewares: mimostats-www-redirect@docker
+      traefik.http.routers.ismimodown-www.rule: Host(`www.ismimodown.com`)
+      traefik.http.routers.ismimodown-www.entrypoints: websecure
+      traefik.http.routers.ismimodown-www.tls.certresolver: letsencrypt
+      traefik.http.routers.ismimodown-www.service: ismimodown
+      traefik.http.middlewares.ismimodown-www-redirect.redirectregex.regex: ^https://www\.ismimodown\.com/(.*)
+      traefik.http.middlewares.ismimodown-www-redirect.redirectregex.replacement: https://ismimodown.com/$${1}
+      traefik.http.middlewares.ismimodown-www-redirect.redirectregex.permanent: "true"
+      traefik.http.routers.ismimodown-www.middlewares: ismimodown-www-redirect@docker
 
 networks:
   traefik:

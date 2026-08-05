@@ -206,9 +206,10 @@ export type CostTokens = {
 export type CostGroup = {
   runs: number;
   tokens: CostTokens;
-  // null means no price is configured for something in this group. It must
-  // render as "not priced", never as $0.00 — the difference is between a bill
-  // of nothing and no bill at all.
+  // Nullable in the shape, non-null in practice: the server prices from a
+  // constant table, so every group now carries a figure. The null stays in the
+  // type because "not priced" and "$0.00" are different claims, and the
+  // formatter that keeps them apart is worth more than the narrower type.
   usd: number | null;
   list_usd: number | null;
 };
@@ -217,7 +218,6 @@ export type CostPoint = { t: number; usd: number | null; runs: number };
 
 export type CostBreakdown = {
   window: string;
-  priced: boolean;
   currency: string;
   offpeak_coefficient: number;
   total: CostGroup;

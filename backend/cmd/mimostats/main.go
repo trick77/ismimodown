@@ -95,13 +95,6 @@ func run() error {
 	}
 	setupLogging(cfg.LogLevel)
 
-	// A model with no price makes the whole cost panel unpriced — the total
-	// cannot be honest about part of the window — so it vanishes rather than
-	// under-reports. Said here, because the page has no way to say it.
-	if missing := cfg.UnpricedModels(); len(missing) > 0 {
-		slog.Warn("no price configured for a probed model; the cost panel will be hidden",
-			"models", missing)
-	}
 	slog.Info("starting mimostats",
 		"version", version.Version,
 		"base_url", cfg.BaseURL,
