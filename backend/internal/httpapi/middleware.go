@@ -2,8 +2,11 @@ package httpapi
 
 import (
 	"log/slog"
+	"math"
 	"net/http"
 	"runtime/debug"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/trick77/ismimodown/internal/ratelimit"
@@ -124,6 +127,104 @@ func (rec *statusRecorder) Flush() {
 // Unwrap exposes the underlying writer for http.ResponseController.
 func (rec *statusRecorder) Unwrap() http.ResponseWriter {
 	return rec.ResponseWriter
+}
+
+// notFoundPenalty throttles a caller by the 404s it causes rather than by the
+// requests it makes.
+//
+// The request limiter guards /api/* only, and rightly so: the SPA and its
+// hashed assets are served from memory, and one page load is a dozen of them at
+// once. But that leaves the entire non-API surface unmetered, and that is
+// exactly where a scanner works — /wp-login.php, /.env, /.git/config, a
+// wordlist of them, none of which the request limiter ever sees. Every one is a
+// 404, and a caller producing nothing but 404s is not reading the page.
+//
+// Gate and charge are deliberately separate. EVERY request is checked against
+// the caller's budget, including a static one — a scanner cut off from
+// /wp-login.php must not still be free to pull the shell a thousand times — but
+// only a 404 SPENDS from it. A visitor's page load therefore costs nothing and
+// can never be throttled here, while a wordlist runs the bucket into debt
+// within a handful of paths and stays there while it keeps spraying.
+//
+// Only 404 charges, not 4xx at large. A 429 from the request limiter and a 400
+// from a bad window parameter are both things a real client produces; charging
+// for those would compound the two limiters into something far harsher than
+// either was sized for.
+//
+// The budget still has to absorb the 404s an honest browser makes without being
+// asked to: /favicon.ico above all — the page ships /icon.svg and no .ico, so
+// every first visit misses once — plus apple-touch-icon variants, robots.txt, a
+// source map, and whatever a stale shell requests across a deploy.
+//
+// A nil limiter disables it, so tests and callers that want no such limit need
+// wire nothing.
+func notFoundPenalty(l *ratelimit.Limiter, next http.Handler) http.Handler {
+	if l == nil {
+		return next
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// The container healthcheck is never throttled. It cannot 404, so it
+		// could only ever be collateral from another caller sharing its key —
+		// and a health probe that fails because someone else scanned the box
+		// restarts a healthy container.
+		if r.URL.Path == "/healthz" {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		key := ratelimit.ClientIP(r)
+		if !l.Permitted(key) {
+			// Knocking while blocked costs a token too, and this is the only
+			// path that can put a caller into debt at all: the gate needs a
+			// whole token to let a request through, so a charge levied after
+			// the response can never take the bucket below zero. Without this
+			// the block would be one refill long however long the spraying went
+			// on, and the floor, the debt and this header would all be
+			// describing a state nothing could reach.
+			//
+			// It cannot lock anyone out: the debt stops at -burst, so the worst
+			// case is one bounded block, and a client that backs off at all
+			// gains more from the refill than it loses by asking.
+			l.Charge(key, 1)
+			writeTooManyRequests(w, r, l.RetryAfter(key))
+			return
+		}
+
+		rec := &statusRecorder{ResponseWriter: w}
+		next.ServeHTTP(rec, r)
+		if rec.status == http.StatusNotFound {
+			l.Charge(key, 1)
+		}
+	})
+}
+
+// writeTooManyRequests answers a throttled caller in the content type its path
+// implies: a client that parses every /api/* response as JSON must not be
+// handed text/plain, and a browser asking for a page gains nothing from JSON.
+//
+// Retry-After is this caller's own wait, taken from the limiter rather than
+// written here as a constant: someone who has just run out is told one refill,
+// someone who kept knocking is told the length of the debt it dug. A constant
+// would be obeyed and answered with another 429.
+func writeTooManyRequests(w http.ResponseWriter, r *http.Request, retryAfter time.Duration) {
+	// Rounded UP, and never below one second: truncating a 179.5s block to 179
+	// sends an obedient client back half a second early into a second 429, and
+	// a limiter that cannot answer (RetryAfter is 0 when it never refills) must
+	// not emit "Retry-After: 0", which reads as "retry immediately".
+	secs := int(math.Ceil(retryAfter.Seconds()))
+	if secs < 1 {
+		secs = 1
+	}
+	w.Header().Set("Retry-After", strconv.Itoa(secs))
+	if strings.HasPrefix(r.URL.Path, "/api/") {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte(`{"error":"rate limited"}` + "\n"))
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.WriteHeader(http.StatusTooManyRequests)
+	_, _ = w.Write([]byte("too many requests\n"))
 }
 
 // logging logs each request with method, path, status, duration and caller.

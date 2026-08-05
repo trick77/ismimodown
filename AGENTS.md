@@ -82,6 +82,11 @@ measures, not where it runs.
 Do NOT add a dependabot ignore for `ncruces/go-sqlite3` — peeq pins it for sqlite-vec, this
 repo has none.
 
+Two limiters, different questions. The request one guards `/api/*`. The 404 one gates EVERY
+route but charges only for a 404 — never 4xx at large, never a served response. Charging a 429
+or a 400 compounds the two into a limit neither was sized for, and charging a 200 puts a
+budget on the page load itself: one visit is a dozen asset requests.
+
 Tests: `openTestDB(t)` against a real SQLite file in `t.TempDir()`, never `:memory:`. Probes
 run against `httptest` fakes and a local `net.Listen` — no real API calls in tests, ever.
 

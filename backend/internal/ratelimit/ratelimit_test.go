@@ -200,3 +200,128 @@ func TestClientIPCollapsesIPv6ToItsPrefix(t *testing.T) {
 		t.Error("different /64s must be different buckets")
 	}
 }
+
+// A Retry-After is only worth obeying if it covers the block it describes, and
+// a caller in debt is blocked for longer than one refill.
+func TestRetryAfterGrowsWithTheDebt(t *testing.T) {
+	// The 404 limiter's own numbers: one token every 30s, floor -5.
+	l := New(1.0/30.0, 5)
+	l.now = func() time.Time { return time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC) }
+
+	if got := l.RetryAfter("caller"); got != 0 {
+		t.Errorf("RetryAfter with budget left = %v, want 0", got)
+	}
+
+	l.Charge("caller", 5) // exactly spent, nothing owed
+	if got := l.RetryAfter("caller"); got != 30*time.Second {
+		t.Errorf("RetryAfter at zero = %v, want one refill (30s)", got)
+	}
+
+	l.Charge("caller", 5) // floored at -5: six tokens back to usable
+	if got := l.RetryAfter("caller"); got != 180*time.Second {
+		t.Errorf("RetryAfter at the floor = %v, want 3m", got)
+	}
+
+	// A limiter that never refills has no honest answer, and dividing by its
+	// rate would put an infinity in a header.
+	nr := New(0, 1)
+	nr.now = l.now
+	nr.Charge("caller", 1)
+	if got := nr.RetryAfter("caller"); got != 0 {
+		t.Errorf("RetryAfter with no refill = %v, want 0", got)
+	}
+}
+
+// Sweeping on the refill check alone would keep every bucket of a limiter that
+// never refills — the unbounded map the sweep exists to prevent.
+func TestSweepDropsIdleBucketsWithoutRefill(t *testing.T) {
+	l := New(0, 1)
+	now := time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC)
+	l.now = func() time.Time { return now }
+
+	l.Allow("spent")
+	now = now.Add(time.Hour)
+
+	if dropped := l.Sweep(30 * time.Minute); dropped != 1 {
+		t.Errorf("swept %d buckets, want 1; a limiter that cannot refill must still be bounded", dropped)
+	}
+}
+
+// Permitted gates a limiter whose charge comes from something other than the
+// request being gated. If it consumed a token, ordinary traffic would be
+// spending a budget it was never meant to touch.
+func TestPermittedDoesNotConsume(t *testing.T) {
+	l := New(0.0001, 2)
+	l.now = func() time.Time { return time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC) }
+
+	for i := 0; i < 100; i++ {
+		if !l.Permitted("1.2.3.4") {
+			t.Fatalf("Permitted denied at call %d; peeking must not spend the budget", i)
+		}
+	}
+	if !l.Allow("1.2.3.4") || !l.Allow("1.2.3.4") {
+		t.Error("the whole burst must still be there after any number of peeks")
+	}
+}
+
+func TestChargeSpendsTheBudget(t *testing.T) {
+	l := New(0.0001, 3)
+	l.now = func() time.Time { return time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC) }
+
+	l.Charge("scanner", 1)
+	l.Charge("scanner", 1)
+	if !l.Permitted("scanner") {
+		t.Fatal("two charges against a burst of 3 must leave the caller allowed")
+	}
+	l.Charge("scanner", 1)
+	if l.Permitted("scanner") {
+		t.Error("a spent budget must deny the caller")
+	}
+	if !l.Permitted("someone-else") {
+		t.Error("charges are per key; an unrelated caller keeps its own budget")
+	}
+}
+
+// Debt is what makes continued misbehaviour cost more than one round of it: a
+// bucket floored at zero forgives the ten-thousandth probe as fast as the
+// eleventh.
+func TestChargeRunsIntoBoundedDebt(t *testing.T) {
+	l := New(1, 2) // 1 token/sec, floor -2
+	now := time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC)
+	l.now = func() time.Time { return now }
+
+	// Far more charges than the floor allows: a scanner spraying a wordlist at
+	// a bucket it emptied long ago.
+	for i := 0; i < 500; i++ {
+		l.Charge("scanner", 1)
+	}
+
+	now = now.Add(2 * time.Second)
+	if l.Permitted("scanner") {
+		t.Error("two seconds in it is still in debt; the block must outlast one refill")
+	}
+	now = now.Add(1500 * time.Millisecond)
+	if !l.Permitted("scanner") {
+		t.Error("debt must stop at -burst, or 500 probes would mean an unbounded block")
+	}
+}
+
+// Sweeping a bucket still in debt would hand a scanner a clean slate for
+// pausing — the one thing the debt exists to prevent. A bucket that has
+// refilled is still dropped: that is what keeps the map bounded.
+func TestSweepKeepsBucketsInDebtAndDropsRefilledOnes(t *testing.T) {
+	l := New(1.0/3600.0, 2) // one token an hour, so debt outlives the sweep
+	now := time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC)
+	l.now = func() time.Time { return now }
+
+	l.Charge("scanner", 4) // floored at -2
+	l.Allow("visitor")     // one token down, back to full in an hour
+
+	now = now.Add(time.Hour)
+	if dropped := l.Sweep(30 * time.Minute); dropped != 1 {
+		t.Errorf("swept %d buckets, want 1 (the refilled visitor, not the scanner)", dropped)
+	}
+	if l.Permitted("scanner") {
+		t.Error("a bucket still in debt must survive the sweep")
+	}
+}
