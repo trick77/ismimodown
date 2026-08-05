@@ -1,0 +1,281 @@
+<!doctype html>
+<!--
+  Source for the link-preview card, ui/public/og.png. Rasterised by
+  ui/scripts/gen-og.sh and committed, exactly like the icons.
+
+  HTML rendered by headless Chrome, not an SVG through librsvg, for one reason:
+  the brand faces are woff2 variable fonts that live in ui/src/fonts. librsvg
+  resolves type through fontconfig, which neither reads woff2 nor installs from
+  a repo directory, so an SVG here would silently fall back to a system serif —
+  the failure being invisible until the card is already out in a chat. Chrome
+  loads @font-face from a relative path and is the same engine that renders the
+  site, so what ships is the site's own type.
+
+  The card carries NO measurements, by decision. A link preview is scraped once,
+  server-side, and cached by the messenger — Slack for around half an hour,
+  WhatsApp and Telegram effectively forever. A number baked in here would be
+  frozen at whatever the scraper happened to see and then shown as current to
+  everyone in the chat for weeks. That is the same failure mode the censored
+  count exists to prevent, so the card states what the page MEASURES and never
+  what it currently reads.
+
+  For the same reason the footer is a legend, not a decomposition bar. A stacked
+  bar asserts a ratio between network and server-side time even with the digits
+  stripped off, and that ratio is exactly the thing that moves.
+
+  Geometry is 1200x630 — the 1.91:1 that Slack, iMessage, Telegram and the
+  open-graph consumers render whole.
+
+  The composition is CENTRED, which the rest of the site is not, and that is the
+  one place the card departs from the page on purpose. WhatsApp does not show
+  the 1.91:1 crop in a chat bubble — it takes a SQUARE centre crop, keeping only
+  the middle 630px. The site's left-aligned masthead put the wordmark at x=80
+  and the square crop cut it to "ostats". Centred, the whole wordmark and every
+  line of the lede sit inside that middle band, so the card reads in both.
+
+  That is also why the widest lede line is held under ~560px and the wordmark
+  under ~540px. Growing either past 630px re-breaks the square crop, silently
+  and only on WhatsApp — check a centre crop after editing the type:
+
+    magick og.png -gravity center -crop 630x630+0+0 +repage /tmp/square.png
+
+  Every length is px rather than rem: this is a fixed canvas, not a responsive
+  page, and there is no viewport to scale to.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      /* The same two faces the app self-hosts, by relative path from here. */
+      @font-face {
+        font-family: "Anthropic Sans";
+        src: url("../../src/fonts/SansWebVariable-TextRegular.woff2")
+          format("woff2");
+        font-weight: 300 800;
+        font-style: normal;
+      }
+      @font-face {
+        font-family: "Anthropic Serif";
+        src: url("../../src/fonts/SerifWebVariable-TextRegular.woff2")
+          format("woff2");
+        font-weight: 300 800;
+        font-style: normal;
+      }
+      @font-face {
+        font-family: "Anthropic Serif";
+        src: url("../../src/fonts/SerifWebVariable-TextRegularItalic.woff2")
+          format("woff2");
+        font-weight: 300 800;
+        font-style: italic;
+      }
+
+      /* Tokens copied from index.css rather than imported: that file is a
+         Tailwind @theme block and pulling it in would need the build. Keep the
+         values here in step by hand when a brand colour changes. */
+      :root {
+        --color-void: #131312;
+        --color-ink: #faf9f5;
+        --color-ink-dim: #e4e1d8;
+        --color-faint: #6b6963;
+        --color-ghost: #4a4844;
+        --color-accent: #c6613f;
+        --color-accent-strong: #d97757;
+        --color-s1: #3987e5;
+        --color-wire: #9c9a92;
+        --color-server: #c6613f;
+      }
+
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        width: 1200px;
+        height: 630px;
+        overflow: hidden;
+        background: var(--color-void);
+        font-family: "Anthropic Sans", sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      /* The app's .aura wash, re-aimed at this canvas. The site's radii are
+         sized to a full viewport; at 1200x630 the same numbers put both hot
+         spots off the top edge and the card reads flat. */
+      .card {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        padding: 64px 80px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        background:
+          radial-gradient(
+            900px 620px at 8% -12%,
+            color-mix(in srgb, var(--color-accent) 17%, transparent),
+            transparent 64%
+          ),
+          radial-gradient(
+            700px 540px at 97% 4%,
+            color-mix(in srgb, var(--color-s1) 9%, transparent),
+            transparent 62%
+          ),
+          var(--color-void);
+      }
+
+      /* A hairline of accent down the left edge. Decorative only, and the first
+         thing WhatsApp's square crop throws away — nothing it carries may
+         matter. */
+      .card::before {
+        content: "";
+        position: absolute;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        width: 6px;
+        background: linear-gradient(
+          180deg,
+          var(--color-accent-strong) 0%,
+          var(--color-accent) 55%,
+          transparent 100%
+        );
+      }
+
+      .eyebrow {
+        display: flex;
+        align-items: center;
+        gap: 18px;
+      }
+      .eyebrow svg {
+        width: 44px;
+        height: 44px;
+        flex: none;
+      }
+      .eyebrow span {
+        font-size: 19px;
+        letter-spacing: 0.22em;
+        text-transform: uppercase;
+        color: var(--color-faint);
+        /* Uppercase tracking adds a trailing space the eye reads as a gap;
+           pulling it back keeps the mark and the text optically even. */
+        margin-right: -0.22em;
+      }
+
+      h1 {
+        margin-top: 34px;
+        font-family: "Anthropic Serif", serif;
+        font-size: 116px;
+        font-weight: 400;
+        line-height: 0.9;
+        letter-spacing: -0.03em;
+        color: var(--color-ink);
+      }
+
+      .lede {
+        margin-top: 28px;
+        /* px, not ch: ch is relative to the FONT, so a face swap would resize
+           the measure and quietly break the square crop this is sized for. */
+        max-width: 560px;
+        font-family: "Anthropic Serif", serif;
+        font-size: 34px;
+        line-height: 1.3;
+        color: var(--color-ink-dim);
+      }
+      .lede em {
+        font-style: italic;
+        color: var(--color-accent-strong);
+        /* "Xiaomi MiMo" is a name and breaks across lines at this measure
+           otherwise. It is the only two-word em here; "reach" is unaffected. */
+        white-space: nowrap;
+      }
+
+      /* Spaced from the lede rather than pinned to the floor. Pinning it left a
+         short lede stranded halfway up with a band of empty card beneath it;
+         the whole column is centred instead, so the composition stays balanced
+         whatever length the lede runs to. */
+      .legend {
+        margin-top: 52px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 30px;
+        font-size: 20px;
+        color: var(--color-faint);
+      }
+      .key {
+        display: flex;
+        align-items: center;
+        gap: 11px;
+      }
+      .dot {
+        width: 13px;
+        height: 13px;
+        border-radius: 999px;
+        flex: none;
+      }
+      .host {
+        margin-top: 16px;
+        font-size: 19px;
+        letter-spacing: 0.04em;
+        color: var(--color-ghost);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <div class="eyebrow">
+        <!-- tile.svg's mark, inlined. Mirror any shape change by hand, the
+             same standing instruction the favicon copy carries. -->
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+          <linearGradient id="og" x1="0" y1="0" x2="0.72" y2="1">
+            <stop offset="0" stop-color="#e08a68" />
+            <stop offset="1" stop-color="#c25f34" />
+          </linearGradient>
+          <g
+            transform="translate(-6.4000 -6.4000) scale(3.20000)"
+            fill="none"
+            stroke="url(#og)"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <rect x="3" y="3" width="18" height="18" rx="2" />
+            <g transform="translate(5.1733 5.1733) scale(0.56889)">
+              <path d="M6 20v-4M12 20V10M18 20V4" />
+            </g>
+          </g>
+        </svg>
+        <span>live → singapore · every 5 min</span>
+      </div>
+
+      <h1>mimostats</h1>
+
+      <!-- The masthead's leading clause, verbatim. Its second clause — the one
+           about separating reaching the endpoint from what happens once you are
+           there — is dropped: at this measure it runs to seven lines and pushes
+           the legend off the card. The legend below carries that idea instead,
+           which is the part a reader can take in at preview size. Reword
+           Masthead.tsx and reword this, then re-run gen-og.sh. -->
+      <p class="lede">
+        Latency, throughput, availability and answer correctness for
+        <em>Xiaomi MiMo</em>.
+      </p>
+
+      <div class="legend">
+        <div class="key">
+          <span class="dot" style="background: var(--color-wire)"></span>
+          network time
+        </div>
+        <div class="key">
+          <span class="dot" style="background: var(--color-server)"></span>
+          server-side time
+        </div>
+      </div>
+      <div class="host">mimostats.trick77.com</div>
+    </div>
+  </body>
+</html>

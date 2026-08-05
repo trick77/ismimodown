@@ -17,6 +17,54 @@
       name="description"
       content="Latency, throughput, availability and answer correctness for Xiaomi MiMo, measured every five minutes from a single European egress."
     />
+
+    <!-- Link previews for iMessage, WhatsApp, Slack, Telegram and the rest.
+         The card is ui/public/og.png, drawn by ui/scripts/gen-og.sh from
+         assets/og/card.html and committed.
+
+         The URLs are ABSOLUTE and hardcode the production host. Several
+         scrapers — WhatsApp's among them — never resolve a relative og:image
+         against the page, and the failure is a preview with no picture rather
+         than an error anyone sees. There is no build-time origin to
+         substitute: this is a single-host status page, and the Host() rule in
+         compose.yaml is the same string. Change both together.
+
+         The card deliberately carries NO numbers. A preview is scraped once,
+         server-side, and then cached by the messenger — Slack for about half an
+         hour, WhatsApp and Telegram effectively forever. Any figure baked into
+         it would freeze at whatever the scraper saw and keep being shown as
+         current. card.html says the same thing at greater length.
+
+         og:title and og:description MIRROR the <title> and description above,
+         and the card's own lede mirrors Masthead.tsx. Nothing enforces that —
+         reword any of them and reword the rest, then re-run gen-og.sh. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="mimostats" />
+    <meta property="og:url" content="https://mimostats.trick77.com/" />
+    <meta property="og:title" content="MiMo LLM Stats" />
+    <meta
+      property="og:description"
+      content="Latency, throughput, availability and answer correctness for Xiaomi MiMo, measured every five minutes from a single European egress."
+    />
+    <meta property="og:image" content="https://mimostats.trick77.com/og.png" />
+    <!-- Dimensions let a scraper lay the preview out before the image lands;
+         without them Slack and Telegram fall back to a small thumbnail. -->
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content="mimostats — latency, throughput, availability and answer correctness for Xiaomi MiMo, measured every five minutes from a single European egress."
+    />
+    <!-- summary_large_image is what makes X and the clients that copy its tags
+         run the card full width instead of cropping it to a square avatar. -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="MiMo LLM Stats" />
+    <meta
+      name="twitter:description"
+      content="Latency, throughput, availability and answer correctness for Xiaomi MiMo, measured every five minutes from a single European egress."
+    />
+    <meta name="twitter:image" content="https://mimostats.trick77.com/og.png" />
   </head>
   <body>
     <div id="root"></div>
