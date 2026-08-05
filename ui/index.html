@@ -191,8 +191,15 @@
 
          The inline styles only have to survive the moment before mount — the
          stylesheet may not have landed yet, and unstyled black-on-white
-         flashing to the dark ground is the one thing a reader would notice. -->
-    <div id="root">
+         flashing to the dark ground is the one thing a reader would notice.
+
+         #root carries the ground itself, not just the type colour. body's
+         background lives in index.css, which under `npm run dev` is injected
+         from JS and in production can 404 off a stale shell — either way this
+         near-white heading would paint on the UA's white body and vanish. The
+         literal is --color-void; it stays on #root after mount, where it is
+         indistinguishable from body's own. -->
+    <div id="root" style="background: #131312; min-height: 100vh">
       <div style="max-width: 52ch; margin: 0 auto; padding: 4rem 1.25rem">
         <h1
           style="

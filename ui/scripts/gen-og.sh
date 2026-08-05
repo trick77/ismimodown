@@ -105,8 +105,7 @@ fi
 # stops asserting anything.
 #
 # The band is tighter than the old one (which sat around a 534px single-word
-# single-word wordmark) because the real and fallback renders are only 46px
-# apart here. That
+# wordmark) because the real and fallback renders are only 46px apart here. That
 # is the price of a longer string: the per-glyph difference stays a fixed
 # fraction while the absolute gap does not grow. Do not "round it out".
 #
@@ -128,9 +127,10 @@ fi
 # 50%, not the 60% this used while the heading was a single ink-coloured word.
 # "Xiaomi MiMo" is set in the accent, #d97757, which is about 57% grey — a 60%
 # cut dropped those two words from the mask and measured "down?" alone at 376px.
-# 50% is the window: it keeps the accent and still drops --color-muted (60%) and
-# the wash. Repainting the accent to white before the mask was tried instead and
-# does not work; the aura's warm corners are within any usable -fuzz of it.
+# 50% keeps the accent. It does NOT drop --color-muted (#9c9a92, ~60%) — a lower
+# threshold keeps more, never less; the y band below is what excludes the lede.
+# Repainting the accent to white before the mask was tried instead and does not
+# work; the aura's warm corners are within any usable -fuzz of it.
 #
 # The crop is 960x190+120+135, and both offsets earn their place:
 #
@@ -161,7 +161,7 @@ fi
 # ImageMagick error. stderr is deliberately NOT silenced: on a real failure that
 # warning names the cause, and this is the check most likely to be the first
 # sign that something moved.
-MARK_W="$(magick "$SHOT" -crop "960x190+120+135" +repage -alpha off \
+MARK_W="$(magick "$SHOT" -crop "$((W - 240))x190+120+135" +repage -alpha off \
 	-colorspace gray -threshold 50% -trim -format '%w' info: || echo 0)"
 if ((MARK_W < 505 || MARK_W > 570)); then
 	echo "gen-og: heading measures ${MARK_W}px, expected 505-570 — font fallback, or type resized past the square crop" >&2

@@ -1,6 +1,6 @@
 {
   "name": "Is Xiaomi MiMo down?",
-  "short_name": "MiMo status",
+  "short_name": "Xiaomi MiMo",
   "description": "Live availability for the Xiaomi MiMo API, checked every five minutes. Latency, throughput and answer correctness, measured from a single European egress.",
   "start_url": "/",
   "scope": "/",
