@@ -27,18 +27,26 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.BaseURL != DefaultBaseURL {
 		t.Errorf("BaseURL = %q, want %q", cfg.BaseURL, DefaultBaseURL)
 	}
-	if cfg.Retention != 2160*time.Hour {
-		t.Errorf("Retention = %v, want 2160h (3 months)", cfg.Retention)
+	if cfg.Retention != Retention {
+		t.Errorf("Retention = %v, want %v", cfg.Retention, Retention)
 	}
-	if cfg.ProbeTimeout != 240*time.Second {
-		t.Errorf("ProbeTimeout = %v, want 240s", cfg.ProbeTimeout)
+	if cfg.ProbeTimeout != ProbeTimeout {
+		t.Errorf("ProbeTimeout = %v, want %v", cfg.ProbeTimeout, ProbeTimeout)
 	}
-	if cfg.PingTimeout != 5*time.Second {
-		t.Errorf("PingTimeout = %v, want 5s", cfg.PingTimeout)
+	if cfg.PingTimeout != PingTimeout {
+		t.Errorf("PingTimeout = %v, want %v", cfg.PingTimeout, PingTimeout)
 	}
 }
 
-// The three ping targets are the whole basis of fault attribution: if they are
+// Retention is what bounds the database, and it is now a constant, so the only
+// thing that can move it is an edit to this number.
+func TestRetentionIsThreeMonths(t *testing.T) {
+	if Retention != 2160*time.Hour {
+		t.Errorf("Retention = %v, want 2160h (3 months)", Retention)
+	}
+}
+
+// The two ping targets are the whole basis of fault attribution: if they are
 // wrong or accidentally equal, the attribution table silently produces a
 // confident but meaningless verdict.
 func TestLoadPingTargetDefaults(t *testing.T) {
@@ -49,8 +57,10 @@ func TestLoadPingTargetDefaults(t *testing.T) {
 		t.Fatalf("Load: %v", err)
 	}
 
-	if cfg.MimoHost != DefaultMimoHost {
-		t.Errorf("MimoHost = %q, want %q", cfg.MimoHost, DefaultMimoHost)
+	// Derived from the base URL rather than configured, so a deployment cannot
+	// ping one host while inferring against another.
+	if cfg.MimoHost != "token-plan-sgp.xiaomimimo.com" {
+		t.Errorf("MimoHost = %q, want the base URL's hostname", cfg.MimoHost)
 	}
 	if cfg.RefSGPHost != DefaultRefSGPHost {
 		t.Errorf("RefSGPHost = %q, want %q", cfg.RefSGPHost, DefaultRefSGPHost)
@@ -60,23 +70,70 @@ func TestLoadPingTargetDefaults(t *testing.T) {
 	}
 }
 
+// MimoHost follows the base URL, and follows it through a port. probe.Pinger
+// appends :443 itself, so a port left on the host would be dialled as
+// "host:port:443" — a ping that fails forever and reads as an outage.
+func TestMimoPingHostFollowsTheBaseURL(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		baseURL string
+		want    string
+	}{
+		{"plain host", "https://mimo.example.com/v1", "mimo.example.com"},
+		{"host with an explicit port", "https://mimo.example.com:8443/v1", "mimo.example.com"},
+		{"http scheme", "http://localhost:9000/v1", "localhost"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			setMinimalEnv(t)
+			t.Setenv("BACKEND_MIMO_BASE_URL", tc.baseURL)
+
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("Load: %v", err)
+			}
+			if cfg.MimoHost != tc.want {
+				t.Errorf("MimoHost = %q, want %q", cfg.MimoHost, tc.want)
+			}
+		})
+	}
+}
+
+// The SGP reference must not silently become the MiMo host it exists to be
+// compared against. Nothing enforces this at boot — an operator can point it
+// anywhere — but the SHIPPED pair has to be two different networks or the
+// default deployment attributes nothing.
+func TestDefaultRefHostIsNotMimosOwn(t *testing.T) {
+	if strings.Contains(DefaultRefSGPHost, "xiaomimimo.com") {
+		t.Errorf("DefaultRefSGPHost = %q; the reference must not be MiMo's own edge", DefaultRefSGPHost)
+	}
+	// sgp.ovh resolves to Cloudflare anycast and answers from Europe in ~18 ms.
+	// It looks like an OVH Singapore host and is not one, which is exactly the
+	// mislabelling this reference exists to detect.
+	if DefaultRefSGPHost == "sgp.ovh" {
+		t.Error("sgp.ovh is Cloudflare anycast in Europe, not a Singapore target")
+	}
+}
+
 // MiMo injects a ~250-token system prompt when the request carries none, of
 // which ~192 come back cached. That breaks both the cost model and the prefill
-// measurement, and it breaks them SILENTLY — the probe keeps succeeding. The
-// default must therefore be non-empty, and an explicitly empty override must be
-// a boot failure rather than a quiet reversion.
+// measurement, and it breaks them SILENTLY — the probe keeps succeeding.
+//
+// This used to be enforced at boot against an environment variable. The
+// variable is gone and the check with it, so the invariant is asserted here
+// instead: an edit that blanks the constant fails the build's tests rather than
+// shipping a probe that measures a cache lookup.
 func TestSystemPromptDefeatsMimosInjectedPrompt(t *testing.T) {
-	setMinimalEnv(t)
+	if strings.TrimSpace(DefaultSystemPrompt) == "" {
+		t.Fatal("DefaultSystemPrompt must not be empty or whitespace")
+	}
 
+	setMinimalEnv(t)
 	cfg, err := Load()
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if cfg.ProbeSystemPrompt == "" {
-		t.Fatal("ProbeSystemPrompt must default to a non-empty value")
-	}
-	if DefaultSystemPrompt == "" {
-		t.Fatal("DefaultSystemPrompt must not be empty")
+	if cfg.ProbeSystemPrompt != DefaultSystemPrompt {
+		t.Errorf("ProbeSystemPrompt = %q, want the constant", cfg.ProbeSystemPrompt)
 	}
 }
 
@@ -97,8 +154,8 @@ func TestLoadRequiresAPIKey(t *testing.T) {
 func TestLoadOverrides(t *testing.T) {
 	setMinimalEnv(t)
 	t.Setenv("BACKEND_ADDR", "127.0.0.1:9999")
-	t.Setenv("BACKEND_RETENTION", "720h")
-	t.Setenv("BACKEND_PROBE_TIMEOUT", "300s")
+	t.Setenv("BACKEND_DB_PATH", "/tmp/somewhere.db")
+	t.Setenv("BACKEND_LOG_LEVEL", "debug")
 	t.Setenv("BACKEND_PING_REF_SGP_HOST", "example.sg")
 
 	cfg, err := Load()
@@ -108,11 +165,57 @@ func TestLoadOverrides(t *testing.T) {
 	if cfg.Addr != "127.0.0.1:9999" {
 		t.Errorf("Addr = %q", cfg.Addr)
 	}
-	if cfg.Retention != 720*time.Hour {
-		t.Errorf("Retention = %v", cfg.Retention)
+	if cfg.DBPath != "/tmp/somewhere.db" {
+		t.Errorf("DBPath = %q", cfg.DBPath)
+	}
+	if cfg.LogLevel != "debug" {
+		t.Errorf("LogLevel = %q", cfg.LogLevel)
 	}
 	if cfg.RefSGPHost != "example.sg" {
 		t.Errorf("RefSGPHost = %q", cfg.RefSGPHost)
+	}
+}
+
+// The probe shape is not configurable, and the point of that is that setting
+// one of the retired variables does NOTHING rather than something surprising.
+// An operator with a stale .env gets the shipped behaviour, not a half-applied
+// override.
+func TestRetiredVariablesAreIgnored(t *testing.T) {
+	setMinimalEnv(t)
+	for key, val := range map[string]string{
+		"BACKEND_MODELS":              "mimo-v2-flash",
+		"BACKEND_PRICES":              "none",
+		"BACKEND_RETENTION":           "1h",
+		"BACKEND_PROBE_SYSTEM_PROMPT": "",
+		"BACKEND_PING_MIMO_HOST":      "somewhere.else.example",
+		"BACKEND_PROBE_TIMEOUT":       "1s",
+		"BACKEND_PROBE_TTFT_TIMEOUT":  "9999s",
+		"BACKEND_PING_TIMEOUT":        "not-a-duration",
+	} {
+		t.Setenv(key, val)
+	}
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load must ignore retired variables, not fail on them: %v", err)
+	}
+	if strings.Join(cfg.Models, ",") != strings.Join(DefaultModels, ",") {
+		t.Errorf("Models = %v, want the built-in pair", cfg.Models)
+	}
+	if len(cfg.Prices) != len(DefaultPrices) {
+		t.Errorf("Prices = %+v, want the shipped table", cfg.Prices)
+	}
+	if cfg.Retention != Retention {
+		t.Errorf("Retention = %v, want %v", cfg.Retention, Retention)
+	}
+	if cfg.ProbeSystemPrompt != DefaultSystemPrompt {
+		t.Errorf("ProbeSystemPrompt = %q, want the constant", cfg.ProbeSystemPrompt)
+	}
+	if cfg.MimoHost == "somewhere.else.example" {
+		t.Error("MimoHost must come from the base URL, not from the retired variable")
+	}
+	if cfg.ProbeTimeout != ProbeTimeout || cfg.PingTimeout != PingTimeout {
+		t.Errorf("ladder = %v/%v, want the constants", cfg.PingTimeout, cfg.ProbeTimeout)
 	}
 }
 
@@ -123,13 +226,9 @@ func TestLoadRejectsBadValues(t *testing.T) {
 		val  string
 		want string
 	}{
-		{"unparseable duration", "BACKEND_PROBE_TIMEOUT", "soon", "BACKEND_PROBE_TIMEOUT"},
-		{"negative duration", "BACKEND_PING_TIMEOUT", "-5s", "BACKEND_PING_TIMEOUT"},
-		{"zero duration", "BACKEND_PING_TIMEOUT", "0s", "BACKEND_PING_TIMEOUT"},
 		{"base url without scheme", "BACKEND_MIMO_BASE_URL", "token-plan-sgp.xiaomimimo.com/v1", "BACKEND_MIMO_BASE_URL"},
 		{"base url with bad scheme", "BACKEND_MIMO_BASE_URL", "ftp://example.com/v1", "BACKEND_MIMO_BASE_URL"},
-		{"empty system prompt", "BACKEND_PROBE_SYSTEM_PROMPT", " ", "BACKEND_PROBE_SYSTEM_PROMPT"},
-		{"ping host with port", "BACKEND_PING_MIMO_HOST", "example.com:443", "BACKEND_PING_MIMO_HOST"},
+		{"ping host with port", "BACKEND_PING_REF_SGP_HOST", "example.com:443", "BACKEND_PING_REF_SGP_HOST"},
 		{"ping host with scheme", "BACKEND_PING_REF_SGP_HOST", "https://example.com", "BACKEND_PING_REF_SGP_HOST"},
 		// A credential embedded in the base URL would travel wherever that
 		// value travels, so it is refused at boot. Both of these otherwise
@@ -155,51 +254,62 @@ func TestLoadRejectsBadValues(t *testing.T) {
 	}
 }
 
-// A TTFT watchdog or idle bound at or above the overall deadline can never
-// fire, which collapses every failure back into the single "timeout" class the
-// whole ladder exists to split apart.
-func TestLoadRejectsUnreachableTimeoutLadder(t *testing.T) {
-	t.Run("ttft above overall", func(t *testing.T) {
-		setMinimalEnv(t)
-		t.Setenv("BACKEND_PROBE_TIMEOUT", "60s")
-		t.Setenv("BACKEND_PROBE_TTFT_TIMEOUT", "90s")
-
-		_, err := Load()
-		if err == nil || !strings.Contains(err.Error(), "BACKEND_PROBE_TTFT_TIMEOUT") {
-			t.Fatalf("expected a TTFT ladder error, got: %v", err)
+// The ladder must be strictly ordered, and TTFT and idle must both stay under
+// the overall deadline or they can never fire — which collapses every failure
+// back into the single "timeout" class the whole ladder exists to split apart.
+//
+// Asserted on the CONSTANTS. Load used to check this against environment input
+// and cannot fail any more, so the guard moved here rather than disappearing:
+// editing one of these numbers into an unreachable ladder still trips something.
+func TestTimeoutLadderIsReachable(t *testing.T) {
+	if !(PingTimeout < DialTimeout &&
+		DialTimeout < HeaderTimeout &&
+		HeaderTimeout < TTFTTimeout &&
+		TTFTTimeout < ProbeTimeout) {
+		t.Errorf("ladder is not strictly ordered: ping=%v dial=%v header=%v ttft=%v overall=%v",
+			PingTimeout, DialTimeout, HeaderTimeout, TTFTTimeout, ProbeTimeout)
+	}
+	if IdleTimeout >= ProbeTimeout {
+		t.Errorf("idle=%v must be below overall=%v; above it the watchdog can never fire",
+			IdleTimeout, ProbeTimeout)
+	}
+	for name, d := range map[string]time.Duration{
+		"PingTimeout":   PingTimeout,
+		"DialTimeout":   DialTimeout,
+		"HeaderTimeout": HeaderTimeout,
+		"TTFTTimeout":   TTFTTimeout,
+		"IdleTimeout":   IdleTimeout,
+		"ProbeTimeout":  ProbeTimeout,
+	} {
+		if d <= 0 {
+			t.Errorf("%s = %v; a non-positive bound disables the timeout entirely", name, d)
 		}
-	})
-
-	t.Run("idle above overall", func(t *testing.T) {
-		setMinimalEnv(t)
-		t.Setenv("BACKEND_PROBE_TIMEOUT", "30s")
-		t.Setenv("BACKEND_PROBE_TTFT_TIMEOUT", "20s")
-		t.Setenv("BACKEND_PROBE_IDLE_TIMEOUT", "45s")
-
-		_, err := Load()
-		if err == nil || !strings.Contains(err.Error(), "BACKEND_PROBE_IDLE_TIMEOUT") {
-			t.Fatalf("expected an idle ladder error, got: %v", err)
-		}
-	})
+	}
 }
 
-// The default ladder must itself satisfy the ordering it enforces on overrides.
-func TestDefaultTimeoutLadderIsOrdered(t *testing.T) {
+// Load copies the ladder onto the Config it returns, so a consumer reading
+// cfg.TTFTTimeout gets the same number as a test reading the constant.
+func TestLoadCarriesTheLadder(t *testing.T) {
 	setMinimalEnv(t)
 
 	cfg, err := Load()
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if !(cfg.PingTimeout < cfg.DialTimeout &&
-		cfg.DialTimeout < cfg.HeaderTimeout &&
-		cfg.HeaderTimeout < cfg.TTFTTimeout &&
-		cfg.TTFTTimeout < cfg.ProbeTimeout) {
-		t.Errorf("default ladder is not strictly ordered: ping=%v dial=%v header=%v ttft=%v overall=%v",
-			cfg.PingTimeout, cfg.DialTimeout, cfg.HeaderTimeout, cfg.TTFTTimeout, cfg.ProbeTimeout)
-	}
-	if cfg.IdleTimeout >= cfg.ProbeTimeout {
-		t.Errorf("idle=%v must be below overall=%v", cfg.IdleTimeout, cfg.ProbeTimeout)
+	for _, tc := range []struct {
+		name      string
+		got, want time.Duration
+	}{
+		{"PingTimeout", cfg.PingTimeout, PingTimeout},
+		{"DialTimeout", cfg.DialTimeout, DialTimeout},
+		{"HeaderTimeout", cfg.HeaderTimeout, HeaderTimeout},
+		{"TTFTTimeout", cfg.TTFTTimeout, TTFTTimeout},
+		{"IdleTimeout", cfg.IdleTimeout, IdleTimeout},
+		{"ProbeTimeout", cfg.ProbeTimeout, ProbeTimeout},
+	} {
+		if tc.got != tc.want {
+			t.Errorf("%s = %v, want %v", tc.name, tc.got, tc.want)
+		}
 	}
 }
 
@@ -209,7 +319,7 @@ func TestDefaultTimeoutLadderIsOrdered(t *testing.T) {
 // probe.Pinger dials through net.JoinHostPort, which brackets v6 correctly.
 func TestLoadAcceptsIPv6PingHostButStillRejectsHostPort(t *testing.T) {
 	t.Run("bare IPv6 literal is accepted", func(t *testing.T) {
-		t.Setenv("BACKEND_MIMO_API_KEY", "tp-test")
+		setMinimalEnv(t)
 		t.Setenv("BACKEND_PING_REF_SGP_HOST", "2606:4700:4700::1111")
 
 		cfg, err := Load()
@@ -222,7 +332,7 @@ func TestLoadAcceptsIPv6PingHostButStillRejectsHostPort(t *testing.T) {
 	})
 
 	t.Run("host:port is still rejected", func(t *testing.T) {
-		t.Setenv("BACKEND_MIMO_API_KEY", "tp-test")
+		setMinimalEnv(t)
 		t.Setenv("BACKEND_PING_REF_SGP_HOST", "cloudflare.com:443")
 
 		if _, err := Load(); err == nil {
@@ -236,31 +346,15 @@ func TestLoadAcceptsIPv6PingHostButStillRejectsHostPort(t *testing.T) {
 // leaving it unset. That form was chosen so this file stays the only place a
 // default is written — and it is only safe because set-but-empty and unset are
 // treated identically here.
-//
-// If that ever stops holding, a stock `docker compose up` blanks the whole
-// configuration at once: empty models, an empty database path, and — the one
-// that would not even fail loudly — an empty system prompt, which is the
-// difference between measuring prefill and measuring a cache lookup.
 func TestSetButEmptyIsTreatedAsUnset(t *testing.T) {
 	setMinimalEnv(t)
 
 	// Exactly the variables compose.yaml passes with an empty fallback.
 	for _, key := range []string{
-		"BACKEND_MODELS",
 		"BACKEND_DB_PATH",
 		"BACKEND_MIMO_BASE_URL",
-		"BACKEND_RETENTION",
-		"BACKEND_LOG_LEVEL",
-		"BACKEND_PING_MIMO_HOST",
 		"BACKEND_PING_REF_SGP_HOST",
-		"BACKEND_PROBE_SYSTEM_PROMPT",
 		"BACKEND_PROBE_USER_AGENT",
-		"BACKEND_PING_TIMEOUT",
-		"BACKEND_PROBE_DIAL_TIMEOUT",
-		"BACKEND_PROBE_HEADER_TIMEOUT",
-		"BACKEND_PROBE_TTFT_TIMEOUT",
-		"BACKEND_PROBE_IDLE_TIMEOUT",
-		"BACKEND_PROBE_TIMEOUT",
 	} {
 		t.Setenv(key, "")
 	}
@@ -270,48 +364,39 @@ func TestSetButEmptyIsTreatedAsUnset(t *testing.T) {
 		t.Fatalf("Load with every optional variable set to empty: %v", err)
 	}
 
-	if got, want := strings.Join(cfg.Models, ","), strings.Join(DefaultModels, ","); got != want {
-		t.Errorf("Models = %q, want the built-in %q", got, want)
-	}
 	if cfg.DBPath != "/data/mimostats.db" {
 		t.Errorf("DBPath = %q, want /data/mimostats.db", cfg.DBPath)
 	}
 	if cfg.BaseURL != DefaultBaseURL {
 		t.Errorf("BaseURL = %q, want %q", cfg.BaseURL, DefaultBaseURL)
 	}
-	// The invariant that would fail silently rather than loudly.
-	if cfg.ProbeSystemPrompt != DefaultSystemPrompt {
-		t.Errorf("ProbeSystemPrompt = %q, want the default; an empty one lets MiMo inject its own",
-			cfg.ProbeSystemPrompt)
+	if cfg.RefSGPHost != DefaultRefSGPHost {
+		t.Errorf("RefSGPHost = %q, want %q", cfg.RefSGPHost, DefaultRefSGPHost)
 	}
 	if cfg.ProbeUserAgent != DefaultUserAgent {
 		t.Errorf("ProbeUserAgent = %q, want %q", cfg.ProbeUserAgent, DefaultUserAgent)
 	}
-	if cfg.Retention != 2160*time.Hour {
-		t.Errorf("Retention = %v, want 2160h", cfg.Retention)
-	}
-	// The whole ladder, since compose passes all six the same way.
-	for _, tc := range []struct {
-		name string
-		got  time.Duration
-		want time.Duration
-	}{
-		{"PingTimeout", cfg.PingTimeout, 5 * time.Second},
-		{"DialTimeout", cfg.DialTimeout, 10 * time.Second},
-		{"HeaderTimeout", cfg.HeaderTimeout, 60 * time.Second},
-		{"TTFTTimeout", cfg.TTFTTimeout, 150 * time.Second},
-		{"IdleTimeout", cfg.IdleTimeout, 45 * time.Second},
-		{"ProbeTimeout", cfg.ProbeTimeout, 240 * time.Second},
-	} {
-		if tc.got != tc.want {
-			t.Errorf("%s = %v, want %v", tc.name, tc.got, tc.want)
+}
+
+// Every probed model must have a price. Nothing downstream tolerates a gap any
+// more: /api/cost prices every row it finds, so a model without an entry is
+// billed at the zero value and drops out of a total that still presents itself
+// as complete. Both lists are constants, so this is checkable here and is the
+// only thing standing between an edit to one and a quietly wrong public figure.
+func TestEveryProbedModelHasAPrice(t *testing.T) {
+	for _, model := range DefaultModels {
+		if _, ok := DefaultPrices[model]; !ok {
+			t.Errorf("no price for %s, which is probed by default", model)
 		}
+	}
+	if len(DefaultPrices) != len(DefaultModels) {
+		t.Errorf("DefaultPrices has %d entries for %d probed models; a price for a model "+
+			"that is not probed is dead weight, and a model with no price is a wrong total",
+			len(DefaultPrices), len(DefaultModels))
 	}
 }
 
-// Unset means the shipped table. A deployment should not have to carry prices
-// for the two models this thing exists to probe.
-func TestLoadWithoutPricesUsesTheShippedTable(t *testing.T) {
+func TestLoadCarriesTheShippedTable(t *testing.T) {
 	setMinimalEnv(t)
 
 	cfg, err := Load()
@@ -320,7 +405,7 @@ func TestLoadWithoutPricesUsesTheShippedTable(t *testing.T) {
 	}
 	for _, model := range DefaultModels {
 		if _, ok := cfg.Prices[model]; !ok {
-			t.Errorf("no default price for %s, which is probed by default", model)
+			t.Errorf("no price for %s on the loaded config", model)
 		}
 	}
 }
@@ -344,137 +429,23 @@ func TestDefaultPricesMatchTheirSource(t *testing.T) {
 }
 
 // A mutable package-level map is one careless write away from a process that
-// prices differently after its first Load.
-func TestLoadDoesNotHandOutTheDefaultTableItself(t *testing.T) {
+// prices differently after its first Load. Same for the model list, which is a
+// slice and just as reachable.
+func TestLoadDoesNotHandOutThePackageLevelDefaults(t *testing.T) {
 	setMinimalEnv(t)
 
 	cfg, err := Load()
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
+
 	cfg.Prices["mimo-v2.5"] = ModelPrice{In: 999}
 	if DefaultPrices["mimo-v2.5"].In == 999 {
-		t.Error("Load returned the package-level map; a caller can rewrite the prices")
+		t.Error("Load returned the package-level price map; a caller can rewrite the prices")
 	}
-}
 
-// Off is a supported state for a deployment that would rather show nothing than
-// a list-rate estimate.
-func TestLoadPricesOff(t *testing.T) {
-	setMinimalEnv(t)
-	t.Setenv("BACKEND_PRICES", "none")
-
-	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	if len(cfg.Prices) != 0 {
-		t.Errorf("Prices = %+v, want none", cfg.Prices)
-	}
-}
-
-func TestLoadParsesPrices(t *testing.T) {
-	setMinimalEnv(t)
-	t.Setenv("BACKEND_PRICES", "mimo-v2.5=0.30/1.20/0.15, mimo-v2.5-pro=0.60/2.40")
-
-	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	if got, want := cfg.Prices["mimo-v2.5"], (ModelPrice{In: 0.30, Out: 1.20, Cached: 0.15}); got != want {
-		t.Errorf("mimo-v2.5 = %+v, want %+v", got, want)
-	}
-	// A given table REPLACES the shipped one. Merging would let a model keep a
-	// stale default while its neighbour was updated.
-	if len(cfg.Prices) != 2 {
-		t.Errorf("Prices = %+v, want only what was configured", cfg.Prices)
-	}
-	// The cached rate is optional and falls back to the INPUT rate, which
-	// overstates a cache hit rather than flattering it.
-	if got, want := cfg.Prices["mimo-v2.5-pro"], (ModelPrice{In: 0.60, Out: 2.40, Cached: 0.60}); got != want {
-		t.Errorf("mimo-v2.5-pro = %+v, want %+v", got, want)
-	}
-}
-
-// A malformed table is an error rather than a silent fallback to none: someone
-// tried to configure prices, and coming up publishing no cost at all would look
-// identical to not having tried.
-func TestLoadRejectsMalformedPrices(t *testing.T) {
-	for _, bad := range []string{
-		"mimo-v2.5",
-		"mimo-v2.5=0.30",
-		"mimo-v2.5=0.30/1.20/0.15/0.02",
-		"mimo-v2.5=cheap/1.20",
-		"=0.30/1.20",
-		"mimo-v2.5=-0.30/1.20",
-	} {
-		t.Run(bad, func(t *testing.T) {
-			setMinimalEnv(t)
-			t.Setenv("BACKEND_PRICES", bad)
-
-			if _, err := Load(); err == nil {
-				t.Errorf("%q must be rejected", bad)
-			} else if !strings.Contains(err.Error(), "BACKEND_PRICES") {
-				t.Errorf("error must name the variable: %v", err)
-			}
-		})
-	}
-}
-
-// A free tier is a real thing to configure and produces a true total of nothing.
-func TestLoadAcceptsZeroPrices(t *testing.T) {
-	setMinimalEnv(t)
-	t.Setenv("BACKEND_PRICES", "mimo-v2.5=0/0")
-
-	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	if _, ok := cfg.Prices["mimo-v2.5"]; !ok {
-		t.Error("a zero-priced model must still be in the table")
-	}
-}
-
-// Now that prices ship by default, the failure mode is a cost panel that
-// silently disappears because BACKEND_MODELS named a model the table has never
-// heard of. The page cannot say so, so the log has to.
-func TestUnpricedModelsNamesWhatTheTableIsMissing(t *testing.T) {
-	setMinimalEnv(t)
-	t.Setenv("BACKEND_MODELS", "mimo-v2.5,mimo-v2-flash")
-
-	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	missing := cfg.UnpricedModels()
-	if len(missing) != 1 || missing[0] != "mimo-v2-flash" {
-		t.Errorf("UnpricedModels() = %v, want [mimo-v2-flash]", missing)
-	}
-}
-
-func TestUnpricedModelsIsEmptyForTheDefaultPair(t *testing.T) {
-	setMinimalEnv(t)
-
-	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	if missing := cfg.UnpricedModels(); len(missing) > 0 {
-		t.Errorf("UnpricedModels() = %v; the shipped table must cover the probed pair", missing)
-	}
-}
-
-// Pricing turned off is a decision, not an oversight, and has nothing to warn
-// about.
-func TestUnpricedModelsSaysNothingWhenPricingIsOff(t *testing.T) {
-	setMinimalEnv(t)
-	t.Setenv("BACKEND_PRICES", "none")
-
-	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	if missing := cfg.UnpricedModels(); missing != nil {
-		t.Errorf("UnpricedModels() = %v, want nothing", missing)
+	cfg.Models[0] = "mimo-v2-flash"
+	if DefaultModels[0] == "mimo-v2-flash" {
+		t.Error("Load returned the package-level model slice; a caller can rewrite what is probed")
 	}
 }
