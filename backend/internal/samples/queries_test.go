@@ -333,6 +333,53 @@ func TestRecentSamplesServesOutputTokens(t *testing.T) {
 	}
 }
 
+// prompt_tokens is served beside output_tokens because the input side is what
+// separates the two probes: ~20 tokens on short against ~3800 on wide. The cost
+// endpoint sums it over a window, which cannot answer what any one run sent —
+// and this table is the surface that promises nothing is aggregated away.
+//
+// Null on a failure, for the same reason every other measurement here is: a run
+// that never reached the model sent nothing measurable, which is not zero.
+func TestRecentSamplesServesPromptTokens(t *testing.T) {
+	s := New(openTestDB(t))
+	now := time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC)
+	ctx := context.Background()
+
+	if _, err := s.Save(ctx, Cycle{
+		StartedAt: now.Add(-2 * time.Minute), Net: okNet(),
+		Infer: []probe.InferResult{okInfer("mimo-v2.5", 900)},
+	}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	if _, err := s.Save(ctx, Cycle{
+		StartedAt: now.Add(-time.Minute), Net: okNet(),
+		Infer: []probe.InferResult{{
+			ModelID: "mimo-v2.5", Probe: probe.ProbeShort,
+			OK: false, ErrorClass: probe.ErrClassHTTP,
+		}},
+	}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	rows, err := s.RecentSamples(ctx, "mimo-v2.5", probe.ProbeShort, 10)
+	if err != nil {
+		t.Fatalf("RecentSamples: %v", err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("got %d rows, want 2", len(rows))
+	}
+	// Newest first: the failure, then the successful run.
+	if rows[0].PromptTokens != nil {
+		t.Errorf("failed run carries %d prompt tokens, want null", *rows[0].PromptTokens)
+	}
+	if rows[1].PromptTokens == nil {
+		t.Fatal("successful run carries no prompt tokens")
+	}
+	if *rows[1].PromptTokens != 34 {
+		t.Errorf("prompt tokens = %d, want the 34 the run reported", *rows[1].PromptTokens)
+	}
+}
+
 // error_detail is operator-only: a provider error body can echo request
 // fragments. The public Sample type must have no way to carry it.
 func TestSampleTypeCannotCarryErrorDetail(t *testing.T) {

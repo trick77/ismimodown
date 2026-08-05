@@ -705,12 +705,23 @@ type Sample struct {
 	TotalMs   *float64  `json:"total_ms"`
 	ITLP50Ms  *float64  `json:"itl_p50_ms"`
 	OutputTPS *float64  `json:"output_tps"`
-	// The completion tokens the model actually generated. output_tps is this
-	// count over the decode window, so a row with a fast tok/s and a tiny answer
-	// reads very differently from the same rate over a long one — the rate alone
-	// cannot tell those apart. Prompt, cached and reasoning tokens are recorded
-	// too but stay out: they say what the run cost, not what it produced, and
-	// /api/cost already sums them.
+	// What went in and what came out. output_tps is the completion count over
+	// the decode window, so a row with a fast tok/s and a tiny answer reads very
+	// differently from the same rate over a long one — the rate alone cannot
+	// tell those apart.
+	//
+	// The prompt side used to stay out on the grounds that it says what the run
+	// cost rather than what it produced, and that /api/cost already sums it. The
+	// sum is the wrong shape for this table: prompt_tokens is ~20 on short and
+	// ~3800 on wide, and that 200x step IS the difference between the two
+	// probes. Reading it off a daily total means reconstructing per-run input
+	// from an aggregate, on the one surface that promises nothing is aggregated
+	// away.
+	//
+	// cached_tokens and reasoning_tokens still stay out. Both are invariants
+	// that must sit at zero rather than measurements that vary per run, and the
+	// model cards are where a breach of either is meant to surface.
+	PromptTokens *int64  `json:"prompt_tokens"`
 	OutputTokens *int64  `json:"output_tokens"`
 	OK           bool    `json:"ok"`
 	AnswerOK     *bool   `json:"answer_ok"`
@@ -787,8 +798,8 @@ func (s *Store) RecentSamples(ctx context.Context, modelID, probeKind string, li
 
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT c.started_at, i.model_id, i.probe, i.ttft_ms, i.total_ms,
-		       i.itl_p50_ms, i.output_tps, i.output_tokens, i.ok, i.answer_ok,
-		       i.error_class
+		       i.itl_p50_ms, i.output_tps, i.prompt_tokens, i.output_tokens,
+		       i.ok, i.answer_ok, i.error_class
 		FROM infer_probes i
 		JOIN cycles c ON c.id = i.cycle_id
 		WHERE i.model_id = ? AND i.probe = ?
@@ -806,12 +817,12 @@ func (s *Store) RecentSamples(ctx context.Context, modelID, probeKind string, li
 		var okInt int
 		var answerOK sql.NullInt64
 		var ttft, total, itl, tps sql.NullFloat64
-		var outTokens sql.NullInt64
+		var promptTokens, outTokens sql.NullInt64
 		// question_id is recorded but never selected here: it names what is
 		// being asked, and this row is served publicly.
 		var class sql.NullString
 		if err := rows.Scan(&at, &s.ModelID, &s.Probe, &ttft, &total, &itl, &tps,
-			&outTokens, &okInt, &answerOK, &class); err != nil {
+			&promptTokens, &outTokens, &okInt, &answerOK, &class); err != nil {
 			return nil, err
 		}
 		s.At, _ = time.Parse(time.RFC3339Nano, at)
@@ -820,6 +831,7 @@ func (s *Store) RecentSamples(ctx context.Context, modelID, probeKind string, li
 		s.TotalMs = nullF(total)
 		s.ITLP50Ms = nullF(itl)
 		s.OutputTPS = nullF(tps)
+		s.PromptTokens = nullI(promptTokens)
 		s.OutputTokens = nullI(outTokens)
 		if answerOK.Valid {
 			b := answerOK.Int64 == 1

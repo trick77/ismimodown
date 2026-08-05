@@ -2,19 +2,28 @@ import type { Sample } from "./api/types";
 import { Card } from "./ui";
 import { formatInt, formatMs, formatTime, formatTps } from "./format";
 
-// How many cycles the table renders.
+// How many runs the table renders.
 //
 // The card's job is "what happened just now", and a wall of numbers nobody
 // scrolls to the end of does not answer it better than a screenful does — the
 // pulse strip above is what covers the whole day.
 //
-// App asks the server for exactly this many, so the slice below is normally a
-// no-op. It stays because the cap is the table's own rule: whatever it is
-// handed, this is what it draws.
-const ROWS = 20;
+// 20 → 40 when the table started drawing every model rather than one. The cap
+// is a number of ROWS, but what a reader takes from it is a stretch of TIME,
+// and those two only track each other while the row rate is fixed. Two models
+// at 12 short runs an hour each, plus a wide run an hour each, is ~26 rows an
+// hour: holding the cap at 20 would have halved the reach to ~45 minutes and
+// left ONE wide run visible — fewer than before the panel was fixed, which is
+// the opposite of the complaint it answers. 40 restores the old ~90 minutes,
+// so roughly three wide runs are on screen.
+//
+// App asks the server for TABLE_ROWS per model and probe, which is more than
+// this in total, so the slice below does real work rather than being the no-op
+// it was when the two numbers matched.
+const ROWS = 40;
 
-// newestFirst merges one array of samples per probe kind into the single
-// ordering the table draws.
+// newestFirst merges one array of samples per model and probe kind into the
+// single ordering the table draws.
 //
 // Ordered on the parsed instant, never on the timestamp as text. The daemon
 // stamps cycles with Go's RFC3339Nano, which DROPS trailing zeros from the
@@ -23,19 +32,24 @@ const ROWS = 20;
 // lands in an earlier field today and the bug cannot fire; the cadence is not
 // something this function should have to know.
 //
-// A stable tie-break matters here in a way it did not when the table held one
-// probe: a wide run and the short run beside it share their cycle's timestamp
-// exactly, so without one the pair would swap places between renders. Probe
-// name, so the order is the same on every load.
-export function newestFirst(perProbe: Sample[][]): Sample[] {
+// The tie-break is not cosmetic, and it grew with the table. Models run
+// CONCURRENTLY within a cycle and are stamped with that cycle's instant, so
+// every ordinary cycle now puts two rows on the same timestamp and a wide cycle
+// puts three. Probe alone stopped being a total order the moment the second
+// model arrived — the two short runs would tie and swap places between renders,
+// on a table a reader is scanning down. Model, then probe: both sorts are
+// stable and total, so a run sits in the same place on every load.
+export function newestFirst(perGroup: Sample[][]): Sample[] {
   // Parsed once per sample rather than twice per comparison: the merge runs on
   // every stream event, and Date.parse is the expensive part of the sort.
-  return perProbe
+  return perGroup
     .flat()
     .map((s) => ({ s, t: Date.parse(s.at) }))
-    .sort((a, b) =>
-      b.t !== a.t ? b.t - a.t : a.s.probe.localeCompare(b.s.probe),
-    )
+    .sort((a, b) => {
+      if (b.t !== a.t) return b.t - a.t;
+      const byModel = a.s.model_id.localeCompare(b.s.model_id);
+      return byModel !== 0 ? byModel : a.s.probe.localeCompare(b.s.probe);
+    })
     .map(({ s }) => s);
 }
 
@@ -43,49 +57,56 @@ export function newestFirst(perProbe: Sample[][]): Sample[] {
 // reader gets numbers rather than a canvas with a summary label.
 //
 // It used to claim to be the accessible alternative to every chart above. It
-// never quite was: the charts run to 3 months across both models, and this
-// holds one. Now that it stops after a couple of hours of cycles the claim is
-// plainly false, so it is not made. The charts' own aria-labels are what carry
-// them, and closing that gap properly means giving each chart its own tabular
-// alternative, not making this table longer than anyone reads.
+// never quite was, and the reason has now been fixed rather than restated: the
+// charts run to 3 months and this holds a couple of hours. The span is what
+// still separates them, not the coverage. The charts' own aria-labels are what
+// carry them, and closing that gap properly means giving each chart its own
+// tabular alternative, not making this table longer than anyone reads.
 //
-// Both probes, though. The hourly wide run is stored against the same cycle as
-// the short one and was simply never asked for, which left the page's only raw
-// record quietly incomplete — the one table that promises nothing is aggregated
-// away was aggregating away a whole probe. Two consequences are shown rather
-// than hidden: the pair shares a timestamp, so Time repeats and the Probe
-// column beside it is what tells the rows apart; and wide has no single
-// assertable answer, so it is never graded and its Answer cell is a dash.
+// EVERY inference call inside that span, though — both models, both probes.
+// The table's whole claim is that nothing is aggregated away, and it was
+// quietly dropping three quarters of the runs: the hourly wide probe was never
+// requested, and every request named the first model, so the page's only raw
+// record showed one probe of one model on a page about two of each.
 //
-// Tokens sits between Total and Throughput because that is the order the three
-// explain each other in: how long the run took, how much it produced, and the
-// rate those two imply. Throughput on its own is the number that misleads —
-// tok/s is measured over the decode window, so a 40-token reply and a
-// 400-token one can post the same rate while taking wildly different times,
-// and only the count says which happened. It is the generated tokens, not the
-// prompt or cached ones: those are what the run cost, and the cost panel
-// already carries them.
-export function SamplesTable({ perProbe }: { perProbe: Sample[][] }) {
-  const rows = newestFirst(perProbe).slice(0, ROWS);
+// Three consequences are shown rather than hidden. Models run concurrently
+// within a cycle, so Time repeats down the column and Model and Probe beside it
+// are what tell the rows apart. Wide has no single assertable answer, so it is
+// never graded and its Answer cell is a dash. And In jumps ~200x between the
+// probes — that step IS the difference between them, not an anomaly.
+//
+// Tokens sits between Total and Throughput because that is the order the four
+// columns explain each other in: how long the run took, what went in, what came
+// out, and the rate the last two imply. Throughput on its own is the number
+// that misleads — tok/s is measured over the decode window, so a 40-token reply
+// and a 400-token one can post the same rate while taking wildly different
+// times, and only the counts say which happened. Cached and reasoning tokens
+// stay out: both are invariants pinned at zero rather than per-run
+// measurements, and the model cards are where a breach of either surfaces.
+export function SamplesTable({ perGroup }: { perGroup: Sample[][] }) {
+  const rows = newestFirst(perGroup).slice(0, ROWS);
   // "At most" rather than a flat count: a fresh database has two cycles, and a
-  // subtitle claiming twenty while showing two is wrong in exactly the
-  // situation where the reader is least sure what they are looking at.
-  const subtitle = `The last ${ROWS} runs at most, short and wide, unaggregated. Failed runs show their error class.`;
+  // subtitle claiming forty while showing two is wrong in exactly the situation
+  // where the reader is least sure what they are looking at.
+  const subtitle = `The last ${ROWS} inference calls at most — every model, short and wide, unaggregated. Failed runs show their error class.`;
   return (
     <Card title="Raw cycles" subtitle={subtitle}>
       {rows.length > 0 ? (
         <div className="overflow-x-auto">
-          {/* The min-width went 640 → 700 with the Tokens column. It is what
-              stops the columns being squeezed to the point of wrapping on a
-              phone; the wrapper scrolls instead. */}
-          <table className="w-full min-w-[700px] text-label">
+          {/* The min-width went 640 → 700 with the Tokens column, and 700 → 860
+              with Model and the In/Out split. It is what stops the columns
+              being squeezed to the point of wrapping on a phone; the wrapper
+              scrolls instead. */}
+          <table className="w-full min-w-[860px] text-label">
             <thead>
               <tr className="text-micro uppercase tracking-wider text-ghost">
                 <th className="py-2 pr-4 text-left font-medium">Time</th>
+                <th className="py-2 pr-4 text-left font-medium">Model</th>
                 <th className="py-2 pr-4 text-left font-medium">Probe</th>
                 <th className="py-2 pr-4 text-right font-medium">TTFT</th>
                 <th className="py-2 pr-4 text-right font-medium">Total</th>
-                <th className="py-2 pr-4 text-right font-medium">Tokens</th>
+                <th className="py-2 pr-4 text-right font-medium">In</th>
+                <th className="py-2 pr-4 text-right font-medium">Out</th>
                 <th className="py-2 pr-4 text-right font-medium">Throughput</th>
                 <th className="py-2 pr-4 text-left font-medium">Answer</th>
                 <th className="py-2 text-left font-medium">Outcome</th>
@@ -94,16 +115,20 @@ export function SamplesTable({ perProbe }: { perProbe: Sample[][] }) {
             <tbody>
               {rows.map((s, i) => (
                 <tr
-                  key={`${s.at}-${s.probe}-${i}`}
+                  key={`${s.at}-${s.model_id}-${s.probe}-${i}`}
                   className="border-t border-border-soft text-muted"
                 >
                   <td className="num py-2 pr-4">{formatTime(s.at)}</td>
+                  <td className="num py-2 pr-4">{s.model_id}</td>
                   <td className="num py-2 pr-4">{s.probe}</td>
                   <td className="num py-2 pr-4 text-right">
                     {formatMs(s.ttft_ms)}
                   </td>
                   <td className="num py-2 pr-4 text-right">
                     {formatMs(s.total_ms)}
+                  </td>
+                  <td className="num py-2 pr-4 text-right">
+                    {formatInt(s.prompt_tokens)}
                   </td>
                   <td className="num py-2 pr-4 text-right">
                     {formatInt(s.output_tokens)}

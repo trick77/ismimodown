@@ -109,8 +109,11 @@ export type Sample = {
   total_ms: number | null;
   itl_p50_ms: number | null;
   output_tps: number | null;
-  // Completion tokens generated. Null on a failed run, like every other
-  // measurement here — nothing was produced, which is not the same as zero.
+  // What the run sent and what it generated. Null on a failure, like every
+  // other measurement here — nothing was produced, which is not the same as
+  // zero. The input side is what tells the two probes apart: ~20 tokens on
+  // short, ~3800 on wide.
+  prompt_tokens: number | null;
   output_tokens: number | null;
   ok: boolean;
   answer_ok: boolean | null;
