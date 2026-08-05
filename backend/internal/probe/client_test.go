@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 // testConfig is a fast ladder so timeout tests finish in milliseconds while
@@ -509,6 +510,133 @@ func TestMalformedChunkIsAProtocolError(t *testing.T) {
 	})
 	if res.ErrorClass != ErrClassProtocol {
 		t.Errorf("class = %q, want %q", res.ErrorClass, ErrClassProtocol)
+	}
+}
+
+// The failure a proxy in front of the model produces: 200 OK, and a body that
+// is not a stream at all. The class is the same protocol error either way, so
+// the body IS the diagnosis — reporting only that nothing arrived leaves the
+// operator unable to tell a broken model from a WAF.
+func TestNonStreamBodyOnA200IsKept(t *testing.T) {
+	const body = `<?xml version="1.0"?><Error><Code>ServiceUnavailable</Code></Error>`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, body)
+	}))
+	defer srv.Close()
+
+	res, _ := NewClient(testConfig(srv.URL)).Run(context.Background(), Request{
+		ModelID: "m", Probe: ProbeInfer, Prompt: "q", MaxTokens: 150,
+	})
+	if res.ErrorClass != ErrClassProtocol {
+		t.Errorf("class = %q, want %q", res.ErrorClass, ErrClassProtocol)
+	}
+	if !strings.Contains(res.ErrorDetail, "ServiceUnavailable") {
+		t.Errorf("detail = %q, want it to carry the body", res.ErrorDetail)
+	}
+}
+
+// A hostile or broken upstream must not be able to grow error_detail without
+// bound, and one SSE line may be a megabyte on its own — so the cap has to
+// survive a body that is a single enormous line, not just many small ones.
+func TestKeptBodyIsBounded(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		body string
+	}{
+		{"one enormous line", strings.Repeat("x", 64*1024)},
+		// The separator has to be capped too, not just the text: this body is
+		// mostly newlines, and appending one per line after the cap is reached
+		// would grow error_detail without ever adding a character of evidence.
+		{"ten thousand short lines", strings.Repeat("boom\n", 10000)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				fmt.Fprint(w, tc.body)
+			}))
+			defer srv.Close()
+
+			res, _ := NewClient(testConfig(srv.URL)).Run(context.Background(), Request{
+				ModelID: "m", Probe: ProbeInfer, Prompt: "q", MaxTokens: 150,
+			})
+			if n := len(res.ErrorDetail); n > maxErrorBodyBytes+64 {
+				t.Errorf("detail is %d bytes, want it clipped near %d", n, maxErrorBodyBytes)
+			}
+		})
+	}
+}
+
+// The commonest shape of a failure served inside a 200 stream: a well-formed
+// SSE frame carrying an error object and no choices. It is not a non-data line,
+// so keeping only the non-SSE preamble would still leave the operator with
+// nothing but "nothing arrived".
+func TestErrorObjectInsideAStreamIsKept(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, `data: {"error":{"message":"upstream at capacity"}}`+"\n\n")
+	}))
+	defer srv.Close()
+
+	res, _ := NewClient(testConfig(srv.URL)).Run(context.Background(), Request{
+		ModelID: "m", Probe: ProbeInfer, Prompt: "q", MaxTokens: 150,
+	})
+	if res.ErrorClass != ErrClassProtocol {
+		t.Errorf("class = %q, want %q", res.ErrorClass, ErrClassProtocol)
+	}
+	if !strings.Contains(res.ErrorDetail, "upstream at capacity") {
+		t.Errorf("detail = %q, want it to carry the error object", res.ErrorDetail)
+	}
+}
+
+// A healthy stream says nothing extra. The frames before the first delta are
+// collected, and dropping them once the stream proves real is what keeps a
+// normal run's error_detail empty.
+func TestHealthyStreamKeepsNoEvidence(t *testing.T) {
+	srv := sseServer(t, 5*time.Millisecond, nil, []string{"Pa", "ris"})
+	defer srv.Close()
+
+	res, _ := NewClient(testConfig(srv.URL)).Run(context.Background(), Request{
+		ModelID: "m", Probe: ProbeInfer, Prompt: "q", MaxTokens: 150,
+	})
+	if !res.OK || res.ErrorDetail != "" {
+		t.Errorf("ok = %v, detail = %q, want a clean run", res.OK, res.ErrorDetail)
+	}
+}
+
+// An upstream error page is text, and often not in English. Cutting it at a
+// byte boundary would put a replacement glyph where the last character of the
+// diagnosis should be.
+func TestKeptBodyIsCutOnARuneBoundary(t *testing.T) {
+	body := strings.Repeat("服务不可用", 4096) // 3 bytes per rune, so 4096 splits one
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, body)
+	}))
+	defer srv.Close()
+
+	res, _ := NewClient(testConfig(srv.URL)).Run(context.Background(), Request{
+		ModelID: "m", Probe: ProbeInfer, Prompt: "q", MaxTokens: 150,
+	})
+	if !utf8.ValidString(res.ErrorDetail) {
+		t.Errorf("detail is not valid UTF-8: %q", res.ErrorDetail)
+	}
+}
+
+// Nothing at all is still its own finding, and it keeps the original wording:
+// there is no body to quote, and inventing an empty one would read as though
+// something had been captured.
+func TestEmptyBodyOnA200KeepsThePlainReason(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+	}))
+	defer srv.Close()
+
+	res, _ := NewClient(testConfig(srv.URL)).Run(context.Background(), Request{
+		ModelID: "m", Probe: ProbeInfer, Prompt: "q", MaxTokens: 150,
+	})
+	if res.ErrorClass != ErrClassProtocol {
+		t.Errorf("class = %q, want %q", res.ErrorClass, ErrClassProtocol)
+	}
+	if res.ErrorDetail != "stream produced no deltas" {
+		t.Errorf("detail = %q, want the plain reason", res.ErrorDetail)
 	}
 }
 

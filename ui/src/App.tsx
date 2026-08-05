@@ -107,7 +107,9 @@ export default function App() {
   const [cost, setCost] = useState<CostBreakdown | null>(null);
   // One array per probed model; the strip merges them.
   const [cycles, setCycles] = useState<Cycle[][]>([]);
-  const [samples, setSamples] = useState<Sample[]>([]);
+  // One array per probe kind; the table merges them, as the strip does for
+  // models.
+  const [samples, setSamples] = useState<Sample[][]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -165,14 +167,26 @@ export default function App() {
         // TABLE_ROWS is what the table shows, and only those rows carry every
         // measurement. Asking /api/samples for the day and rendering a score of
         // it is how a page ends up holding a detail series it never displays.
-        const [pulses, raw] = await Promise.all([
+        //
+        // Both probes, because the table claims to be the raw record and the
+        // hourly wide run was missing from it: it is stored against the same
+        // cycle as the short run and served by the same endpoint, and the page
+        // simply never asked. /api/samples filters on the probe by design —
+        // mixing the two TTFTs inside one response is exactly what it exists to
+        // prevent — so, as with the pulse, the merge happens here.
+        //
+        // TABLE_ROWS of each rather than half of each: wide runs hourly, so it
+        // contributes a row every twelfth cycle and asking for fewer would only
+        // shorten how far back the table reaches.
+        const [pulses, ...raw] = await Promise.all([
           Promise.all(
             probed.map((id) => getPulse(id, "infer", PULSE_CYCLES, signal)),
           ),
           getSamples(first, "infer", TABLE_ROWS, signal),
+          getSamples(first, "wide", TABLE_ROWS, signal),
         ]);
         setCycles(pulses.map((p) => p.cycles));
-        setSamples(raw.samples);
+        setSamples(raw.map((r) => r.samples));
       }
     } catch (err) {
       if ((err as Error)?.name === "AbortError") return;
@@ -342,7 +356,7 @@ export default function App() {
               which is a fact about us rather than about MiMo — so it reads as a
               footnote to the page rather than as one of its findings. */}
           <CostPanel cost={cost} />
-          <SamplesTable samples={samples} />
+          <SamplesTable perProbe={samples} />
         </div>
       </div>
     </>

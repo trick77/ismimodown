@@ -1,9 +1,12 @@
 package scheduler
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
+	"log/slog"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -139,6 +142,105 @@ func wideRuns(prober *fakeProber) int {
 		}
 	}
 	return n
+}
+
+// gradingProber returns one fixed graded result, so a test can drive the
+// wrong-answer path without a server.
+type gradingProber struct{ res probe.InferResult }
+
+func (g *gradingProber) Run(_ context.Context, req probe.Request) (probe.InferResult, error) {
+	res := g.res
+	res.ModelID, res.Probe, res.QuestionID = req.ModelID, req.Probe, req.QuestionID
+	return res, nil
+}
+
+// captureLogs redirects the default logger for one test and returns what was
+// written to it.
+func captureLogs(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+	return &buf
+}
+
+// A wrong answer is stored as a bare zero, so the log line is the only record
+// of what the model actually said — and without it a reroute to a smaller
+// model, a truncated reply and a provider error served as a clean stream are
+// indistinguishable forever after.
+func TestWrongAnswerLogsTheReply(t *testing.T) {
+	answerOK := false
+	prober := &gradingProber{res: probe.InferResult{
+		OK: true, TTFTMs: 900, TotalMs: 1700,
+		AnswerOK: &answerOK, Content: "The capital of France is Lyon.",
+		FinishReason: "stop",
+	}}
+	s, _ := newTestScheduler(t, prober, &fakePinger{})
+	buf := captureLogs(t)
+
+	if _, ok := s.runProbe(context.Background(), "mimo-v2.5", probe.ProbeInfer, 7, time.Now()); !ok {
+		t.Fatal("runProbe reported the run as skipped")
+	}
+
+	got := buf.String()
+	for _, want := range []string{
+		"answer graded wrong", "The capital of France is Lyon.",
+		"mimo-v2.5", `"finish_reason":"stop"`, `"cycle":7`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("log is missing %q; got %s", want, got)
+		}
+	}
+}
+
+// The reply is quoted, not dumped: a model that ignores MaxTokens, or a proxy
+// answering with a page of HTML inside a valid stream, must not be able to put
+// an unbounded string into every log line.
+func TestLoggedReplyIsBounded(t *testing.T) {
+	answerOK := false
+	prober := &gradingProber{res: probe.InferResult{
+		OK: true, AnswerOK: &answerOK, Content: strings.Repeat("é", 4000),
+	}}
+	s, _ := newTestScheduler(t, prober, &fakePinger{})
+	buf := captureLogs(t)
+
+	s.runProbe(context.Background(), "mimo-v2.5", probe.ProbeInfer, 1, time.Now())
+
+	if n := buf.Len(); n > maxLoggedContent+512 {
+		t.Errorf("log line is %d bytes, want the reply clipped near %d", n, maxLoggedContent)
+	}
+	// Clipped on a rune boundary, so the evidence is not a row of replacement
+	// glyphs where the last character was.
+	if strings.Contains(buf.String(), `�`) {
+		t.Errorf("reply was cut mid-rune: %s", buf.String())
+	}
+}
+
+// Silence on the paths that are not a wrong answer. A correct run is not news,
+// and a run that FAILED has no answer at all — logging it as one would be the
+// same conflation the nil verdict exists to prevent.
+func TestOnlyWrongAnswersAreLogged(t *testing.T) {
+	answerOK := true
+	for _, tc := range []struct {
+		name string
+		res  probe.InferResult
+	}{
+		{"correct answer", probe.InferResult{OK: true, AnswerOK: &answerOK, Content: "Paris"}},
+		{"ungraded run", probe.InferResult{OK: true, Content: "a wide summary"}},
+		{"failed run", probe.InferResult{ErrorClass: probe.ErrClassHTTP, ErrorDetail: "502"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s, _ := newTestScheduler(t, &gradingProber{res: tc.res}, &fakePinger{})
+			buf := captureLogs(t)
+
+			s.runProbe(context.Background(), "mimo-v2.5", probe.ProbeInfer, 1, time.Now())
+
+			if strings.Contains(buf.String(), "answer graded wrong") {
+				t.Errorf("logged a wrong answer for a %s: %s", tc.name, buf.String())
+			}
+		})
+	}
 }
 
 func TestRunCycleProbesEveryTargetAndModel(t *testing.T) {

@@ -107,6 +107,9 @@ const cost = () => ({
   generated_at: "2026-08-04T12:00:00Z",
 });
 
+const probeOf = (url: string) =>
+  new URL(url, "http://x").searchParams.get("probe") ?? "";
+
 function mockFetch(overrides: Record<string, unknown> = {}) {
   return vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input);
@@ -117,7 +120,17 @@ function mockFetch(overrides: Record<string, unknown> = {}) {
         : url.includes("/api/series")
           ? emptySeries
           : url.includes("/api/samples")
-            ? { model_id: "mimo-v2.5", probe: "infer", samples: [] }
+            ? // Echoed back off the query, because the page now asks twice —
+              // once per probe — and a mock that answered "infer" to both would
+              // hide a merge that dropped one of them.
+              {
+                model_id: "mimo-v2.5",
+                probe: probeOf(url),
+                samples:
+                  (overrides.samples as Record<string, unknown[]>)?.[
+                    probeOf(url)
+                  ] ?? [],
+              }
             : url.includes("/api/pulse")
               ? (overrides.pulse ?? {
                   model_id: "mimo-v2.5",
@@ -184,6 +197,42 @@ describe("App", () => {
         String(c[0]).includes("metric=total&window=24h&probe=infer"),
       ),
     ).toBe(true);
+  });
+
+  // The table promises the raw record, and the hourly wide run was missing
+  // from it — stored against the same cycle, served by the same endpoint, never
+  // asked for. /api/samples filters on the probe by design, so the page has to
+  // ask twice and merge.
+  it("asks for both probes and draws them in one table", async () => {
+    const row = (over: Record<string, unknown>) => ({
+      at: "2026-08-04T12:00:00Z",
+      model_id: "mimo-v2.5",
+      ttft_ms: 900,
+      total_ms: 1700,
+      itl_p50_ms: 24,
+      output_tps: 41,
+      ok: true,
+      answer_ok: true,
+      error_class: null,
+      ...over,
+    });
+    const fetchMock = mockFetch({
+      samples: {
+        infer: [row({ probe: "infer" })],
+        // Ungraded, as every wide run is, and sharing the short run's cycle.
+        wide: [row({ probe: "wide", answer_ok: null, ttft_ms: 4200 })],
+      },
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<App />);
+
+    expect(await screen.findByText("short")).toBeInTheDocument();
+    expect(screen.getByText("wide")).toBeInTheDocument();
+    const asked = fetchMock.mock.calls
+      .map((c) => String(c[0]))
+      .filter((u) => u.includes("/api/samples"))
+      .map(probeOf);
+    expect(new Set(asked)).toEqual(new Set(["infer", "wide"]));
   });
 
   // The residual must never be called model time anywhere on the page.

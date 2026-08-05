@@ -159,3 +159,23 @@ export function formatUSDPrecise(usd: number | null | undefined): string {
   const decimals = Math.min(6, Math.max(2, 2 - magnitude));
   return `$${usd.toFixed(decimals)}`;
 }
+
+// probeName is what a probe kind is CALLED on the page.
+//
+// "short", never "infer". Both probes run an inference — what differs is the
+// size of the prompt, 20 tokens against 4 000 — so naming one of them after the
+// operation they share says nothing, and invites the reader to think the other
+// is a different sort of thing. The wire and the schema still say `infer`;
+// changing those means migrating a CHECK constraint and the rows under it, and
+// is a job of its own.
+//
+// One place, because the mapping is now read by two cards and the copy around
+// them, and a page saying "short" in one and "infer" in another is worse than
+// one that consistently says either. An unrecognised kind comes back verbatim
+// rather than blank: a probe the UI does not know about is exactly the thing an
+// operator needs to see.
+const PROBE_NAMES: Record<string, string> = { infer: "short", wide: "wide" };
+
+export function probeName(probe: string): string {
+  return PROBE_NAMES[probe] ?? probe;
+}
