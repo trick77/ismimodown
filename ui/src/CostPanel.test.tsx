@@ -137,6 +137,20 @@ describe("CostPanel", () => {
     );
   });
 
+  // Outside the window offpeak_until is when the rate STARTS, so "until" would
+  // claim the discount is running through the hours it is not.
+  it("names when the rate starts while it is not running", () => {
+    const before = cost({
+      offpeak_active: false,
+      offpeak_until: NOW + 2 * 3600,
+    });
+    render(<CostPanel cost={before} />);
+
+    expect(screen.getByTestId("offpeak-chip")).toHaveTextContent(
+      "0.8× from 22:00",
+    );
+  });
+
   describe("when there is nothing honest to show", () => {
     it("renders nothing without a price table", () => {
       const { container } = render(
