@@ -434,3 +434,47 @@ func TestLoadAcceptsZeroPrices(t *testing.T) {
 		t.Error("a zero-priced model must still be in the table")
 	}
 }
+
+// Now that prices ship by default, the failure mode is a cost panel that
+// silently disappears because BACKEND_MODELS named a model the table has never
+// heard of. The page cannot say so, so the log has to.
+func TestUnpricedModelsNamesWhatTheTableIsMissing(t *testing.T) {
+	setMinimalEnv(t)
+	t.Setenv("BACKEND_MODELS", "mimo-v2.5,mimo-v2-flash")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	missing := cfg.UnpricedModels()
+	if len(missing) != 1 || missing[0] != "mimo-v2-flash" {
+		t.Errorf("UnpricedModels() = %v, want [mimo-v2-flash]", missing)
+	}
+}
+
+func TestUnpricedModelsIsEmptyForTheDefaultPair(t *testing.T) {
+	setMinimalEnv(t)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if missing := cfg.UnpricedModels(); len(missing) > 0 {
+		t.Errorf("UnpricedModels() = %v; the shipped table must cover the probed pair", missing)
+	}
+}
+
+// Pricing turned off is a decision, not an oversight, and has nothing to warn
+// about.
+func TestUnpricedModelsSaysNothingWhenPricingIsOff(t *testing.T) {
+	setMinimalEnv(t)
+	t.Setenv("BACKEND_PRICES", "none")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if missing := cfg.UnpricedModels(); missing != nil {
+		t.Errorf("UnpricedModels() = %v, want nothing", missing)
+	}
+}

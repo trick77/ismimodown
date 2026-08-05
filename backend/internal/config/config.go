@@ -168,6 +168,29 @@ type Config struct {
 	ProbeTimeout  time.Duration // overall deadline
 }
 
+// UnpricedModels names the probed models the price table has no entry for, in
+// the order they are probed.
+//
+// Not an error: the daemon's job is to keep probing, and a missing price costs
+// nothing but a panel. It is worth a line in the log, though — now that prices
+// ship by default, the failure mode is a cost panel that silently disappears
+// because BACKEND_MODELS named a model the shipped table has never heard of, and
+// nothing on the page can say so.
+func (c Config) UnpricedModels() []string {
+	// Nil prices is pricing turned off, which is a decision rather than an
+	// oversight and has nothing to warn about.
+	if len(c.Prices) == 0 {
+		return nil
+	}
+	var missing []string
+	for _, m := range c.Models {
+		if _, ok := c.Prices[m]; !ok {
+			missing = append(missing, m)
+		}
+	}
+	return missing
+}
+
 func env(key, def string) string {
 	if v, ok := os.LookupEnv(key); ok && v != "" {
 		return v
