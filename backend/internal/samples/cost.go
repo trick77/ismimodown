@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/trick77/mimostats/internal/config"
-	"github.com/trick77/mimostats/internal/probe"
+	"github.com/trick77/ismimodown/internal/config"
+	"github.com/trick77/ismimodown/internal/probe"
 )
 
 // What this dashboard's own probing costs, priced from the usage MiMo reported

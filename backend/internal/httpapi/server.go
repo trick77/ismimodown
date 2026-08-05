@@ -1,4 +1,4 @@
-// Package httpapi builds mimostats' HTTP handler: the public read-only JSON API
+// Package httpapi builds ismimodown's HTTP handler: the public read-only JSON API
 // plus the embedded SPA.
 //
 // Every route here is unauthenticated by design — this is a public status page —
@@ -12,9 +12,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/trick77/mimostats/internal/config"
-	"github.com/trick77/mimostats/internal/ratelimit"
-	"github.com/trick77/mimostats/internal/samples"
+	"github.com/trick77/ismimodown/internal/config"
+	"github.com/trick77/ismimodown/internal/ratelimit"
+	"github.com/trick77/ismimodown/internal/samples"
 )
 
 // cacheTTL is how long a rendered response is reused. Well under the 5-minute

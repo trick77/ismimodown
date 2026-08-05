@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/trick77/mimostats/internal/probe"
+	"github.com/trick77/ismimodown/internal/probe"
 )
 
 // seedCycles writes n cycles ending at `end`, one per minute, each carrying one

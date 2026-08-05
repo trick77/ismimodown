@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/trick77/mimostats/internal/store"
+	"github.com/trick77/ismimodown/internal/store"
 )
 
 func openTestDB(t *testing.T) *sql.DB {

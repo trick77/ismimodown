@@ -2,9 +2,9 @@
 
 Live at **[ismimodown.com](https://ismimodown.com)**.
 
-The repository, the Go module, the container image and the database file are still called
-`mimostats`. Only the site was renamed; renaming the plumbing would break clones and published
-images for no gain.
+The database file is still called `mimostats.db`, after the project's earlier name. It is the one
+thing the rename left alone: an existing deployment's whole history lives in that file, and
+renaming the default would orphan it.
 
 A continuous monitor for Xiaomi MiMo — latency, throughput, availability and answer correctness —
 measured periodically from a single European egress. It separates how long it takes to

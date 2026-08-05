@@ -58,7 +58,7 @@ func JitteredInterval(base, jitter, min time.Duration, rand func() float64) time
 //
 // The epoch anchor is what makes a cycle mean the same instant everywhere: a
 // 5-minute period puts ticks at :00, :05, :10 and so on, regardless of when the
-// process started. That matters because llmstats compares a network reading and
+// process started. That matters because ismimodown compares a network reading and
 // an inference reading from the SAME cycle, and because a restart must not
 // shift the whole series sideways.
 //

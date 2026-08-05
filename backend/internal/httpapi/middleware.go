@@ -6,7 +6,7 @@ import (
 	"runtime/debug"
 	"time"
 
-	"github.com/trick77/mimostats/internal/ratelimit"
+	"github.com/trick77/ismimodown/internal/ratelimit"
 )
 
 // recovery converts panics in downstream handlers into 500 responses. Without

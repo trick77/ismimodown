@@ -8,8 +8,8 @@ import (
 	"slices"
 	"time"
 
-	"github.com/trick77/mimostats/internal/probe"
-	"github.com/trick77/mimostats/internal/samples"
+	"github.com/trick77/ismimodown/internal/probe"
+	"github.com/trick77/ismimodown/internal/samples"
 )
 
 // The composition the SPA renders, in one response.

@@ -1,4 +1,4 @@
-module github.com/trick77/mimostats
+module github.com/trick77/ismimodown
 
 go 1.26.5
 

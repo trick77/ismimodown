@@ -1,5 +1,5 @@
 <!--
-  mimostats' icon: lucide's "chart-no-axes-column-increasing" held inside
+  ismimodown's icon: lucide's "chart-no-axes-column-increasing" held inside
   lucide's "square-play" frame. This is the master — the shape the other three
   sources here are copies of, and what the two PWA rasters are rendered from. It
   does not itself ship; icon-favicon.svg beside it is the file that reaches a
@@ -15,7 +15,7 @@
   glyph as an outline and both of these stay outlines.
 
   THE INK IS A GRADIENT, #e08a68 down to #c25f34 at roughly 145°. This is
-  music's treatment, and it costs nothing to inherit because mimostats already
+  music's treatment, and it costs nothing to inherit because ismimodown already
   ships the same palette: #c25f34 IS color-accent-fill in index.css, and
   #e08a68 is color-accent-strong (#d97757) lifted, so the midpoint of the ramp
   is the accent the app is drawn in.

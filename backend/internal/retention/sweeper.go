@@ -6,8 +6,8 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/trick77/mimostats/internal/samples"
-	"github.com/trick77/mimostats/internal/sched"
+	"github.com/trick77/ismimodown/internal/samples"
+	"github.com/trick77/ismimodown/internal/sched"
 )
 
 // SweepInterval is how often the sweeper runs. Nightly rather than per-cycle:

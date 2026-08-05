@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/trick77/mimostats/internal/ratelimit"
+	"github.com/trick77/ismimodown/internal/ratelimit"
 )
 
 // sseHeartbeat keeps idle connections alive.

@@ -20,7 +20,7 @@ import (
 // gives upstream ids their characteristic trailing f's.
 //
 // Ported verbatim from loom, but used differently: loom caches one id per
-// conversation so a thread pins to a single upstream node. mimostats mints a
+// conversation so a thread pins to a single upstream node. ismimodown mints a
 // FRESH id per run, deliberately — session affinity would pin every probe to
 // whichever node answered first, and the monitor would then report that one
 // node's health as MiMo's.

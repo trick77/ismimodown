@@ -1,7 +1,8 @@
-# Deploying mimostats
+# Deploying ismimodown
 
-The site is ismimodown.com; the repo, module, image and database file are still
-called `mimostats`. Both names appear below and neither is a typo.
+Everything is called `ismimodown` except the database file, which is still
+`mimostats.db` — the project's earlier name, kept so an existing deployment's
+history is not orphaned. Both names appear below and neither is a typo.
 
 One container behind an existing Traefik. The whole thing is a single Go binary
 with the dashboard embedded, plus one SQLite file.
@@ -41,8 +42,8 @@ with the dashboard embedded, plus one SQLite file.
 ## Install
 
 ```sh
-git clone git@github.com:trick77/mimostats.git
-cd mimostats
+git clone git@github.com:trick77/ismimodown.git
+cd ismimodown
 cp .env.example .env
 $EDITOR .env                      # BACKEND_MIMO_API_KEY is the only required value
 
@@ -57,7 +58,7 @@ sudo chown 1000:1000 data         # matches `user:` in compose.yaml
 docker compose up -d
 ```
 
-The image comes from `ghcr.io/trick77/mimostats:latest`, published by the
+The image comes from `ghcr.io/trick77/ismimodown:latest`, published by the
 release workflow on every push to `master` that touches `backend/` or `ui/`.
 
 **The key is billable.** `.env` is gitignored, along with every `.env.*`
@@ -66,8 +67,8 @@ variant, because this repo is public. Never put a real key in `.env.example`.
 ## Verifying
 
 ```sh
-docker compose ps                       # healthy within ~30s
-docker compose logs -f mimostats        # "cycle complete" every ~5 minutes
+docker compose ps                        # healthy within ~30s
+docker compose logs -f ismimodown        # "cycle complete" every ~5 minutes
 curl -s https://ismimodown.com/healthz
 ```
 
@@ -114,7 +115,7 @@ intended, not a fault.
 came back on and every latency figure is measuring something else:
 
 ```sh
-docker compose exec mimostats /usr/local/bin/mimostats -healthcheck && echo healthy
+docker compose exec ismimodown /usr/local/bin/ismimodown -healthcheck && echo healthy
 sqlite3 data/mimostats.db \
   'SELECT model_id, probe, ttft_ms, reasoning_tokens, cached_tokens, answer_ok
    FROM infer_probes ORDER BY id DESC LIMIT 8'
@@ -138,13 +139,13 @@ dashboard, so it reads as a page that quietly stopped updating rather than as an
 outage. Roll forward, not back.
 
 ```sh
-docker compose logs mimostats | grep 'persist cycle failed'
+docker compose logs ismimodown | grep 'persist cycle failed'
 ```
 
 ### If the container crash-loops on first start
 
 ```sh
-docker compose logs mimostats | tail -20
+docker compose logs ismimodown | tail -20
 ```
 
 `unable to open database file` means `./data` is not writable by UID 1000 — see
@@ -215,6 +216,25 @@ docker compose pull && docker compose up -d
 Migrations are embedded and run at boot, each in its own transaction. A
 migration that fails rolls back and is not recorded, so a failed upgrade leaves
 the database untouched rather than half-applied.
+
+### Moving a host off the old `mimostats` checkout
+
+A host that was deployed before the rename needs one manual cutover, because
+compose derives its project name from the **directory**: cloning into
+`ismimodown/` creates a second project, and `docker compose down` in the new
+directory will not stop the container the old one started.
+
+```sh
+cd mimostats && docker compose down     # from the OLD directory, first
+cd .. && git clone git@github.com:trick77/ismimodown.git
+mv mimostats/data mimostats/.env ismimodown/
+cd ismimodown && docker compose up -d
+```
+
+`./data` is a bind mount and the file inside it is still `mimostats.db`, so the
+history carries over untouched. Renaming the compose service from `mimostats`
+to `ismimodown` also recreates the container — expected, and harmless for the
+same reason.
 
 ## Backup
 

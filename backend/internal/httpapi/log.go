@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/trick77/mimostats/internal/redact"
+	"github.com/trick77/ismimodown/internal/redact"
 )
 
 // redactErr strips query strings, userinfo and bearer tokens from an error's

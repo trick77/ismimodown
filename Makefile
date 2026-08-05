@@ -26,10 +26,10 @@ fe-build:
 	cd ui && npm ci && npm run build
 
 build: fe-build
-	cd backend && CGO_ENABLED=0 go build -ldflags="-s -w -X github.com/trick77/mimostats/internal/version.Version=$$(git rev-parse --short HEAD 2>/dev/null || echo dev)" -o ../bin/mimostats ./cmd/mimostats
+	cd backend && CGO_ENABLED=0 go build -ldflags="-s -w -X github.com/trick77/ismimodown/internal/version.Version=$$(git rev-parse --short HEAD 2>/dev/null || echo dev)" -o ../bin/ismimodown ./cmd/ismimodown
 
 run:
-	cd backend && go run ./cmd/mimostats
+	cd backend && go run ./cmd/ismimodown
 
 dev:
 	./hack/dev.sh

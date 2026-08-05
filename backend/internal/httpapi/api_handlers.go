@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/trick77/mimostats/internal/samples"
+	"github.com/trick77/ismimodown/internal/samples"
 )
 
 // cacheMaxAge is what public caches and browsers are told.
