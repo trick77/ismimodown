@@ -156,6 +156,27 @@ body {
   color: var(--color-ink);
   border-color: var(--color-accent-dim);
 }
+/* The masthead's console link borrows the pill's shape rather than inventing a
+   second button style — but it is tinted from the start, not on hover. The
+   pills are page controls; this one leaves the page, and a distinction that
+   only appears under the cursor is not a distinction on a touch screen. The
+   tint is the pressed pill's, at half strength: related to the controls,
+   plainly not one of them. */
+.pill-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  text-decoration: none;
+  color: var(--color-ink-dim);
+  border-color: color-mix(in srgb, var(--color-accent) 30%, transparent);
+  background: color-mix(in srgb, var(--color-accent) 8%, transparent);
+}
+.pill-link:hover {
+  color: var(--color-ink);
+  border-color: color-mix(in srgb, var(--color-accent) 55%, transparent);
+  background: color-mix(in srgb, var(--color-accent) 16%, transparent);
+}
+
 .pill[aria-pressed="true"] {
   color: var(--color-accent-strong);
   border-color: var(--color-accent-dim);
