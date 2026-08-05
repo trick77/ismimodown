@@ -1,7 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import App from "./App";
+import App, { STREAM_OPEN_DELAY_MS } from "./App";
 
 // A clean hour of cycles. The verdict banner reads this rather than the
 // window's fault counts, so every fixture needs one or the page has nothing to
@@ -495,6 +495,37 @@ describe("App", () => {
       vi.useRealTimers();
     });
 
+    // A crawler that renders JavaScript runs the same effect a browser does, so
+    // it subscribes too — and then holds an idle connection until its renderer
+    // gives up, spending a broker slot and its own render budget on a stream
+    // that says nothing. Waiting past the render window means it never opens
+    // one. The dashboard still loads, and the interval still covers the
+    // cadence, so nothing a reader can see depends on this delay.
+    it("does not open the event stream while a crawler would still be looking", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      const fetchMock = mockFetch();
+      vi.stubGlobal("fetch", fetchMock);
+      render(<App />);
+
+      const opens = () =>
+        fetchMock.mock.calls.filter((c) => String(c[0]).includes("/api/events"))
+          .length;
+
+      // The page is up — the dashboard was fetched — and no stream with it.
+      await waitFor(() =>
+        expect(
+          fetchMock.mock.calls.filter((c) =>
+            String(c[0]).includes("/api/dashboard"),
+          ).length,
+        ).toBeGreaterThan(0),
+      );
+      await vi.advanceTimersByTimeAsync(STREAM_OPEN_DELAY_MS - 1000);
+      expect(opens()).toBe(0);
+
+      await vi.advanceTimersByTimeAsync(1000);
+      await waitFor(() => expect(opens()).toBe(1));
+    });
+
     it("reopens the event stream after it drops", async () => {
       vi.useFakeTimers({ shouldAdvanceTime: true });
       const fetchMock = mockFetch({ eventsStatus: 503 });
@@ -505,6 +536,7 @@ describe("App", () => {
         fetchMock.mock.calls.filter((c) => String(c[0]).includes("/api/events"))
           .length;
 
+      await vi.advanceTimersByTimeAsync(STREAM_OPEN_DELAY_MS);
       await waitFor(() => expect(opens()).toBe(1));
       // The backoff doubles: first retry at 1s, the next 2s after that. Asserted
       // as two separate advances so a constant-delay retry loop fails here.
@@ -528,6 +560,7 @@ describe("App", () => {
         fetchMock.mock.calls.filter((c) => String(c[0]).includes("/api/events"))
           .length;
 
+      await vi.advanceTimersByTimeAsync(STREAM_OPEN_DELAY_MS);
       await waitFor(() => expect(opens()).toBe(1));
       await vi.advanceTimersByTimeAsync(1000);
       expect(opens()).toBe(2);
