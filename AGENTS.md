@@ -8,9 +8,9 @@ Continuous latency monitor for Xiaomi MiMo. Go backend + React dashboard, public
 Key lives in `.env` only. `.gitignore` covers `.env` and `.env.*`. Never put a real key in
 `.env.example`, a test fixture, a commit message or a log line.
 
-`BACKEND_MIMO_BASE_URL` is published verbatim on `/api/methodology`. No userinfo, no query
-string — `config.Load` refuses both. Any NEW config value echoed by a public endpoint gets
-the same treatment.
+`BACKEND_MIMO_BASE_URL` takes no userinfo and no query string — `config.Load` refuses both,
+so a key pasted into it cannot travel with the value. Any NEW config value echoed by a public
+endpoint gets the same treatment.
 
 ## Git
 
@@ -26,7 +26,8 @@ Inflates the token budget ~6.5x AND turns measured prefill into a cache lookup. 
 non-empty system message suppresses it (prompt_tokens drops to 20).
 
 **Call the residual "server-side time", never "model time".** The TCP ping terminates at the
-TLS edge; Xiaomi runs no European GPUs, so edge-to-compute backhaul sits inside the residual.
+TLS edge; everything past it — backhaul, queueing, prefill, scheduling — sits inside the
+residual, and the measurement cannot separate them.
 
 **Failed rows are excluded from latency percentiles, counted in availability.** Otherwise a
 240 000 ms timeout lands in the P50 and an outage reads as catastrophic latency.

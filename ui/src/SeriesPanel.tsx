@@ -1,5 +1,5 @@
 import type { ModelSeries } from "./api/types";
-import { Card, CensoredNote, OffPeakChip, OffPeakNote } from "./ui";
+import { Card, CensoredNote, LogScaleChip, OffPeakChip } from "./ui";
 import { EChart } from "./charts/EChart";
 import { buildLineOption, colorForModel } from "./charts/options";
 
@@ -11,6 +11,7 @@ export function SeriesPanel({
   unit,
   forceLinear = false,
   offPeak = false,
+  offPeakChip = true,
 }: {
   title: string;
   subtitle: string;
@@ -23,6 +24,10 @@ export function SeriesPanel({
   // before deciding when to send work, and on every other chart it would be one
   // more band competing with the measurement.
   offPeak?: boolean;
+  // offPeakChip is the header pill, separate from the band. The topmost chart
+  // opts out: the band is already on it, and the rate is stated again on the
+  // charts below.
+  offPeakChip?: boolean;
 }) {
   const data = series?.models ?? {};
   const hasData = Object.values(data).some((points) => points.length > 0);
@@ -45,14 +50,8 @@ export function SeriesPanel({
           {/* Tied to the band actually being drawn, not to the prop. On 7d and
               wider the band is dropped, and a chip promising a rate the plot
               does not show is worse than no chip. */}
-          {option.offPeakSpans.length > 0 && <OffPeakChip />}
-          {/* A log axis read as a linear one is worse than no chart, so the
-              switch is always announced on the plot. */}
-          {option.logScale && (
-            <span className="num rounded-full border border-border px-2 py-[2px] text-micro uppercase tracking-wider text-faint">
-              log scale
-            </span>
-          )}
+          {offPeakChip && option.offPeakSpans.length > 0 && <OffPeakChip />}
+          {option.logScale && <LogScaleChip />}
         </div>
       }
     >
@@ -65,7 +64,6 @@ export function SeriesPanel({
       )}
       <Legend models={models} />
       <CensoredNote bands={option.censoredBands} />
-      <OffPeakNote spans={option.offPeakSpans} />
     </Card>
   );
 }

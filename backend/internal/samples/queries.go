@@ -357,8 +357,8 @@ func (s *Store) modelSummary(ctx context.Context, modelID, probeKind string, sin
 	// connect, before it ever reached MiMo. Counting that as a failed ATTEMPT
 	// charges MiMo for an outage the measurement cannot show was theirs: an hour
 	// of our own connectivity being down is 12 cycles per model of manufactured
-	// downtime. /api/methodology and the availability strip have both always
-	// said these are excluded; this is where that finally becomes true.
+	// downtime. The availability strip has always said these are excluded;
+	// this is where that finally becomes true.
 	//
 	// 'route' rides along with 'uplink': it is the historical half of the same
 	// verdict, produced while a European reference host still split the two, and

@@ -67,11 +67,10 @@ type Deps struct {
 	// can be tested.
 	Shutdown <-chan struct{}
 
-	// Published on /api/methodology, so the page states what was actually
-	// measured rather than what the code once intended to measure.
-	Models     []string
-	BaseURL    string
-	RefSGPHost string
+	// The configured model set. Every /api route that serves per-model data
+	// answers from this rather than from whatever ids happen to be in the
+	// database, so a model that was dropped from the config stops being served.
+	Models []string
 
 	// ProbeUserAgent is deliberately NOT published: the request shape is
 	// operator-only, because an endpoint that can recognise the probe by its
@@ -136,7 +135,6 @@ func (s *server) routes() {
 	api.HandleFunc("GET /api/series", s.handleSeries)
 	api.HandleFunc("GET /api/samples", s.handleSamples)
 	api.HandleFunc("GET /api/pulse", s.handlePulse)
-	api.HandleFunc("GET /api/methodology", s.handleMethodology)
 
 	var apiHandler http.Handler = api
 	if s.deps.Limiter != nil {

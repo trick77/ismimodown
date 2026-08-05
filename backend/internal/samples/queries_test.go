@@ -431,9 +431,8 @@ func deadNet() []probe.NetResult {
 	}
 }
 
-// The promise /api/methodology and the availability strip have both always
-// made, finally enforced: a cycle nobody could attribute must not appear in
-// MiMo's availability.
+// The promise the availability strip has always made, finally enforced: a
+// cycle nobody could attribute must not appear in MiMo's availability.
 //
 // When our own connectivity dies, the inference probe fails too — on connect,
 // before it ever reaches MiMo. Counting that as a failed attempt manufactures

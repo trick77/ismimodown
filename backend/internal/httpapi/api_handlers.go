@@ -3,9 +3,7 @@ package httpapi
 import (
 	"encoding/json"
 	"net/http"
-	"net/url"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/trick77/mimostats/internal/probe"
@@ -262,95 +260,6 @@ func (s *server) sampleQuery(w http.ResponseWriter, r *http.Request) (model, pro
 		limit = samples.MaxSampleLimit
 	}
 	return model, probeKind, limit, true
-}
-
-// handleMethodology publishes what is actually being measured, including the
-// parts that are unflattering.
-//
-// This endpoint is the reason the site can be trusted: every caveat the plan
-// insists on lives here in machine-readable form, so the UI cannot quietly drop
-// one during a redesign.
-func (s *server) handleMethodology(w http.ResponseWriter, r *http.Request) {
-	// Built inside the closure: this map is large and entirely static, so a
-	// cache hit should not pay to reconstruct it.
-	s.writeJSON(w, r, "methodology", func() (any, error) {
-		return map[string]any{
-			// The model names come from the configured set rather than a
-			// literal, because BACKEND_MODELS can change them. A hardcoded
-			// pair would let this endpoint — the one the site's credibility
-			// rests on — name models nothing is actually probing.
-			"scope": "Latency of " + strings.Join(s.deps.Models, " and ") + ", measured from one host, every five minutes. Each model is its own series.",
-			// The vantage point is still disclosed — it is a real limit on every
-			// figure here — but it is prose, not a labelled identifier. There is
-			// one probe host and no second one planned, so a machine-readable id
-			// bought nothing and named the site.
-			"vantage": "Single egress. All figures are from one probe host, over one network path.",
-			// Sanitised, never s.deps.BaseURL raw: this is the one place a
-			// configured value is echoed to the public, and a base URL is
-			// exactly the kind of string an operator pastes a credential into.
-			// config.Load already refuses such a value at boot; this is the
-			// second gate, in the same spirit as the metric allow-lists.
-			"endpoint": publicBaseURL(s.deps.BaseURL),
-			"cadence":  "One aligned cycle every 5 minutes, jittered symmetrically by up to 30s.",
-			"layers": map[string]any{
-				"network": "A bare TCP handshake to port 443 (SYN -> SYN-ACK). No TLS, no HTTP, no auth, no tokens. TCP rather than ICMP because ICMP is dropped or deprioritised as routine policy, so a timeout would carry no information.",
-				"infer":   "One short streamed completion per model per cycle, ~34 prompt tokens.",
-				"wide":    "One ~3800-token prompt hourly, to expose prefill scaling and sustained decode that the short probe structurally cannot see.",
-			},
-			"residual_naming": map[string]any{
-				"term": "server-side time",
-				"why":  "The TCP handshake terminates at the TLS edge. Xiaomi runs no European GPUs, so whatever backhaul exists between that edge and the actual compute sits INSIDE the residual, along with queueing, prefill and scheduling. Calling it 'model time' would be a claim the measurement cannot support.",
-			},
-			"references": map[string]any{
-				"sgp": map[string]any{
-					"host":  s.deps.RefSGPHost,
-					"why":   "Answers whether ANY path from this egress to Singapore is healthy, so a route problem is not blamed on MiMo.",
-					"limit": "Not the same carrier as the probe host, so an operator-specific backbone fault on MiMo's path may not show here. Green here with MiMo red narrows the fault to MiMo's specific path OR its edge; separating those would need a traceroute.",
-				},
-				"only_one": "There is a single reference host, so when neither it nor MiMo answers, this measurement cannot say whether the cause was our own connection or the route to Singapore. Those cycles are attributed 'uplink' and excluded from availability rather than guessed at: declining to attribute is the only reading the data supports, and the alternative would publish our own outage as MiMo's.",
-			},
-			"client_identity": "Requests present as a real coding agent rather than a neutral client, because the endpoint is a coding-agent product and neutral traffic would not measure what production traffic experiences.",
-			"reasoning":       "Thinking is disabled on every request, through both of the switches the API offers for it. The check that matters is published on every sample: reasoning_tokens must be 0, and a non-zero value invalidates every latency figure for that window.",
-			"cache_defeat":    "The wide prompt is unique per run, varied at the front because prompt caches key on the leading prefix. The short probe needs no such treatment but does carry a system message of its own — with none, the endpoint supplies one (~250 tokens, most of it cache-served), which would inflate the token budget and turn measured prefill into a cache lookup. cached_tokens is recorded every run and must stay near zero.",
-			"exclusions": map[string]any{
-				"percentiles": "Failed runs are excluded from every latency percentile and counted in availability instead. Otherwise a 240 000 ms timeout lands in the P50 and an outage reads as catastrophic latency.",
-				// The unflattering consequence of the rule directly above it, and
-				// the reason this endpoint exists: the exclusion is correct AND it
-				// truncates the distribution, and a reader who is told only the
-				// first half has been told the flattering half.
-				"censoring":   "The runs that exclusion removes are the slowest ones, so every latency percentile here is a percentile of the runs that FINISHED — and it improves as truncation worsens. A probe is cut off when it produces no response headers, no first token, or no further chunk within the configured limits, or when it passes the overall deadline. Every summary carries a 'censored' count of how many attempts were cut off that way, and every chart bucket carries its own; a bucket where everything was cut off is published with no value and a censored count rather than omitted. Connection failures are not counted as censoring: nothing was measured, so no tail was truncated.",
-				"suppression": "Fewer than " + strconv.Itoa(samples.MinSamplesForPercentile) + " successful samples in a window returns insufficient_data rather than a number.",
-				"uplink_down": "Cycles where neither MiMo nor the reference host answered are attributed 'uplink' — historically split into 'uplink' and 'route' while a second reference host existed — and failures on them are excluded from any provider availability figure. The cause may be our uplink or the route; with one reference host the two are indistinguishable, and neither is MiMo's to answer for. A run that succeeded anyway is still counted: it is evidence MiMo answered.",
-			},
-			"throughput_caveat": "itl_p50_ms is the median gap between STREAM CHUNKS, not between tokens. The endpoint batches tokens into chunks and delivers them in bursts, so on a healthy run the median can collapse toward zero (measured 0.0075 ms against 70 tok/s). output_tps over the decode window is the robust figure; both are published.",
-			"retention":         "Raw samples are kept for 3 months and swept nightly. No rollups, so no window longer than that is offered.",
-			"error_detail":      "Provider error bodies are recorded for operators and never served publicly. The error class is served, and it is the part that names the failure.",
-		}, nil
-	})
-}
-
-// publicBaseURL renders the configured endpoint for publication, without
-// userinfo and without a query string.
-//
-// Both are places a credential lands when someone pastes a full URL, and this
-// value is served to anonymous callers on /api/methodology. config.Load rejects
-// either at boot, so in a correctly configured deployment this function changes
-// nothing — it exists so that a Deps built by some other caller (a test, a
-// future embedding) cannot turn the one echoed config value into an exfiltration
-// path.
-//
-// An unparseable URL is returned as-is: it cannot contain a credential in a form
-// this could safely strip, and blanking the field would hide a misconfiguration
-// on the endpoint whose job is disclosure.
-func publicBaseURL(raw string) string {
-	u, err := url.Parse(raw)
-	if err != nil {
-		return raw
-	}
-	u.User = nil
-	u.RawQuery = ""
-	u.Fragment = ""
-	return u.String()
 }
 
 // window resolves and validates the window parameter.

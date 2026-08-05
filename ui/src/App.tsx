@@ -25,7 +25,6 @@ import { NetworkPanel } from "./NetworkPanel";
 import { AvailabilityStrip } from "./AvailabilityStrip";
 import { PulseStrip } from "./PulseStrip";
 import { SamplesTable } from "./SamplesTable";
-import { MethodologyPanel } from "./MethodologyPanel";
 import { buildVerdict } from "./verdict";
 
 // Mirrors samples.Windows on the daemon. 1h is absent for the reason documented
@@ -76,7 +75,7 @@ const PULSE_CYCLES = 288;
 // What the Raw cycles table shows. It is also exactly what is fetched at full
 // detail: the table is the only place every column of a cycle is displayed, so
 // it is the only place they are requested.
-const TABLE_ROWS = 10;
+const TABLE_ROWS = 20;
 
 // The window lives in the query string rather than in component state, so a
 // view can be linked and reloaded. There is no router: one shell, one
@@ -148,8 +147,8 @@ export default function App() {
         // anything. But a bar needs five fields, so /api/pulse serves five.
         //
         // TABLE_ROWS is what the table shows, and only those rows carry every
-        // measurement. Asking /api/samples for the day and rendering ten of it
-        // is how a page ends up holding a detail series it never displays.
+        // measurement. Asking /api/samples for the day and rendering a score of
+        // it is how a page ends up holding a detail series it never displays.
         const [pulse, raw] = await Promise.all([
           getPulse(first, "infer", PULSE_CYCLES, signal),
           getSamples(first, "infer", TABLE_ROWS, signal),
@@ -284,8 +283,8 @@ export default function App() {
             models={models}
             unit="ms"
             offPeak
+            offPeakChip={false}
           />
-          <PrefillPanel infer={ttft} wide={wideTtft} models={models} />
           <SeriesPanel
             title="Throughput"
             subtitle="Output tokens per second over the decode window. This leads rather than inter-token latency, because MiMo batches tokens into chunks and delivers them in bursts — the median inter-chunk gap collapses toward zero on a perfectly healthy run. Higher is better."
@@ -295,6 +294,7 @@ export default function App() {
             forceLinear
             offPeak
           />
+          <PrefillPanel infer={ttft} wide={wideTtft} models={models} />
           {/* Everything from here down rests on the handshake, so the panel
               that measures it comes first. Above, both of these forward-
               referenced an edge RTT and a Singapore reference host the reader
@@ -307,7 +307,6 @@ export default function App() {
           <Decomposition summary={summary} edgeMs={mimoEdge} />
           <AvailabilityStrip summary={summary} />
           <SamplesTable samples={samples} />
-          <MethodologyPanel />
         </div>
       </div>
     </>

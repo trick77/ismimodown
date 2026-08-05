@@ -1,6 +1,6 @@
 import type { NetSeries } from "./api/types";
 import { TARGET_MIMO, TARGET_REF_SGP } from "./api/types";
-import { Card } from "./ui";
+import { Card, LogScaleChip } from "./ui";
 import { EChart } from "./charts/EChart";
 import { buildLineOption, REFERENCE_COLOR, WIRE_COLOR } from "./charts/options";
 
@@ -30,22 +30,27 @@ export function NetworkPanel({ series }: { series: NetSeries | null }) {
     }
   }
 
+  // Built unconditionally, like SeriesPanel does, so the header can say
+  // whether the axis went logarithmic before the chart itself is rendered.
+  const option = buildLineOption({
+    series: relabelled,
+    order,
+    colorOf: (name) => {
+      const key = Object.keys(LABELS).find((k) => LABELS[k] === name);
+      return key ? COLORS[key]! : WIRE_COLOR;
+    },
+    unit: "ms",
+  });
+
   return (
     <Card
       title="The wire itself"
       subtitle="Time to complete the TCP handshake on port 443 — no TLS, no HTTP, no auth, no tokens. The reference host is what keeps a route problem, or an outage of our own, from being published as a MiMo outage. Lower is better."
+      right={option.logScale ? <LogScaleChip /> : null}
     >
       {order.length > 0 ? (
         <EChart
-          option={buildLineOption({
-            series: relabelled,
-            order,
-            colorOf: (name) => {
-              const key = Object.keys(LABELS).find((k) => LABELS[k] === name);
-              return key ? COLORS[key]! : WIRE_COLOR;
-            },
-            unit: "ms",
-          })}
+          option={option}
           ariaLabel="TCP handshake time to MiMo's edge and the reference host"
         />
       ) : (

@@ -38,16 +38,24 @@ describe("PrefillPanel", () => {
 
   // Prefill is a cost measured in latency — the subtitle says as much. What an
   // extra 3800 tokens costs and what those tokens bill at are one question.
-  it("shades the off-peak hours and names them", () => {
-    render(<PrefillPanel infer={infer} wide={wide} models={["mimo-v2.5"]} />);
-    expect(screen.getByText(/Off-peak: MiMo bills/)).toBeInTheDocument();
-    expect(screen.getByText(/18:00/)).toBeInTheDocument();
-  });
-
   it("carries the rate chip in the header", () => {
     render(<PrefillPanel infer={infer} wide={wide} models={["mimo-v2.5"]} />);
-    // Matched on the boundary wording, since the note below quotes the rate too.
     expect(screen.getByText(/0\.8× (until|from)/i)).toBeInTheDocument();
+  });
+
+  // This panel plots two probes an order of magnitude apart, so it is the one
+  // most likely to switch axes — and it rendered no badge at all until now.
+  it("announces a log axis when the spread forces one", () => {
+    const wideLog = series({ "mimo-v2.5": day(36_000) });
+    render(
+      <PrefillPanel infer={infer} wide={wideLog} models={["mimo-v2.5"]} />,
+    );
+    expect(screen.getByText(/log scale/i)).toBeInTheDocument();
+  });
+
+  it("leaves the badge off when the axis stayed linear", () => {
+    render(<PrefillPanel infer={infer} wide={wide} models={["mimo-v2.5"]} />);
+    expect(screen.queryByText(/log scale/i)).not.toBeInTheDocument();
   });
 
   // The wide probe runs hourly, so the panel exists before its subject does.

@@ -2,7 +2,6 @@ import type { Summary } from "./api/types";
 import { Card } from "./ui";
 import { EChart } from "./charts/EChart";
 import { buildDecompositionOption } from "./charts/options";
-import { formatMs } from "./format";
 
 // TTFT split into the measured edge RTT and everything beyond it.
 //
@@ -34,23 +33,11 @@ export function Decomposition({
       subtitle="Time to first token, split into the measured TCP handshake to MiMo's edge and the remainder. Both halves come from the same 5-minute cycle."
     >
       {hasData ? (
-        <>
-          <EChart
-            option={buildDecompositionOption(models)}
-            height={120}
-            ariaLabel="Time to first token split into edge round-trip and server-side time, per model"
-          />
-          <ul className="mt-3 space-y-1 text-label text-muted">
-            {models.map((m) =>
-              m.ttft !== null && m.edge !== null ? (
-                <li key={m.id} className="num">
-                  {m.id}: {formatMs(m.ttft)} = {formatMs(m.edge)} to the edge +{" "}
-                  {formatMs(Math.max(0, m.ttft - m.edge))} beyond it
-                </li>
-              ) : null,
-            )}
-          </ul>
-        </>
+        <EChart
+          option={buildDecompositionOption(models)}
+          height={120}
+          ariaLabel="Time to first token split into edge round-trip and server-side time, per model"
+        />
       ) : (
         <p className="font-serif italic text-faint">
           Not enough data yet — first samples within 5 minutes.
@@ -60,11 +47,11 @@ export function Decomposition({
         <strong className="text-ink">
           Called “server-side time”, never “model time.”
         </strong>{" "}
-        The handshake terminates at the TLS edge. Xiaomi runs no European GPUs,
-        so whatever backhaul exists between that edge and the actual compute
-        sits <em>inside</em> this remainder, along with queueing, prefill and
-        scheduling. Calling it model time would be a claim the measurement
-        cannot support.
+        The handshake measured here terminates at the TLS edge. Everything after
+        that — any backhaul between that edge and wherever the request is
+        computed, plus queueing, prefill and scheduling — sits <em>inside</em>{" "}
+        this remainder, and this measurement cannot separate them. Calling it
+        model time would claim a split it cannot show.
       </p>
     </Card>
   );

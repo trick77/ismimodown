@@ -78,12 +78,7 @@ function mockFetch(overrides: Record<string, unknown> = {}) {
             ? { model_id: "mimo-v2.5", probe: "infer", samples: [] }
             : url.includes("/api/pulse")
               ? { model_id: "mimo-v2.5", probe: "infer", cycles: [] }
-              : url.includes("/api/methodology")
-                ? {
-                    scope:
-                      "Latency of mimo-v2.5 and mimo-v2.5-pro, measured from one host.",
-                  }
-                : {};
+              : {};
     if (url.includes("/api/events")) {
       // eventsStatus makes the stream FAIL instead, which is what the reconnect
       // tests need — streamSSE throws on a non-OK response.
@@ -123,17 +118,6 @@ describe("App", () => {
     );
     expect(screen.getByTestId("model-card-mimo-v2.5")).toBeInTheDocument();
     expect(screen.getByText("916 ms")).toBeInTheDocument();
-  });
-
-  // The scope is published, not implied: it comes from the daemon via
-  // /api/methodology, so the page cannot claim a scope the backend is not
-  // actually measuring. Async because it is fetched, not hardcoded.
-  it("publishes the scope on the methodology panel", async () => {
-    vi.stubGlobal("fetch", mockFetch());
-    render(<App />);
-    expect(
-      await screen.findByText(/measured from one host/i),
-    ).toBeInTheDocument();
   });
 
   // The residual must never be called model time anywhere on the page.
@@ -199,8 +183,8 @@ describe("App", () => {
     );
   });
 
-  // Public from minute one: the methodology must be readable before any sample
-  // exists, and the page must not look broken.
+  // Public from minute one: the page must be readable before any sample
+  // exists, and must not look broken.
   it("shows the empty state rather than an error before any data", async () => {
     vi.stubGlobal(
       "fetch",
