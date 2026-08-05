@@ -162,14 +162,23 @@ describe("the formatters are not pinned to a zone", () => {
     vi.resetModules();
 
     // When
-    await import("./format");
+    let options: (Intl.DateTimeFormatOptions | undefined)[];
+    try {
+      await import("./format");
+    } finally {
+      // Restored before the first assertion, never after: a failing expect
+      // throws, and a spy left on Intl.DateTimeFormat then breaks every later
+      // test in this file — so the run would report the guard's failure plus a
+      // trail of casualties pointing at innocent code.
+      options = spy.mock.calls.map((call) => call[1]);
+      spy.mockRestore();
+    }
 
     // Then
-    expect(spy).toHaveBeenCalled();
-    for (const call of spy.mock.calls) {
-      expect(call[1] ?? {}).not.toHaveProperty("timeZone");
+    expect(options.length).toBeGreaterThan(0);
+    for (const opts of options) {
+      expect(opts ?? {}).not.toHaveProperty("timeZone");
     }
-    spy.mockRestore();
   });
 });
 
