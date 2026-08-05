@@ -1,6 +1,5 @@
 import type { Cycle } from "./api/types";
 import { formatMs, formatTime, plural } from "./format";
-import { isOffPeak, OFFPEAK_COEFFICIENT } from "./offpeak";
 
 // One bar per cycle: colour by health, height by latency.
 //
@@ -21,17 +20,6 @@ export function PulseStrip({ cycles }: { cycles: Cycle[] }) {
   // so the shape stays readable whether the day peaked at 900 ms or 90 s.
   const peak = successes.length > 0 ? Math.max(...successes) : 1;
 
-  // Off-peak is decided PER CYCLE from its own timestamp, never from its
-  // position in the row.
-  //
-  // The strip has no time axis: every cycle gets an equal slice whether or not
-  // the one before it ran, so a stretch of missed runs closes up instead of
-  // leaving a hole. That makes position and time two different things, and a
-  // band drawn at a computed offset would drift off the very bars it claims to
-  // describe the first time the daemon misses a cycle.
-  const offPeak = ordered.map((s) => isOffPeak(new Date(s.at).getTime()));
-  const shaded = offPeak.some(Boolean);
-
   return (
     <div>
       <div
@@ -42,9 +30,7 @@ export function PulseStrip({ cycles }: { cycles: Cycle[] }) {
           "cycle",
         )}: ${ordered.filter((s) => s.ok).length} succeeded, ${
           ordered.filter((s) => !s.ok).length
-        } failed${
-          shaded ? ", shaded cycles billed at MiMo's off-peak rate" : ""
-        }`}
+        } failed`}
         data-testid="pulse-strip"
       >
         {ordered.map((s, i) => {
@@ -60,24 +46,16 @@ export function PulseStrip({ cycles }: { cycles: Cycle[] }) {
             : s.answer_ok === false
               ? "var(--color-fault-edge)"
               : "var(--color-online)";
-          const cheap = offPeak[i] === true;
           return (
-            // The cell is the full height of the strip and carries the tint;
-            // the bar inside it is exactly what it was before. Tinting the bar
-            // itself would shade it only as high as that cycle happened to
-            // reach, so the band would ripple with the data instead of marking
-            // a stretch of the clock.
             <span
               key={`${s.at}-${i}`}
               // h-full, because the strip is items-end: without a height of its
               // own the cell shrink-wraps its bar, and the bar's percentage
               // height then has nothing to resolve against.
-              className={`flex h-full min-w-px flex-1 items-end ${
-                cheap ? "bg-online/16" : ""
-              }`}
+              className="flex h-full min-w-px flex-1 items-end"
               title={`${formatTime(s.at)} · ${
                 failed ? (s.error_class ?? "failed") : formatMs(s.ttft_ms)
-              }${cheap ? ` · ${OFFPEAK_COEFFICIENT}× off-peak` : ""}`}
+              }`}
             >
               <span
                 className="w-full"
@@ -91,29 +69,6 @@ export function PulseStrip({ cycles }: { cycles: Cycle[] }) {
           );
         })}
       </div>
-      {/* A rail rather than a heavier tint: the tint has to stay faint enough
-          to read the bars through it, which leaves it too faint to find the
-          band's edges. The rail is the same span at full strength, drawn
-          somewhere no data is. */}
-      {shaded && (
-        // No gap on this row, unlike the strip above it. The strip's gaps
-        // separate one cycle's bar from the next; carried down here they would
-        // cut the rail into a dotted line. Both rows are anchored at both ends
-        // and divide the same width evenly, so dropping the gap costs under a
-        // pixel of alignment in the middle.
-        <div
-          className="mt-[2px] flex"
-          aria-hidden="true"
-          data-testid="pulse-rail"
-        >
-          {offPeak.map((cheap, i) => (
-            <span
-              key={i}
-              className={`h-[2px] min-w-px flex-1 ${cheap ? "bg-online" : ""}`}
-            />
-          ))}
-        </div>
-      )}
     </div>
   );
 }

@@ -20,7 +20,7 @@ const pt = (t: number, p50: number): Point => ({
   p95: p50,
 });
 
-// 09:00 UTC to 09:00 the next day, so exactly one off-peak band is in range.
+// 09:00 UTC to 09:00 the next day.
 const day = (base: number): Point[] =>
   Array.from({ length: 25 }, (_, i) => pt(AUG4 + 9 * H + i * H, base));
 
@@ -35,13 +35,6 @@ const series = (models: Record<string, Point[]>): ModelSeries => ({
 describe("PrefillPanel", () => {
   const infer = series({ "mimo-v2.5": day(900) });
   const wide = series({ "mimo-v2.5": day(2600) });
-
-  // Prefill is a cost measured in latency — the subtitle says as much. What an
-  // extra 3800 tokens costs and what those tokens bill at are one question.
-  it("carries no rate chip in the header", () => {
-    render(<PrefillPanel infer={infer} wide={wide} models={["mimo-v2.5"]} />);
-    expect(screen.queryByText(/0\.8× (until|from)/i)).not.toBeInTheDocument();
-  });
 
   // This panel plots two probes an order of magnitude apart, so it is the one
   // most likely to switch axes — and it rendered no badge at all until now.

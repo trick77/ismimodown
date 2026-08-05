@@ -285,7 +285,6 @@ export default function App() {
             series={ttft}
             models={models}
             unit="ms"
-            offPeak
           />
           <SeriesPanel
             title="Throughput"
@@ -294,21 +293,24 @@ export default function App() {
             models={models}
             unit="tok/s"
             forceLinear
-            offPeak
           />
-          <PrefillPanel infer={ttft} wide={wideTtft} models={models} />
           {/* The panels above measure the parts — how long until it starts, how
-              fast it runs once it has, what the prompt costs. This is the sum,
-              so it comes after them: it is only readable once its parts have
-              been shown. */}
+              fast it runs once it has. This is the sum, so it comes after them:
+              it is only readable once its parts have been shown. */}
           <SeriesPanel
             title="The whole wait"
             subtitle="P50 end-to-end, request sent to last token. This one moves with answer LENGTH as well as with speed — output is capped at 150 tokens, and a short answer finishes sooner than a long one — so read a step change here against the throughput plot before calling it a slowdown. Failed runs are excluded. Lower is better."
             series={total}
             models={models}
             unit="ms"
-            offPeak
           />
+          {/* Below the sum rather than among the parts. This panel does not
+              measure a share of the wait — it re-plots the first part against a
+              second, larger prompt — and sitting between the parts and the sum
+              it read as one more component the sum was made of. After it, the
+              question it answers is the one a reader actually arrives with:
+              given the wait above, what does a bigger prompt add to it? */}
+          <PrefillPanel infer={ttft} wide={wideTtft} models={models} />
           {/* Everything from here down rests on the handshake, so the panel
               that measures it comes first. Above, both of these forward-
               referenced an edge RTT and a Singapore reference host the reader

@@ -265,111 +265,6 @@ describe("dashed series", () => {
   });
 });
 
-// The latency charts are computed over runs that FINISHED. Where the timeout
-// ladder cut runs off, the line is drawn from the survivors — so it looks its
-// best exactly where it is least complete, and where everything was cut off it
-// is not drawn at all, which is indistinguishable from the probe not running.
-describe("off-peak bands", () => {
-  const H = 3_600;
-  const AUG4 = Date.UTC(2026, 7, 4) / 1000; // seconds, midnight UTC
-  // A day of hourly points, 09:00 UTC to 09:00 the next day.
-  const day = Array.from({ length: 25 }, (_, i) =>
-    pt(AUG4 + 9 * H + i * H, 900),
-  );
-
-  // The band is on every chart that measures TOKEN work — TTFT, prefill,
-  // throughput — and off the network panel, which measures the wire and
-  // explicitly no tokens at all. A billing rate has nothing to say about a TCP
-  // handshake.
-  it("is opt-in, so the wire panel can leave it off", () => {
-    const opt = buildLineOption({
-      series: { a: day },
-      order: ["a"],
-      colorOf: () => "#fff",
-      unit: "ms",
-    });
-    expect(opt.offPeakSpans).toEqual([]);
-  });
-
-  it("draws nothing unless the panel asks for it", () => {
-    const opt = buildLineOption({
-      series: { a: day },
-      order: ["a"],
-      colorOf: () => "#fff",
-      unit: "ms",
-    });
-    expect(opt.offPeakSpans).toEqual([]);
-    expect(opt.series[0]!.markArea).toBeUndefined();
-  });
-
-  it("shades 16:00–24:00 UTC behind the first series only", () => {
-    const opt = buildLineOption({
-      series: { a: day, b: day },
-      order: ["a", "b"],
-      colorOf: () => "#fff",
-      unit: "ms",
-      offPeak: true,
-    });
-    expect(opt.offPeakSpans).toEqual([
-      [Date.UTC(2026, 7, 4, 16), Date.UTC(2026, 7, 5, 0)],
-    ]);
-    // Per series would paint the same rectangle twice and darken it into a
-    // severity it does not carry.
-    expect(opt.series[0]!.markArea).toBeDefined();
-    expect(opt.series[1]!.markArea).toBeUndefined();
-  });
-
-  // Past 48 hours this is one thin stripe per day — ninety of them on 3mo —
-  // which reads as a hatch pattern over the data rather than as a nightly rate.
-  it("gives up past the two-day mark rather than striping the plot", () => {
-    const week = Array.from({ length: 8 }, (_, i) =>
-      pt(AUG4 + i * 24 * H, 900),
-    );
-    const opt = buildLineOption({
-      series: { a: week },
-      order: ["a"],
-      colorOf: () => "#fff",
-      unit: "ms",
-      offPeak: true,
-    });
-    expect(opt.offPeakSpans).toEqual([]);
-  });
-
-  // CensoredNote renders off this count. It must not start claiming
-  // measurements were cut off merely because it got dark in Beijing.
-  it("never counts itself as a censoring band", () => {
-    const opt = buildLineOption({
-      series: { a: day },
-      order: ["a"],
-      colorOf: () => "#fff",
-      unit: "ms",
-      offPeak: true,
-      bucketMs: 900_000,
-    });
-    expect(opt.offPeakSpans).toHaveLength(1);
-    expect(opt.censoredBands).toBe(0);
-  });
-
-  // Where the two overlap, the censoring amber has to be the one on top: a
-  // stretch with cut-off measurements stays legible as such whatever it billed
-  // at.
-  it("puts the censoring band over the off-peak band, not under it", () => {
-    const censored = [pt(AUG4 + 17 * H, 900, 2)];
-    const opt = buildLineOption({
-      series: { a: [...day, ...censored] },
-      order: ["a"],
-      colorOf: () => "#fff",
-      unit: "ms",
-      offPeak: true,
-      bucketMs: 900_000,
-    });
-    const data = opt.series[0]!.markArea!.data;
-    const colors = data.map((d) => d[0]!.itemStyle!.color);
-    expect(colors[colors.length - 1]).toBe("#c98500");
-    expect(colors[0]).not.toBe("#c98500");
-  });
-});
-
 describe("the time axis", () => {
   // The axis followed the VIEWER's machine, while the samples table below it
   // rendered Europe/Zurich — two clocks on one page, and a band drawn at 18:00
@@ -463,8 +358,8 @@ describe("censoring bands", () => {
       bucketMs: BUCKET,
     });
     expect(opt.censoredBands).toBe(1);
-    // The band carries its colour PER ITEM, because the off-peak spans share
-    // this one markArea — ECharts allows only one per series.
+    // The band carries its colour PER ITEM: ECharts allows only one markArea
+    // per series, so a second kind of band would have to style itself there.
     expect(opt.series[0]!.markArea!.data).toEqual([
       [
         { xAxis: 900_000, itemStyle: { color: "#c98500", opacity: 0.3 } },

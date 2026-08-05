@@ -50,18 +50,12 @@ export function PrefillPanel({
     muted: (name) => !name.includes("3800"),
     unit: "ms",
     bucketMs: bucketS !== undefined ? bucketS * 1000 : undefined,
-    // Prefill is a cost measured in latency, and the subtitle says so. What an
-    // extra 3800 tokens costs and what those tokens are billed at are the same
-    // question asked twice.
-    offPeak: true,
   });
 
   return (
     <Card
       title="Prefill cost"
       subtitle="TTFT at ~3800 input tokens against TTFT at ~34, per model. The gap between the lines is what prefill actually costs; a widening gap is the signal that catches a batching change or a requantisation. Lower is better, and so is a narrower gap."
-      /* No off-peak chip: the rate is stated once, not per chart. The green
-         band still ties it to this plot. */
       right={option.logScale ? <LogScaleChip /> : null}
     >
       {Object.keys(series).length > 0 ? (

@@ -12,8 +12,8 @@ const sample = (over: Partial<Cycle> = {}): Cycle => ({
   ...over,
 });
 
-// Each cycle is a full-height CELL carrying the off-peak tint, with the bar
-// inside it — so the bar is one level down from the strip.
+// Each cycle is a full-height CELL with the bar inside it — so the bar is one
+// level down from the strip.
 const barAt = (i: number): HTMLElement =>
   screen.getByTestId("pulse-strip").children[i]!.firstChild as HTMLElement;
 
@@ -54,58 +54,6 @@ describe("PulseStrip", () => {
     );
     expect(barAt(0).style.height).toBe("50%");
     expect(barAt(1).style.height).toBe("100%");
-  });
-
-  // 16:00–24:00 UTC is MiMo's reduced-rate window.
-  it("tints only the cycles that billed off-peak", () => {
-    render(
-      <PulseStrip
-        cycles={[
-          sample({ at: "2026-08-04T20:00:00Z" }),
-          sample({ at: "2026-08-04T12:00:00Z" }),
-        ]}
-      />,
-    );
-    const cells = screen.getByTestId("pulse-strip").children;
-    // Oldest first, so the 12:00 cycle leads.
-    expect((cells[0] as HTMLElement).className).not.toContain("bg-online");
-    expect((cells[1] as HTMLElement).className).toContain("bg-online");
-  });
-
-  // The strip has no time axis — a missed cycle closes up rather than leaving a
-  // hole — so position and time are different things. Banding by position would
-  // drift off the bars the moment the daemon skips a run.
-  it("bands by each cycle's own timestamp, not by its position", () => {
-    render(
-      <PulseStrip
-        cycles={[
-          sample({ at: "2026-08-04T20:00:00Z" }),
-          // A four-hour hole where the probe did not run.
-          sample({ at: "2026-08-04T12:00:00Z" }),
-          sample({ at: "2026-08-04T11:55:00Z" }),
-        ]}
-      />,
-    );
-    const cells = [...screen.getByTestId("pulse-strip").children];
-    expect(cells.map((c) => c.className.includes("bg-online"))).toEqual([
-      false,
-      false,
-      true,
-    ]);
-  });
-
-  it("draws no rail when nothing in the window was off-peak", () => {
-    render(<PulseStrip cycles={[sample({ at: "2026-08-04T12:00:00Z" })]} />);
-    expect(screen.queryByTestId("pulse-rail")).toBeNull();
-  });
-
-  // Colour is never the only signal here.
-  it("names the shading for assistive tech when any cycle is off-peak", () => {
-    render(<PulseStrip cycles={[sample({ at: "2026-08-04T20:00:00Z" })]} />);
-    expect(screen.getByTestId("pulse-strip")).toHaveAttribute(
-      "aria-label",
-      expect.stringContaining("off-peak"),
-    );
   });
 
   it("summarises the strip for assistive tech", () => {
