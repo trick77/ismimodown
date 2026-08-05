@@ -130,7 +130,9 @@ describe("SamplesTable", () => {
   // to keep.
   it("leaves the answer blank on a run that was never graded", () => {
     render(
-      <SamplesTable perProbe={[[sample({ probe: "wide", answer_ok: null })]]} />,
+      <SamplesTable
+        perProbe={[[sample({ probe: "wide", answer_ok: null })]]}
+      />,
     );
     expect(screen.getByText("—")).toBeInTheDocument();
     expect(screen.queryByText("wrong")).not.toBeInTheDocument();
