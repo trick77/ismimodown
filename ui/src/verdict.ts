@@ -510,6 +510,10 @@ function scoreModel(
   );
   const correctness = scoreTrack(wrong, WRONG_THRESHOLDS);
   if (correctness !== "normal") {
+    // No "one is not yet a pattern" softener here, unlike the two branches
+    // above, and none is needed: ELEVATED_WRONG_RECENT is 2, so a single wrong
+    // answer scores normal and this sentence never speaks at all. Silence is
+    // the softener.
     detail.push(
       `${model.model_id} answered ${wrong.count} of the last ${horizon} questions wrongly.`,
     );

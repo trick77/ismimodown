@@ -1,6 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { ModelCards } from "./ModelCards";
+import { MIN_FAILURES_FOR_STATE } from "./verdict";
 import type { ModelSummary, Summary } from "./api/types";
 
 function model(over: Partial<ModelSummary> = {}): ModelSummary {
@@ -95,14 +96,48 @@ describe("ModelCards", () => {
     );
     const note = screen.getByTestId("censored-mimo-v2.5");
     expect(note).toHaveTextContent(/12 of 288/);
-    expect(note).toHaveTextContent(
-      /slowest runs in this window are not in them/i,
-    );
+    // Both halves, because they are different claims and the old copy ran them
+    // together: the runs ARE in the availability figure beside this, and they
+    // are NOT in the percentiles above it.
+    expect(note).toHaveTextContent(/count as failures in Availability/i);
+    expect(note).toHaveTextContent(/p50s do not include them/i);
   });
 
   it("stays quiet when nothing was cut off", () => {
     render(<ModelCards summary={summary([model()])} baseline={null} />);
     expect(screen.queryByTestId("censored-mimo-v2.5")).toBeNull();
+  });
+
+  // The floor the Availability chip already uses. Without it the card refuses
+  // to paint a state on one dropped run and then paints an amber box about that
+  // same run — and at 288 cycles a day it does that essentially forever.
+  //
+  // A censored run is a subset of a failed one, so this threshold also makes it
+  // impossible for the banner to appear while the chip beside it is suppressed.
+  it("stays quiet when too few runs were cut off to mean anything", () => {
+    render(
+      <ModelCards
+        summary={summary([
+          model({
+            censored: MIN_FAILURES_FOR_STATE - 1,
+            attempts: 221,
+            succeeded: 220,
+          }),
+        ])}
+        baseline={null}
+      />,
+    );
+    expect(screen.queryByTestId("censored-mimo-v2.5")).toBeNull();
+  });
+
+  it("counts a single reasoning token in the singular", () => {
+    render(
+      <ModelCards
+        summary={summary([model({ max_reasoning_tokens: 1 })])}
+        baseline={null}
+      />,
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent(/returned 1 token\b/);
   });
 
   it("renders nothing but stays stable with no summary", () => {

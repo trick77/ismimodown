@@ -122,7 +122,22 @@ describe("PulseStrip", () => {
     render(<PulseStrip cycles={[sample(), sample({ ok: false })]} />);
     expect(screen.getByTestId("pulse-strip")).toHaveAttribute(
       "aria-label",
+      expect.stringContaining("2 cycles"),
+    );
+    expect(screen.getByTestId("pulse-strip")).toHaveAttribute(
+      "aria-label",
       expect.stringContaining("1 succeeded, 1 failed"),
+    );
+  });
+
+  // A cold start, or the first cycle of a fresh window. Read aloud, "Last 1
+  // cycles" is the kind of thing that makes a screen-reader user stop trusting
+  // the rest of the label.
+  it("says one cycle in the singular", () => {
+    render(<PulseStrip cycles={[sample()]} />);
+    expect(screen.getByTestId("pulse-strip")).toHaveAttribute(
+      "aria-label",
+      expect.stringContaining("Last 1 cycle:"),
     );
   });
 });
