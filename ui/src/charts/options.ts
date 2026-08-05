@@ -111,8 +111,9 @@ function niceLogBound(v: number, up: boolean): number {
 // the nearest nice bound, gridlines on round numbers strictly inside them.
 //
 // Null when the data cannot support a fitted axis — no positive values, or a
-// single distinct one — in which case the caller leaves the axis to ECharts
-// rather than pinning it to a range of zero width.
+// range so narrow that no round number falls strictly inside the bounds — in
+// which case the caller leaves the axis to ECharts rather than handing it a
+// range with not a single gridline in it.
 export function logAxis(
   values: (number | null)[],
 ): { min: number; max: number; ticks: number[] } | null {
@@ -147,14 +148,20 @@ export function logAxis(
 
   // Three gridlines is the fewest that still reads as a scale rather than as a
   // single annotated height. The densest ladder is the floor: below ~20x the
-  // axis would not have gone log in the first place.
-  let ticks = ticksFor(TICK_MANTISSAS[TICK_MANTISSAS.length - 1]!);
+  // axis would not have gone log in the first place, and the loop's last pass
+  // leaves that ladder in place whether or not it reached three.
+  let ticks: number[] = [];
   for (const mantissas of TICK_MANTISSAS) {
-    const candidate = ticksFor(mantissas);
-    if (candidate.length >= 3) {
-      ticks = candidate;
+    ticks = ticksFor(mantissas);
+    if (ticks.length >= 3) {
       break;
     }
+  }
+  // Not one round number inside the bounds — a range narrower than the gap
+  // between two ladder rungs. customValues: [] would draw an axis with no
+  // gridlines and no labels at all, which is worse than ECharts' own nicing.
+  if (ticks.length === 0) {
+    return null;
   }
   return { min, max, ticks };
 }
@@ -289,9 +296,10 @@ export function buildLineOption({
   // exceeds 20x, because a linear axis collapses either the normal reading or
   // the spike. The caller stamps "LOG SCALE" on the plot when this is true — a
   // log axis read as linear is worse than no chart.
-  const log = !forceLinear && shouldUseLogScale(allValues(series));
+  const values = allValues(series);
+  const log = !forceLinear && shouldUseLogScale(values);
   // Fitted to the data rather than rounded out to decades — see logAxis.
-  const fitted = log ? logAxis(allValues(series)) : null;
+  const fitted = log ? logAxis(values) : null;
 
   // Where the timeout ladder cut runs off, the line is drawn from the runs that
   // FINISHED — so it is at its most flattering exactly where it is least
@@ -397,6 +405,10 @@ export function buildLineOption({
         // would be a lie.
         formatter: unit === "ms" ? formatAxisMs : undefined,
       },
+      // The gridlines follow THIS list, not splitLine's own: ECharts resolves
+      // custom ticks from the axisTick model whatever component asks for them
+      // (createAxisTicks reads axis.getTickModel()). splitLine repeats it below
+      // so the two cannot drift apart if that ever changes.
       axisTick: { customValues: fitted?.ticks },
       splitLine: {
         customValues: fitted?.ticks,

@@ -42,7 +42,12 @@ export function formatAxisMs(ms: number): string {
   if (ms === 0) {
     return "0";
   }
-  return ms < 1000 ? `${round(ms, 0)} ms` : `${round(ms / 1000, 2)} s`;
+  // A decimal below 100 ms, as formatMs keeps one: a linear axis over a
+  // few-millisecond handshake gets ticks half a millisecond apart, and rounding
+  // those to whole milliseconds prints "1 ms" twice under two different lines.
+  return ms < 1000
+    ? `${round(ms, ms < 100 ? 1 : 0)} ms`
+    : `${round(ms / 1000, 2)} s`;
 }
 
 export function formatPct(pct: number | null | undefined, digits = 1): string {

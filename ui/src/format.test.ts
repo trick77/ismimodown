@@ -70,6 +70,14 @@ describe("formatAxisMs", () => {
     expect(formatAxisMs(100000)).toBe("100 s");
   });
 
+  // A local handshake plots on a linear axis with ticks half a millisecond
+  // apart; whole-millisecond rounding printed "1 ms" against two of them.
+  it("keeps a decimal on a sub-100 ms tick", () => {
+    expect(formatAxisMs(0.5)).toBe("0.5 ms");
+    expect(formatAxisMs(12.5)).toBe("12.5 ms");
+    expect(formatAxisMs(50)).toBe("50 ms");
+  });
+
   // The baseline of a linear ms axis. A unit on it reads as though the axis
   // means something different down there.
   it("leaves the zero baseline unitless", () => {

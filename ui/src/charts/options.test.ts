@@ -221,6 +221,12 @@ describe("logAxis", () => {
     expect(logAxis([0, -5, null])).toBeNull();
   });
 
+  // customValues: [] would leave the axis with no gridlines and no labels at
+  // all, which is worse than the nicing it was meant to replace.
+  it("returns null when no round number falls inside the bounds", () => {
+    expect(logAxis([900, 900])).toBeNull();
+  });
+
   it("still fits an axis when every value is identical", () => {
     const axis = logAxis([1000, 1000])!;
     expect(axis.min).toBeLessThan(1000);
