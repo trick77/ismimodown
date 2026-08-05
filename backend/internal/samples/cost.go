@@ -89,7 +89,12 @@ type CostGroup struct {
 	Tokens Tokens `json:"tokens"`
 	// USD is what we were billed — list price with the off-peak coefficient
 	// already applied to whatever share of this group fell inside the window.
-	// Nil when no price is configured for a model that appears in the group.
+	//
+	// A pointer, and never nil in practice: prices are a constant table now, so
+	// every group gets a figure. The nullability survives in the JSON shape
+	// rather than being flattened out, because doing that would drag the
+	// client's formatter and its "not priced is not the same as free" tests into
+	// a change that is about configuration and not about money.
 	USD *float64 `json:"usd"`
 	// ListUSD is the same tokens at full rate. The difference between the two is
 	// the rebate, and quoting it is what keeps "saved $x" from being a figure
@@ -101,9 +106,8 @@ type CostGroup struct {
 type CostPoint struct {
 	T   int64    `json:"t"`
 	USD *float64 `json:"usd"`
-	// Runs is what the bucket is made of. A bucket with runs and no usd means
-	// prices are not configured; a bucket absent entirely means no run landed in
-	// it, which the chart must draw as a gap rather than as a zero.
+	// Runs is what the bucket is made of. A bucket absent entirely means no run
+	// landed in it, which the chart must draw as a gap rather than as a zero.
 	Runs int `json:"runs"`
 }
 
@@ -126,15 +130,11 @@ type ProbeCost struct {
 
 // CostBreakdown is the cost panel of the dashboard payload.
 type CostBreakdown struct {
-	Window string `json:"window"`
-	// Priced reports whether a price table was configured. When false every USD
-	// field is null and the client must show tokens without money rather than
-	// rendering zeros — a $0.00 bill is a claim, and a wrong one.
-	Priced   bool   `json:"priced"`
+	Window   string `json:"window"`
 	Currency string `json:"currency"`
 	// Prices is the table the figures were computed with, published so a total
-	// can be checked rather than trusted. Absent when none is configured.
-	Prices map[string]config.ModelPrice `json:"prices,omitempty"`
+	// can be checked rather than trusted. Always config.DefaultPrices.
+	Prices map[string]config.ModelPrice `json:"prices"`
 	// Coefficient is the off-peak multiplier the phases were billed at.
 	Coefficient float64 `json:"offpeak_coefficient"`
 
@@ -234,15 +234,12 @@ func (s *Store) Cost(ctx context.Context, w Window, prices map[string]config.Mod
 
 	out := CostBreakdown{
 		Window:        w.Key,
-		Priced:        len(prices) > 0,
 		Currency:      "USD",
 		Coefficient:   config.OffPeakCoefficient,
 		BucketSeconds: bucketSecs,
 		GeneratedAt:   now.UTC(),
 	}
-	if out.Priced {
-		out.Prices = prices
-	}
+	out.Prices = prices
 
 	rows, err := s.db.QueryContext(ctx, fmt.Sprintf(`
 		SELECT -- Rounded to the cycle tick the run belongs to, THEN floored into
@@ -290,16 +287,12 @@ func (s *Store) Cost(ctx context.Context, w Window, prices map[string]config.Mod
 		byBucket = map[int64]*CostPoint{}
 		order    []int64
 		total    CostGroup
-		anyPrice = out.Priced
 	)
-	// A priced window with no rows in it still has a total, and that total is
-	// zero rather than unknown. Left nil, the response would claim prices are
-	// configured and then refuse to name a figure, which is a state the client
-	// has no way to render.
-	if anyPrice {
-		zero, list := 0.0, 0.0
-		total.USD, total.ListUSD = &zero, &list
-	}
+	// A window with no rows in it still has a total, and that total is zero
+	// rather than unknown. Left nil, the response would refuse to name a figure,
+	// which is a state the client has no way to render.
+	zeroBilled, zeroList := 0.0, 0.0
+	total.USD, total.ListUSD = &zeroBilled, &zeroList
 
 	for rows.Next() {
 		var r costRow
@@ -310,21 +303,23 @@ func (s *Store) Cost(ctx context.Context, w Window, prices map[string]config.Mod
 		}
 		r.offPeak = off == 1
 
-		// The map lookup, never a zero-value comparison: a model configured at
-		// 0/0 is a free tier, and its true cost of nothing must not read as
-		// "no price configured".
-		price, priced := prices[r.modelID]
+		// Every model in config.DefaultModels has an entry in
+		// config.DefaultPrices, and both are constants now, so a miss here is not
+		// a reachable configuration — it needs a source edit that changes one
+		// list without the other, which config_test.go refuses.
+		//
+		// It IS reachable from history: retention keeps samples for 3 months, so
+		// renaming a probed model leaves that long a tail of rows whose model_id
+		// the new table has never heard of. Those rows price at the zero value
+		// and contribute nothing to a total that still presents itself as
+		// complete. Accepted deliberately — the alternative was a whole "this
+		// window could not be priced" path through the API and the panel, and it
+		// went. If a model is ever renamed, delete or remap its rows.
+		price := prices[r.modelID]
 		list := priceOf(r.tokens, price)
 		billed := list
 		if r.offPeak {
 			billed = list * config.OffPeakCoefficient
-		}
-		// A model with no configured price cannot be priced, and the totals it
-		// belongs to must not pretend otherwise: one unpriced model makes every
-		// group it appears in unpriced, rather than reporting the others' cost
-		// as if it were the whole bill.
-		if !priced {
-			anyPrice = false
 		}
 
 		phase := PhaseFull
@@ -356,18 +351,14 @@ func (s *Store) Cost(ctx context.Context, w Window, prices map[string]config.Mod
 		return CostBreakdown{}, fmt.Errorf("cost unpriced: %w", err)
 	}
 
-	out.Priced = anyPrice
-	if !anyPrice {
-		out.Prices = nil
-	}
-	out.Total = finish(total, anyPrice)
+	out.Total = total
 	// Allocated, so they marshal as [] and not null. The client maps over both,
 	// and a null there is one missing guard away from a blank page.
 	out.Phases = make([]PhaseCost, 0, 2)
 	out.Probes = make([]ProbeCost, 0, 2)
 	for _, phase := range []string{PhaseFull, PhaseOffPeak} {
 		if g, ok := byPhase[phase]; ok {
-			out.Phases = append(out.Phases, PhaseCost{Phase: phase, CostGroup: finish(*g, anyPrice)})
+			out.Phases = append(out.Phases, PhaseCost{Phase: phase, CostGroup: *g})
 		}
 	}
 	// The constants, not literals: this list is what fixes the order the panel
@@ -375,16 +366,12 @@ func (s *Store) Cost(ctx context.Context, w Window, prices map[string]config.Mod
 	// probe from the cost card silently.
 	for _, kind := range []string{probe.ProbeShort, probe.ProbeWide} {
 		if g, ok := byProbe[kind]; ok {
-			out.Probes = append(out.Probes, ProbeCost{Probe: kind, CostGroup: finish(*g, anyPrice)})
+			out.Probes = append(out.Probes, ProbeCost{Probe: kind, CostGroup: *g})
 		}
 	}
 	out.Series = make([]CostPoint, 0, len(order))
 	for _, b := range order {
-		pt := *byBucket[b]
-		if !anyPrice {
-			pt.USD = nil
-		}
-		out.Series = append(out.Series, pt)
+		out.Series = append(out.Series, *byBucket[b])
 	}
 
 	out.OffPeakSpans = offPeakSpans(since.UTC().Unix(), now.UTC().Unix())
@@ -440,12 +427,4 @@ func addUSD(dst **float64, v float64) {
 		return
 	}
 	**dst += v
-}
-
-// finish drops the money from a group that could not be fully priced.
-func finish(g CostGroup, priced bool) CostGroup {
-	if !priced {
-		g.USD, g.ListUSD = nil, nil
-	}
-	return g
 }

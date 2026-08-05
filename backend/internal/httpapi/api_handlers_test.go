@@ -528,8 +528,8 @@ func TestCostEndpointServesTheWholePanel(t *testing.T) {
 	seedCost(t, store, 3)
 
 	got := costOf(t, h, "24h")
-	if got.Window != "24h" || !got.Priced {
-		t.Errorf("window = %q, priced = %v", got.Window, got.Priced)
+	if got.Window != "24h" {
+		t.Errorf("window = %q", got.Window)
 	}
 	if got.Total.USD == nil || *got.Total.USD <= 0 {
 		t.Errorf("total = %+v, want a positive figure", got.Total)
@@ -552,20 +552,5 @@ func TestCostEndpointRejectsAnUnknownWindow(t *testing.T) {
 	rec := get(t, h, "/api/dashboard?window=6mo")
 	if rec.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400", rec.Code)
-	}
-}
-
-// With no price table the endpoint still answers, with tokens and no money. The
-// dashboard hides the panel; it must not be handed zeros to render as a bill.
-func TestCostEndpointWithoutPricesServesNoMoney(t *testing.T) {
-	h, store := newAPIServer(t)
-	seedCost(t, store, 3)
-
-	got := costOf(t, h, "24h")
-	if got.Priced || got.Total.USD != nil {
-		t.Errorf("money served with no price table: %+v", got.Total)
-	}
-	if got.Total.Tokens.Total() == 0 {
-		t.Error("tokens must be served regardless of prices")
 	}
 }

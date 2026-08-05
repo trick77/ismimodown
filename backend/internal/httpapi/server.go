@@ -73,9 +73,8 @@ type Deps struct {
 	// database, so a model that was dropped from the config stops being served.
 	Models []string
 
-	// Prices is the per-model list price table the cost panel multiplies tokens by.
-	// Nil is supported and means the panel carries tokens with no money in
-	// them — see config.Config.Prices.
+	// Prices is the per-model list price table the cost panel multiplies tokens
+	// by. Always config.DefaultPrices — see config.Config.Prices.
 	Prices map[string]config.ModelPrice
 
 	// ProbeUserAgent is deliberately NOT published: the request shape is
