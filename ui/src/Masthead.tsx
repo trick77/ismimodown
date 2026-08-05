@@ -1,6 +1,11 @@
 // The header says what the page measures. The scope shows itself — two model
 // cards, one endpoint — so it is not also spelled out in prose here.
 //
+// The subtitle says "the API endpoint in Singapore", not just "Singapore": the
+// eyebrow above already names the place, but on its own it reads as if that is
+// where the model runs. Singapore is the address we dial, and the subtitle is
+// the one line with room to say so without a sentence of explanation.
+//
 // The bottom padding is deliberately smaller than the top. The verdict banner
 // directly below is a statement ABOUT the subtitle here, so it belongs nearer to
 // it than to the pulse strip beneath it; with even padding and the banner's own
@@ -40,8 +45,8 @@ export function Masthead() {
       <p className="mt-4 max-w-[52ch] font-serif text-[clamp(1rem,2vw,1.3rem)] leading-snug text-ink-dim">
         Latency, throughput, availability and answer correctness for{" "}
         <em className="text-accent-strong">Xiaomi MiMo</em> — separating how
-        long it takes to <em>reach</em> the endpoint from what happens once you
-        are there.
+        long it takes to <em>reach</em> the API endpoint in Singapore from what
+        happens once you are there.
       </p>
     </header>
   );
