@@ -99,6 +99,7 @@ export default function App() {
   const [ttft, setTtft] = useState<ModelSeries | null>(null);
   const [wideTtft, setWideTtft] = useState<ModelSeries | null>(null);
   const [tps, setTps] = useState<ModelSeries | null>(null);
+  const [total, setTotal] = useState<ModelSeries | null>(null);
   const [net, setNet] = useState<NetSeries | null>(null);
   const [cycles, setCycles] = useState<Cycle[]>([]);
   const [samples, setSamples] = useState<Sample[]>([]);
@@ -119,11 +120,12 @@ export default function App() {
       // still spends a token from the per-IP limiter, and this runs on every
       // cycle and every stream event.
       const wanted = [...new Set([key, NOW_WINDOW, BASELINE_WINDOW])];
-      const [summaries, t, w, p, n] = await Promise.all([
+      const [summaries, t, w, p, tot, n] = await Promise.all([
         Promise.all(wanted.map((k) => getSummary(k, "infer", signal))),
         getSeries("ttft", key, "infer", signal),
         getSeries("ttft", key, "wide", signal),
         getSeries("tps", key, "infer", signal),
+        getSeries("total", key, "infer", signal),
         getNetSeries(key, signal),
       ]);
       const byWindow = new Map(wanted.map((k, i) => [k, summaries[i]!]));
@@ -134,6 +136,7 @@ export default function App() {
       setTtft(t);
       setWideTtft(w);
       setTps(p);
+      setTotal(tot);
       setNet(n);
       setError(null);
 
@@ -294,6 +297,18 @@ export default function App() {
             offPeak
           />
           <PrefillPanel infer={ttft} wide={wideTtft} models={models} />
+          {/* The panels above measure the parts — how long until it starts, how
+              fast it runs once it has, what the prompt costs. This is the sum,
+              so it comes after them: it is only readable once its parts have
+              been shown. */}
+          <SeriesPanel
+            title="The whole wait"
+            subtitle="P50 end-to-end, request sent to last token. This one moves with answer LENGTH as well as with speed — output is capped at 150 tokens, and a short answer finishes sooner than a long one — so read a step change here against the throughput plot before calling it a slowdown. Failed runs are excluded. Lower is better."
+            series={total}
+            models={models}
+            unit="ms"
+            offPeak
+          />
           {/* Everything from here down rests on the handshake, so the panel
               that measures it comes first. Above, both of these forward-
               referenced an edge RTT and a Singapore reference host the reader
