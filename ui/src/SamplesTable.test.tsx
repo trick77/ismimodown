@@ -24,13 +24,13 @@ const bodyRows = () =>
 describe("SamplesTable", () => {
   // The caller hands over a whole day so PulseStrip can draw it. The table is
   // not the place to re-read that day.
-  it("renders at most the ten most recent cycles", () => {
+  it("renders at most the twenty most recent cycles", () => {
     render(
       <SamplesTable
         samples={Array.from({ length: 288 }, (_, i) => sample({ ttft_ms: i }))}
       />,
     );
-    expect(bodyRows()).toBe(10);
+    expect(bodyRows()).toBe(20);
   });
 
   // Newest-first from the API, so the head of the array is what to keep.

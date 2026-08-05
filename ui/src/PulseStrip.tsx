@@ -1,7 +1,6 @@
 import type { Cycle } from "./api/types";
 import { formatMs, formatTime, plural } from "./format";
 import { isOffPeak, OFFPEAK_COEFFICIENT } from "./offpeak";
-import { OffPeakChip } from "./ui";
 
 // One bar per cycle: colour by health, height by latency.
 //
@@ -35,21 +34,6 @@ export function PulseStrip({ cycles }: { cycles: Cycle[] }) {
 
   return (
     <div>
-      {/* The one place on the page that carries the rate as a badge.
-          It used to sit in the header of each token chart, tied to the band
-          actually being drawn there — on 7d and wider the band is dropped, and
-          a chip promising a rate the plot does not show is worse than no chip.
-          Three copies of one fact is two too many, so it is stated once, here.
-
-          Here it is NOT tied to a band, and needs no gate: the chip says what
-          the rate is doing right now, and now is a thing the page always has.
-          That is also why the strip's missing time axis costs it nothing —
-          "0.8× until 02:00" names a wall-clock instant, not a position in the
-          row. The strip is a fixed 288-cycle day, so the window it refers to is
-          in view regardless of which window the charts below are showing. */}
-      <div className="mb-2 flex justify-end">
-        <OffPeakChip />
-      </div>
       <div
         className="flex h-12 items-end gap-px overflow-hidden max-[720px]:gap-0"
         role="img"

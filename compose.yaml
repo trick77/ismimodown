@@ -36,7 +36,8 @@ services:
       # 3 months of raw samples, swept nightly.
       BACKEND_RETENTION: "${BACKEND_RETENTION:-2160h}"
       # Ping targets. Overridable because the right reference host depends on
-      # where this is deployed — see the methodology page for what each answers.
+      # where this is deployed — see the DefaultRefSGPHost comment in
+      # backend/internal/config/config.go for what each answers.
       BACKEND_PING_MIMO_HOST: "${BACKEND_PING_MIMO_HOST:-token-plan-sgp.xiaomimimo.com}"
       BACKEND_PING_REF_SGP_HOST: "${BACKEND_PING_REF_SGP_HOST:-sgp1.digitaloceanspaces.com}"
 
@@ -69,8 +70,7 @@ services:
       # lookup. config.Load rejects an empty one at boot.
       BACKEND_PROBE_SYSTEM_PROMPT: "${BACKEND_PROBE_SYSTEM_PROMPT:-}"
       # Probes present as a real coding agent on purpose — a neutral client would
-      # not measure what production traffic experiences. Disclosed on
-      # /api/methodology, so a change here changes what that page claims.
+      # not measure what production traffic experiences.
       BACKEND_PROBE_USER_AGENT: "${BACKEND_PROBE_USER_AGENT:-}"
 
       # The timeout ladder. Each layer has its own bound and its own error class,

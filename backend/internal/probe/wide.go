@@ -62,8 +62,8 @@ func WidePrompt() string {
 	return b.String()
 }
 
-// WideDocument exposes the corpus for tests and for the methodology page, which
-// publishes what is actually being sent.
+// WideDocument exposes the corpus for tests, which assert what is actually
+// being sent.
 func WideDocument() string { return wideDocument }
 
 // wideNonce draws 8 base62 characters. Falls back to a fixed string if the

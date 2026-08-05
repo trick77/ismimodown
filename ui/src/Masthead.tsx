@@ -1,6 +1,5 @@
 // The header says what the page measures. The scope shows itself — two model
-// cards, one endpoint on the methodology panel — so it is not also spelled out
-// in prose here.
+// cards, one endpoint — so it is not also spelled out in prose here.
 //
 // The bottom padding is deliberately smaller than the top. The verdict banner
 // directly below is a statement ABOUT the subtitle here, so it belongs nearer to

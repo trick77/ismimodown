@@ -61,6 +61,3 @@ export const getPulse = (
     `/api/pulse?model=${encodeURIComponent(model)}&probe=${encodeURIComponent(probe)}&limit=${limit}`,
     signal,
   );
-
-export const getMethodology = (signal?: AbortSignal) =>
-  api.get<Record<string, unknown>>("/api/methodology", signal);

@@ -1,5 +1,5 @@
 import type { ModelSeries } from "./api/types";
-import { Card, CensoredNote, OffPeakNote } from "./ui";
+import { Card, CensoredNote, LogScaleChip } from "./ui";
 import { EChart } from "./charts/EChart";
 import { buildLineOption, colorForModel } from "./charts/options";
 
@@ -40,19 +40,10 @@ export function SeriesPanel({
     <Card
       title={title}
       subtitle={subtitle}
-      right={
-        /* No off-peak chip here — the page carries it once, on the pulse
-           strip. The band and the note below still say the rate applies to
-           what is plotted; the chip said what the rate is doing right now,
-           which is one fact and does not want three headers. */
-        /* A log axis read as a linear one is worse than no chart, so the
-           switch is always announced on the plot. */
-        option.logScale ? (
-          <span className="num rounded-full border border-border px-2 py-[2px] text-micro uppercase tracking-wider text-faint">
-            log scale
-          </span>
-        ) : null
-      }
+      /* No off-peak chip in the header — the rate is one fact and did not
+         want three copies of itself. The band still says which stretch of the
+         plot it applies to. */
+      right={option.logScale ? <LogScaleChip /> : null}
     >
       {hasData ? (
         <EChart option={option} ariaLabel={`${title} over time, per model`} />
@@ -63,7 +54,6 @@ export function SeriesPanel({
       )}
       <Legend models={models} />
       <CensoredNote bands={option.censoredBands} />
-      <OffPeakNote spans={option.offPeakSpans} />
     </Card>
   );
 }

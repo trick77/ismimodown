@@ -1,11 +1,5 @@
 import type { ReactNode } from "react";
 import type { State } from "./verdict";
-import { formatTime } from "./format";
-import {
-  currentOffPeak,
-  offPeakWindowFor,
-  OFFPEAK_COEFFICIENT,
-} from "./offpeak";
 
 // Shared primitives. Colour is NEVER the only signal — every state chip carries
 // its word, and every delta its sign — so the dashboard stays readable to a
@@ -61,67 +55,15 @@ export function CensoredNote({ bands }: { bands: number }) {
   );
 }
 
-// OffPeakNote names the green bands, and gives the hours in the LOCAL clock.
+// LogScaleChip announces that a plot's y-axis is logarithmic.
 //
-// Same reasoning as CensoredNote: a shaded rectangle nobody can name is not a
-// signal. The hours are quoted off the drawn band's own DAY rather than from a
-// local-clock constant, so a window straddling the DST changeover reports what
-// it actually painted instead of a rule that was true on one side of it — and
-// off the whole band, not the clipped span, since the span stops at the edge of
-// the plot and the window does not.
-//
-// It says billing and only billing. MiMo publishes no load figures, and a note
-// here implying these are the quiet hours would be inventing a claim the rest of
-// this page exists to avoid.
-export function OffPeakNote({ spans }: { spans: [number, number][] }) {
-  const first = spans[0];
-  if (first === undefined) return null;
-  const [opens, closes] = offPeakWindowFor(first[0]);
+// A log axis read as a linear one is worse than no chart, so the switch is
+// always announced on the plot — on EVERY chart that can make it, not only the
+// one that happened to render the badge first.
+export function LogScaleChip() {
   return (
-    <p className="mt-3 flex items-start gap-2 text-label text-muted">
-      <span
-        className="mt-[5px] inline-block h-3 w-4 shrink-0 rounded-sm bg-online/30"
-        aria-hidden="true"
-      />
-      <span>
-        {/* Not "Shaded:", which is how CensoredNote opens — the two notes sit
-            one above the other whenever both apply, and a reader would have
-            only the swatch to tell which sentence belonged to which band. */}
-        {/* Kept to two sentences: the band is on every token chart, so this
-            sits on the page three times over, permanently — unlike CensoredNote
-            above, which only appears when something was actually cut off. */}
-        Off-peak: MiMo bills{" "}
-        <span className="num">{formatTime(new Date(opens))}</span>–
-        <span className="num">{formatTime(new Date(closes))}</span> here —
-        00:00–08:00 in Beijing — at {OFFPEAK_COEFFICIENT}×, or 20% fewer
-        credits. A price, not a forecast: nothing is published about when the
-        platform is busy.
-      </span>
-    </p>
-  );
-}
-
-// OffPeakChip says whether the reduced rate is live right now, in the header.
-//
-// It names the BOUNDARY and never counts down to it. The page re-renders on the
-// 5-minute probe cycle, so "in 3h 10m" would be a number that is wrong for most
-// of the time it is on screen; "until 02:00" is simply true until it is not. The
-// same cycle means the state itself can lag the boundary by one probe, which is
-// nothing against an eight-hour window.
-export function OffPeakChip({ now = Date.now() }: { now?: number }) {
-  const { active, boundaryMs } = currentOffPeak(now);
-  return (
-    <span
-      className={`num rounded-full border px-2 py-[2px] text-micro uppercase tracking-wider ${
-        // Green, matching the band it refers to. The word beside it is what
-        // separates this from a health chip wearing the same colour.
-        active
-          ? "border-online/50 bg-online/15 text-online"
-          : "border-border text-faint"
-      }`}
-    >
-      {OFFPEAK_COEFFICIENT}× {active ? "until" : "from"}{" "}
-      {formatTime(new Date(boundaryMs))}
+    <span className="num rounded-full border border-border px-2 py-[2px] text-micro uppercase tracking-wider text-faint">
+      log scale
     </span>
   );
 }
@@ -201,7 +143,11 @@ export function Figure({
         <span className="text-micro uppercase tracking-wider text-faint">
           {label}
         </span>
-        {state && <StateChip state={state} />}
+        {/* "normal" is the resting state of every figure here, and repeating
+            it beside each one says nothing the card's own header chip does not
+            already say. Anything OTHER than normal — including no data — still
+            gets its word, because that is the case worth spotting. */}
+        {state && state !== "normal" && <StateChip state={state} />}
       </div>
       {sufficient ? (
         <div className="num mt-1 text-display text-ink">{value}</div>

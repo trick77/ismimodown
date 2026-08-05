@@ -61,12 +61,12 @@ describe("SeriesPanel", () => {
     expect(screen.queryByText("log scale")).not.toBeInTheDocument();
   });
 
-  // The rate chip lives on the pulse strip and nowhere else. The band and the
-  // note below the plot still tie the rate to what is drawn here.
-  it("leaves the rate chip to the pulse strip", () => {
+  // Neither the chip nor the paragraph rides along with the plot any more; the
+  // band is what ties the rate to what is drawn here.
+  it("carries no rate chip and no off-peak paragraph", () => {
     render(panel(FLAT));
-    expect(screen.getByText(/Off-peak: MiMo bills/)).toBeInTheDocument();
-    // Matched on the boundary wording, since the note quotes the rate too.
+    expect(screen.queryByText(/Off-peak: MiMo bills/)).not.toBeInTheDocument();
+    // Matched on the boundary wording, which is what the chip alone carried.
     expect(screen.queryByText(/0\.8× (until|from)/i)).not.toBeInTheDocument();
   });
 });

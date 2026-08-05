@@ -28,16 +28,6 @@ describe("PulseStrip", () => {
     expect(container.firstChild).toBeNull();
   });
 
-  // The strip is the page's one home for the rate badge, and it carries it
-  // whether or not any bar in view happens to be off-peak: the chip names what
-  // the rate is doing NOW, which is why the strip having no time axis costs it
-  // nothing.
-  it("carries the rate chip, even with no off-peak cycle in the row", () => {
-    render(<PulseStrip cycles={[sample({ at: "2026-08-04T09:00:00Z" })]} />);
-    // Matched on the boundary wording, so the assertion holds at any clock.
-    expect(screen.getByText(/0\.8× (until|from)/i)).toBeInTheDocument();
-  });
-
   // A failed cycle has no latency to plot. Drawing it short would make an
   // outage look like a fast response — the exact inversion this whole project
   // exists to avoid.

@@ -23,8 +23,6 @@ func newAPIServer(t *testing.T) (http.Handler, *samples.Store) {
 	h := NewServer(Deps{
 		Version: "test", DB: db, Samples: store,
 		Models:         []string{"mimo-v2.5", "mimo-v2.5-pro"},
-		BaseURL:        "https://token-plan-sgp.example/v1",
-		RefSGPHost:     "sgp1.example.com",
 		ProbeUserAgent: testUserAgent,
 		Now:            func() time.Time { return testNow },
 	})
@@ -217,11 +215,9 @@ func TestNoPublicEndpointEmitsErrorDetail(t *testing.T) {
 		t.Fatalf("Save: %v", err)
 	}
 
-	// dataPaths carry measurements. /api/methodology is listed separately below
-	// because it legitimately NAMES the field in order to document that the
-	// field is withheld — the disclosure is the point, and forbidding the word
-	// there would push the project toward hiding the caveat rather than
-	// publishing it.
+	// dataPaths carry measurements, and none of them may name the field at
+	// all: a future struct change that starts serializing error_detail fails
+	// here rather than on a live deployment.
 	dataPaths := []string{
 		"/api/models",
 		"/api/summary?window=24h",
@@ -248,21 +244,6 @@ func TestNoPublicEndpointEmitsErrorDetail(t *testing.T) {
 			}
 		})
 	}
-
-	// The value must never appear anywhere, methodology included.
-	t.Run("/api/methodology", func(t *testing.T) {
-		rec := get(t, h, "/api/methodology")
-		if rec.Code != http.StatusOK {
-			t.Fatalf("status = %d", rec.Code)
-		}
-		body := rec.Body.String()
-		if strings.Contains(body, secret) {
-			t.Errorf("methodology leaked an error_detail VALUE: %s", body)
-		}
-		if !strings.Contains(body, "never served publicly") {
-			t.Error("methodology must disclose that provider error bodies are withheld")
-		}
-	})
 }
 
 const testUserAgent = "someagent/9.9.9 probe-fixture/1.0"
@@ -292,7 +273,6 @@ func TestRequestShapeIsNotServed(t *testing.T) {
 
 	for _, p := range []string{
 		"/api/models",
-		"/api/methodology",
 		"/api/summary?window=24h",
 		"/api/samples?model=mimo-v2.5&limit=100",
 		"/api/pulse?model=mimo-v2.5&limit=100",
@@ -336,59 +316,6 @@ func TestErrorClassIsServedEvenThoughDetailIsNot(t *testing.T) {
 	rec := get(t, h, "/api/samples?model=mimo-v2.5")
 	if !strings.Contains(rec.Body.String(), probe.ErrClassTimeout) {
 		t.Errorf("error_class must be served: %s", rec.Body.String())
-	}
-}
-
-// The methodology endpoint is the reason the site can be trusted; the caveats
-// that make the numbers honest must be present, not quietly dropped.
-func TestMethodologyPublishesTheUnflatteringParts(t *testing.T) {
-	h, _ := newAPIServer(t)
-
-	rec := get(t, h, "/api/methodology")
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d", rec.Code)
-	}
-	body := rec.Body.String()
-
-	for _, must := range []string{
-		"server-side time",     // never "model time"
-		"no European GPUs",     // why the residual is not model time
-		"client_identity",      // that the probe does not present as neutral
-		"reasoning_tokens",     // the check that keeps thinking out of the timings
-		"Not the same carrier", // the SGP reference limitation
-		"insufficient_data",    // percentile suppression
-		"never served publicly",
-	} {
-		if !strings.Contains(body, must) {
-			t.Errorf("methodology must disclose %q; it is missing from: %s", must, body)
-		}
-	}
-	// The residual must never be called model time.
-	if strings.Contains(strings.ToLower(body), "model time") &&
-		!strings.Contains(body, "would be a claim the measurement cannot support") {
-		t.Error("methodology uses 'model time' without the disclaimer")
-	}
-}
-
-// The scope line names the models, and BACKEND_MODELS can change them. Spelling
-// them out as a literal makes the one endpoint the site's credibility rests on
-// state what the code once intended to probe rather than what it probes.
-func TestMethodologyScopeNamesTheConfiguredModels(t *testing.T) {
-	db := openTestDB(t)
-	h := NewServer(Deps{
-		DB: db, Samples: samples.New(db),
-		Models: []string{"mimo-v9-tiny", "mimo-v9-huge"},
-		Now:    func() time.Time { return testNow },
-	})
-
-	body := get(t, h, "/api/methodology").Body.String()
-	for _, id := range []string{"mimo-v9-tiny", "mimo-v9-huge"} {
-		if !strings.Contains(body, id) {
-			t.Errorf("scope omits the configured model %q: %s", id, body)
-		}
-	}
-	if strings.Contains(body, "mimo-v2.5") {
-		t.Errorf("scope names a model that is not configured: %s", body)
 	}
 }
 
@@ -494,7 +421,6 @@ func TestEmptyDatabaseStillServesEveryEndpoint(t *testing.T) {
 		"/api/models", "/api/summary?window=24h",
 		"/api/series?metric=ttft&window=24h", "/api/series?metric=network&window=24h",
 		"/api/samples?model=mimo-v2.5", "/api/pulse?model=mimo-v2.5",
-		"/api/methodology",
 	} {
 		t.Run(p, func(t *testing.T) {
 			rec := get(t, h, p)
@@ -505,51 +431,6 @@ func TestEmptyDatabaseStillServesEveryEndpoint(t *testing.T) {
 				t.Errorf("invalid JSON: %s", rec.Body.String())
 			}
 		})
-	}
-}
-
-// The base URL is the one configured value echoed to the public. config.Load
-// refuses a credential in it at boot; this is the second gate, so a Deps built
-// by any other caller still cannot turn that field into an exfiltration path.
-func TestMethodologyStripsCredentialsFromTheEndpoint(t *testing.T) {
-	db := openTestDB(t)
-	h := NewServer(Deps{
-		Version: "test", DB: db, Samples: samples.New(db),
-		Models:  []string{"mimo-v2.5"},
-		BaseURL: "https://probe:tp-livekey123@token-plan-sgp.example/v1?api_key=tp-livekey456",
-		Now:     func() time.Time { return testNow },
-	})
-
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/methodology", nil))
-
-	body := rec.Body.String()
-	for _, secret := range []string{"tp-livekey123", "tp-livekey456", "probe:"} {
-		if strings.Contains(body, secret) {
-			t.Errorf("/api/methodology leaked %q:\n%s", secret, body)
-		}
-	}
-	// The host must survive: the endpoint exists to disclose what was probed.
-	if !strings.Contains(body, "token-plan-sgp.example/v1") {
-		t.Errorf("the endpoint host must still be published:\n%s", body)
-	}
-}
-
-func TestPublicBaseURL(t *testing.T) {
-	cases := []struct{ in, want string }{
-		{"https://token-plan-sgp.example/v1", "https://token-plan-sgp.example/v1"},
-		{"https://user:pass@host.example/v1", "https://host.example/v1"},
-		{"https://host.example/v1?api_key=tp-secret", "https://host.example/v1"},
-		{"https://host.example/v1#tp-secret", "https://host.example/v1"},
-		// Unparseable input is returned as-is: it cannot hold a credential in a
-		// form this could strip, and blanking it would hide a misconfiguration
-		// on the endpoint whose whole job is disclosure.
-		{"://not a url", "://not a url"},
-	}
-	for _, tc := range cases {
-		if got := publicBaseURL(tc.in); got != tc.want {
-			t.Errorf("publicBaseURL(%q) = %q, want %q", tc.in, got, tc.want)
-		}
 	}
 }
 

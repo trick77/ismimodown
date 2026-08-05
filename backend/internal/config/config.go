@@ -33,14 +33,14 @@ const (
 	// would be a Europe reference mislabelled as Singapore — exactly the failure
 	// the reference exists to prevent. DigitalOcean's Singapore endpoint is a
 	// genuine SGP target (~268 ms from Zurich), at the cost of the same-carrier
-	// argument. Disclosed on the methodology page.
+	// argument: an operator-specific backbone fault on MiMo's own path may not
+	// show up here.
 	DefaultRefSGPHost = "sgp1.digitaloceanspaces.com"
 )
 
 // DefaultUserAgent impersonates opencode, because MiMo's token-plan endpoint is
 // an opencode-facing product and a neutral UA is not what production traffic
-// looks like. Disclosed verbatim on the methodology page rather than hidden;
-// overridable via BACKEND_PROBE_USER_AGENT.
+// looks like. Overridable via BACKEND_PROBE_USER_AGENT.
 const DefaultUserAgent = "opencode/1.18.11 ai-sdk/openai-compatible/3.0.20 ai-sdk/provider-utils/5.0.18 runtime/bun/1.3.14"
 
 // DefaultSystemPrompt is sent on every probe request, and is NOT cosmetic.
@@ -257,21 +257,18 @@ func validateBaseURL(raw string) error {
 	if u.Host == "" {
 		return fmt.Errorf("BACKEND_MIMO_BASE_URL must include a host")
 	}
-	// Userinfo is a credential, and this value is PUBLISHED verbatim as the
-	// "endpoint" field of /api/methodology. "https://user:pass@host/v1" passes
-	// every other check here, so without this line a credential typed into the
-	// base URL would be served to every visitor. Rejected at boot rather than
-	// stripped later: an operator who put a secret here must be told, not
-	// silently have it dropped from one of the several places it would travel.
-	//
-	// httpapi.publicBaseURL strips it a second time on the way out, on the same
-	// belt-and-braces principle as the metric allow-lists.
+	// Userinfo is a credential. "https://user:pass@host/v1" passes every other
+	// check here, so without this line a secret typed into the base URL would
+	// travel wherever this value travels — logs, error messages, and any future
+	// consumer of the config. Rejected at boot rather than stripped later: an
+	// operator who put a secret here must be told, not silently have it dropped
+	// from one of the several places it would reach.
 	if u.User != nil {
 		return fmt.Errorf("BACKEND_MIMO_BASE_URL must not embed credentials; use BACKEND_MIMO_API_KEY")
 	}
 	// A query string is not a credential by construction, but it is where an
-	// API key most often ends up on an OpenAI-compatible endpoint, and it is
-	// equally published. Same reasoning.
+	// API key most often ends up on an OpenAI-compatible endpoint. Same
+	// reasoning.
 	if u.RawQuery != "" {
 		return fmt.Errorf("BACKEND_MIMO_BASE_URL must not carry a query string")
 	}

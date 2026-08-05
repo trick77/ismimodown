@@ -38,18 +38,24 @@ describe("PrefillPanel", () => {
 
   // Prefill is a cost measured in latency — the subtitle says as much. What an
   // extra 3800 tokens costs and what those tokens bill at are one question.
-  it("shades the off-peak hours and names them", () => {
+  it("carries no rate chip in the header", () => {
     render(<PrefillPanel infer={infer} wide={wide} models={["mimo-v2.5"]} />);
-    expect(screen.getByText(/Off-peak: MiMo bills/)).toBeInTheDocument();
-    expect(screen.getByText(/18:00/)).toBeInTheDocument();
+    expect(screen.queryByText(/0\.8× (until|from)/i)).not.toBeInTheDocument();
   });
 
-  // The rate chip lives on the pulse strip and nowhere else. The note below the
-  // plot still quotes the rate — what is gone is the badge in the header.
-  it("leaves the rate chip to the pulse strip", () => {
+  // This panel plots two probes an order of magnitude apart, so it is the one
+  // most likely to switch axes — and it rendered no badge at all until now.
+  it("announces a log axis when the spread forces one", () => {
+    const wideLog = series({ "mimo-v2.5": day(36_000) });
+    render(
+      <PrefillPanel infer={infer} wide={wideLog} models={["mimo-v2.5"]} />,
+    );
+    expect(screen.getByText(/log scale/i)).toBeInTheDocument();
+  });
+
+  it("leaves the badge off when the axis stayed linear", () => {
     render(<PrefillPanel infer={infer} wide={wide} models={["mimo-v2.5"]} />);
-    // Matched on the boundary wording, since the note quotes the rate too.
-    expect(screen.queryByText(/0\.8× (until|from)/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/log scale/i)).not.toBeInTheDocument();
   });
 
   // The wide probe runs hourly, so the panel exists before its subject does.

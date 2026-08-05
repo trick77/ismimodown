@@ -1,5 +1,5 @@
 import type { ModelSeries, Point } from "./api/types";
-import { Card, CensoredNote, OffPeakNote } from "./ui";
+import { Card, CensoredNote, LogScaleChip } from "./ui";
 import { EChart } from "./charts/EChart";
 import { buildLineOption, colorForModel } from "./charts/options";
 
@@ -43,8 +43,8 @@ export function PrefillPanel({
     // hue; the wide series is dashed so they stay distinguishable.
     dashed: (name) => name.includes("3800"),
     // The short probe is the BASELINE here, not the subject. It is the
-    // same series the "Time to first token" chart plots directly above,
-    // and at equal weight this panel reads as that chart repeated —
+    // same series the "Time to first token" chart plots above, and at
+    // equal weight this panel reads as that chart repeated —
     // which is exactly how it was read. Muted, the wide line and the
     // gap beneath it become the figure.
     muted: (name) => !name.includes("3800"),
@@ -60,8 +60,9 @@ export function PrefillPanel({
     <Card
       title="Prefill cost"
       subtitle="TTFT at ~3800 input tokens against TTFT at ~34, per model. The gap between the lines is what prefill actually costs; a widening gap is the signal that catches a batching change or a requantisation. Lower is better, and so is a narrower gap."
-      /* No off-peak chip: the page states the rate once, on the pulse strip.
-         The green band and the note below still tie it to this plot. */
+      /* No off-peak chip: the rate is stated once, not per chart. The green
+         band still ties it to this plot. */
+      right={option.logScale ? <LogScaleChip /> : null}
     >
       {Object.keys(series).length > 0 ? (
         <EChart
@@ -96,7 +97,6 @@ export function PrefillPanel({
         </li>
       </ul>
       <CensoredNote bands={option.censoredBands} />
-      <OffPeakNote spans={option.offPeakSpans} />
       {!hasWide && (
         <p className="mt-3 text-label text-muted">
           The wide probe runs hourly, so it takes an hour before this gap is
