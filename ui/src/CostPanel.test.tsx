@@ -36,7 +36,7 @@ const cost = (over: Partial<CostBreakdown> = {}): CostBreakdown => ({
   ],
   probes: [
     {
-      probe: "infer",
+      probe: "short",
       runs: 576,
       tokens: { prompt: 40320, cached: 0, output: 40320 },
       usd: 0.0908,

@@ -69,7 +69,7 @@ func TestCostPricesTheUncachedRemainder(t *testing.T) {
 	//   400 cached   @ $0.10/M = 0.00004
 	//   200 output   @ $10/M  = 0.002
 	//                          = 0.00264
-	saveAt(t, s, at, costRun("mimo-v2.5", probe.ProbeInfer, 1000, 400, 200))
+	saveAt(t, s, at, costRun("mimo-v2.5", probe.ProbeShort, 1000, 400, 200))
 
 	got, err := s.Cost(context.Background(), w, testPrices, now)
 	if err != nil {
@@ -102,9 +102,9 @@ func TestCostAppliesTheCoefficientOnlyOffPeak(t *testing.T) {
 
 	// 10:00 UTC is full rate, 20:00 UTC is inside 16:00-24:00.
 	saveAt(t, s, time.Date(2026, 8, 4, 10, 0, 0, 0, time.UTC),
-		costRun("mimo-v2.5", probe.ProbeInfer, 1000, 0, 0))
+		costRun("mimo-v2.5", probe.ProbeShort, 1000, 0, 0))
 	saveAt(t, s, time.Date(2026, 8, 4, 20, 0, 0, 0, time.UTC),
-		costRun("mimo-v2.5", probe.ProbeInfer, 1000, 0, 0))
+		costRun("mimo-v2.5", probe.ProbeShort, 1000, 0, 0))
 
 	got, err := s.Cost(context.Background(), w, testPrices, now)
 	if err != nil {
@@ -144,9 +144,9 @@ func TestCostDecidesThePhasePerRunNotPerBucket(t *testing.T) {
 	now := time.Date(2026, 8, 4, 23, 0, 0, 0, time.UTC)
 
 	saveAt(t, s, time.Date(2026, 8, 4, 14, 0, 0, 0, time.UTC),
-		costRun("mimo-v2.5", probe.ProbeInfer, 1000, 0, 0))
+		costRun("mimo-v2.5", probe.ProbeShort, 1000, 0, 0))
 	saveAt(t, s, time.Date(2026, 8, 4, 17, 0, 0, 0, time.UTC),
-		costRun("mimo-v2.5", probe.ProbeInfer, 1000, 0, 0))
+		costRun("mimo-v2.5", probe.ProbeShort, 1000, 0, 0))
 
 	got, err := s.Cost(context.Background(), w, testPrices, now)
 	if err != nil {
@@ -167,7 +167,7 @@ func TestCostSplitsByProbe(t *testing.T) {
 	now := at.Add(time.Hour)
 
 	saveAt(t, s, at,
-		costRun("mimo-v2.5", probe.ProbeInfer, 100, 0, 0),
+		costRun("mimo-v2.5", probe.ProbeShort, 100, 0, 0),
 		costRun("mimo-v2.5", probe.ProbeWide, 10000, 0, 0))
 
 	got, err := s.Cost(context.Background(), w, testPrices, now)
@@ -178,8 +178,8 @@ func TestCostSplitsByProbe(t *testing.T) {
 	for _, p := range got.Probes {
 		byProbe[p.Probe] = p.CostGroup
 	}
-	if want := 0.0001; !near(usd(t, byProbe[probe.ProbeInfer].USD), want) {
-		t.Errorf("infer = %v, want %v", *byProbe[probe.ProbeInfer].USD, want)
+	if want := 0.0001; !near(usd(t, byProbe[probe.ProbeShort].USD), want) {
+		t.Errorf("infer = %v, want %v", *byProbe[probe.ProbeShort].USD, want)
 	}
 	if want := 0.01; !near(usd(t, byProbe[probe.ProbeWide].USD), want) {
 		t.Errorf("wide = %v, want %v", *byProbe[probe.ProbeWide].USD, want)
@@ -194,11 +194,11 @@ func TestCostCountsRunsItCannotPrice(t *testing.T) {
 	at := time.Date(2026, 8, 4, 10, 0, 0, 0, time.UTC)
 	now := at.Add(time.Hour)
 
-	failed := costRun("mimo-v2.5", probe.ProbeInfer, 0, 0, 0)
+	failed := costRun("mimo-v2.5", probe.ProbeShort, 0, 0, 0)
 	failed.OK = false
 	failed.AnswerOK = nil
 	failed.ErrorClass = "ttft_timeout"
-	saveAt(t, s, at, costRun("mimo-v2.5", probe.ProbeInfer, 1000, 0, 0), failed)
+	saveAt(t, s, at, costRun("mimo-v2.5", probe.ProbeShort, 1000, 0, 0), failed)
 
 	got, err := s.Cost(context.Background(), w, testPrices, now)
 	if err != nil {
@@ -222,7 +222,7 @@ func TestCostWithoutPricesServesTokensAndNoMoney(t *testing.T) {
 	w, _ := LookupWindow("24h")
 	at := time.Date(2026, 8, 4, 10, 0, 0, 0, time.UTC)
 	now := at.Add(time.Hour)
-	saveAt(t, s, at, costRun("mimo-v2.5", probe.ProbeInfer, 1000, 0, 200))
+	saveAt(t, s, at, costRun("mimo-v2.5", probe.ProbeShort, 1000, 0, 200))
 
 	got, err := s.Cost(context.Background(), w, nil, now)
 	if err != nil {
@@ -254,8 +254,8 @@ func TestCostRefusesToTotalAPartiallyPricedWindow(t *testing.T) {
 	now := at.Add(time.Hour)
 
 	saveAt(t, s, at,
-		costRun("mimo-v2.5", probe.ProbeInfer, 1000, 0, 0),
-		costRun("mimo-v2.5-pro", probe.ProbeInfer, 1000, 0, 0))
+		costRun("mimo-v2.5", probe.ProbeShort, 1000, 0, 0),
+		costRun("mimo-v2.5-pro", probe.ProbeShort, 1000, 0, 0))
 
 	got, err := s.Cost(context.Background(), w, testPrices, now)
 	if err != nil {
@@ -280,7 +280,7 @@ func TestCostSeriesIsBucketedAndOrdered(t *testing.T) {
 
 	for i := 0; i < 6; i++ {
 		saveAt(t, s, base.Add(time.Duration(i)*20*time.Minute),
-			costRun("mimo-v2.5", probe.ProbeInfer, 1000, 0, 0))
+			costRun("mimo-v2.5", probe.ProbeShort, 1000, 0, 0))
 	}
 
 	got, err := s.Cost(context.Background(), w, testPrices, now)
@@ -334,7 +334,7 @@ func TestCostBucketsByTheTickNotTheJitter(t *testing.T) {
 			off = -off
 		}
 		saveAt(t, s, base.Add(time.Duration(i)*5*time.Minute+off),
-			costRun("mimo-v2.5", probe.ProbeInfer, 1000, 0, 0))
+			costRun("mimo-v2.5", probe.ProbeShort, 1000, 0, 0))
 	}
 
 	got, err := s.Cost(context.Background(), w, testPrices, now)
@@ -425,7 +425,7 @@ func TestCostTreatsAZeroPriceAsAPrice(t *testing.T) {
 	w, _ := LookupWindow("24h")
 	at := time.Date(2026, 8, 4, 10, 0, 0, 0, time.UTC)
 	now := at.Add(time.Hour)
-	saveAt(t, s, at, costRun("mimo-v2.5", probe.ProbeInfer, 1000, 0, 200))
+	saveAt(t, s, at, costRun("mimo-v2.5", probe.ProbeShort, 1000, 0, 200))
 
 	got, err := s.Cost(context.Background(), w,
 		map[string]config.ModelPrice{"mimo-v2.5": {}}, now)
@@ -450,8 +450,8 @@ func TestCostTreatsAZeroPromptAsMissingUsage(t *testing.T) {
 	now := at.Add(time.Hour)
 
 	saveAt(t, s, at,
-		costRun("mimo-v2.5", probe.ProbeInfer, 1000, 0, 0),
-		costRun("mimo-v2.5", probe.ProbeInfer, 0, 0, 0))
+		costRun("mimo-v2.5", probe.ProbeShort, 1000, 0, 0),
+		costRun("mimo-v2.5", probe.ProbeShort, 0, 0, 0))
 
 	got, err := s.Cost(context.Background(), w, testPrices, now)
 	if err != nil {

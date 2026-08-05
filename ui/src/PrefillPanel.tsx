@@ -10,21 +10,21 @@ import { buildLineOption, colorForModel } from "./charts/options";
 // The two probes are never merged into one series: mixing a 34-token request
 // with a 3800-token one produces an average that describes neither.
 export function PrefillPanel({
-  infer,
+  short,
   wide,
   models,
 }: {
-  infer: ModelSeries | null;
+  short: ModelSeries | null;
   wide: ModelSeries | null;
   models: string[];
 }) {
   const series: Record<string, Point[]> = {};
   const order: string[] = [];
   for (const m of models) {
-    const short = infer?.models[m];
+    const shortSeries = short?.models[m];
     const long = wide?.models[m];
-    if (short && short.length) {
-      series[`${m} · 34 tok`] = short;
+    if (shortSeries && shortSeries.length) {
+      series[`${m} · 34 tok`] = shortSeries;
       order.push(`${m} · 34 tok`);
     }
     if (long && long.length) {
@@ -34,7 +34,7 @@ export function PrefillPanel({
   }
 
   const hasWide = Object.keys(series).some((k) => k.includes("3800"));
-  const bucketS = infer?.bucket_s ?? wide?.bucket_s;
+  const bucketS = short?.bucket_s ?? wide?.bucket_s;
   const option = buildLineOption({
     series,
     order,

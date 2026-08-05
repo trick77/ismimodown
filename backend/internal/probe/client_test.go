@@ -126,7 +126,7 @@ func TestRequestShapeIsWhatMimoNeeds(t *testing.T) {
 
 	c := NewClient(testConfig(srv.URL))
 	if _, err := c.Run(context.Background(), Request{
-		ModelID: "mimo-v2.5", Probe: ProbeInfer, Prompt: "q", MaxTokens: 150,
+		ModelID: "mimo-v2.5", Probe: ProbeShort, Prompt: "q", MaxTokens: 150,
 	}); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -193,7 +193,7 @@ func TestTimingsMatchTheConstructedStream(t *testing.T) {
 
 	c := NewClient(testConfig(srv.URL))
 	res, err := c.Run(context.Background(), Request{
-		ModelID: "mimo-v2.5", Probe: ProbeInfer, Prompt: "q", MaxTokens: 150,
+		ModelID: "mimo-v2.5", Probe: ProbeShort, Prompt: "q", MaxTokens: 150,
 	})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
@@ -247,7 +247,7 @@ func TestTimeoutLadderClassifiesEachLayer(t *testing.T) {
 		defer srv.Close()
 
 		res, err := NewClient(testConfig(srv.URL)).Run(context.Background(), Request{
-			ModelID: "m", Probe: ProbeInfer, Prompt: "q", MaxTokens: 150,
+			ModelID: "m", Probe: ProbeShort, Prompt: "q", MaxTokens: 150,
 		})
 		if err != nil {
 			t.Fatalf("Run: %v", err)
@@ -270,7 +270,7 @@ func TestTimeoutLadderClassifiesEachLayer(t *testing.T) {
 		defer srv.Close()
 
 		res, err := NewClient(testConfig(srv.URL)).Run(context.Background(), Request{
-			ModelID: "m", Probe: ProbeInfer, Prompt: "q", MaxTokens: 150,
+			ModelID: "m", Probe: ProbeShort, Prompt: "q", MaxTokens: 150,
 		})
 		if err != nil {
 			t.Fatalf("Run: %v", err)
@@ -295,7 +295,7 @@ func TestTimeoutLadderClassifiesEachLayer(t *testing.T) {
 		defer srv.Close()
 
 		res, err := NewClient(testConfig(srv.URL)).Run(context.Background(), Request{
-			ModelID: "m", Probe: ProbeInfer, Prompt: "q", MaxTokens: 150,
+			ModelID: "m", Probe: ProbeShort, Prompt: "q", MaxTokens: 150,
 		})
 		if err != nil {
 			t.Fatalf("Run: %v", err)
@@ -333,7 +333,7 @@ func TestTimeoutLadderClassifiesEachLayer(t *testing.T) {
 		cfg.TTFTTimeout = 400 * time.Millisecond
 		cfg.IdleTimeout = 300 * time.Millisecond
 		res, err := NewClient(cfg).Run(context.Background(), Request{
-			ModelID: "m", Probe: ProbeInfer, Prompt: "q", MaxTokens: 150,
+			ModelID: "m", Probe: ProbeShort, Prompt: "q", MaxTokens: 150,
 		})
 		if err != nil {
 			t.Fatalf("Run: %v", err)
@@ -358,7 +358,7 @@ func TestFailedRunIsStillARecordedSample(t *testing.T) {
 	defer srv.Close()
 
 	res, err := NewClient(testConfig(srv.URL)).Run(context.Background(), Request{
-		ModelID: "mimo-v2.5", Probe: ProbeInfer, Prompt: "q", MaxTokens: 150,
+		ModelID: "mimo-v2.5", Probe: ProbeShort, Prompt: "q", MaxTokens: 150,
 	})
 	if err != nil {
 		t.Fatalf("Run must not return an error for a transport failure: %v", err)
@@ -369,7 +369,7 @@ func TestFailedRunIsStillARecordedSample(t *testing.T) {
 	if res.ErrorClass == "" {
 		t.Error("a failed sample must carry an error class")
 	}
-	if res.ModelID != "mimo-v2.5" || res.Probe != ProbeInfer {
+	if res.ModelID != "mimo-v2.5" || res.Probe != ProbeShort {
 		t.Error("a failed sample must still identify what was being probed")
 	}
 	if res.TotalMs <= 0 {
@@ -397,7 +397,7 @@ func TestHTTPStatusClassification(t *testing.T) {
 			defer srv.Close()
 
 			res, err := NewClient(testConfig(srv.URL)).Run(context.Background(), Request{
-				ModelID: "m", Probe: ProbeInfer, Prompt: "q", MaxTokens: 150,
+				ModelID: "m", Probe: ProbeShort, Prompt: "q", MaxTokens: 150,
 			})
 			if err != nil {
 				t.Fatalf("Run: %v", err)
@@ -428,7 +428,7 @@ func TestAuthFailureIsNotReportedAsAMimoOutage(t *testing.T) {
 	defer srv.Close()
 
 	res, _ := NewClient(testConfig(srv.URL)).Run(context.Background(), Request{
-		ModelID: "m", Probe: ProbeInfer, Prompt: "q", MaxTokens: 150,
+		ModelID: "m", Probe: ProbeShort, Prompt: "q", MaxTokens: 150,
 	})
 	if res.ErrorClass != ErrClassAuth {
 		t.Errorf("class = %q, want %q", res.ErrorClass, ErrClassAuth)
@@ -451,7 +451,7 @@ func TestAnswerAssertionDrivesTheCorrectnessCanary(t *testing.T) {
 
 		q := Question{ID: "capital-france", Ask: "What is the capital city of France?", Want: "Paris"}
 		res, err := NewClient(testConfig(srv.URL)).Run(context.Background(), Request{
-			ModelID: "m", Probe: ProbeInfer, Prompt: q.Prompt(), MaxTokens: 150,
+			ModelID: "m", Probe: ProbeShort, Prompt: q.Prompt(), MaxTokens: 150,
 			QuestionID: q.ID, Assert: q.Assert,
 		})
 		if err != nil {
@@ -491,7 +491,7 @@ func TestFailedRunHasNoAnswerVerdict(t *testing.T) {
 
 	q := Question{ID: "q", Ask: "a", Want: "Paris"}
 	res, _ := NewClient(testConfig(srv.URL)).Run(context.Background(), Request{
-		ModelID: "m", Probe: ProbeInfer, Prompt: q.Prompt(), MaxTokens: 150, Assert: q.Assert,
+		ModelID: "m", Probe: ProbeShort, Prompt: q.Prompt(), MaxTokens: 150, Assert: q.Assert,
 	})
 	if res.AnswerOK != nil {
 		t.Errorf("answer_ok = %v, must stay nil when the run never produced an answer", *res.AnswerOK)
@@ -506,7 +506,7 @@ func TestMalformedChunkIsAProtocolError(t *testing.T) {
 	defer srv.Close()
 
 	res, _ := NewClient(testConfig(srv.URL)).Run(context.Background(), Request{
-		ModelID: "m", Probe: ProbeInfer, Prompt: "q", MaxTokens: 150,
+		ModelID: "m", Probe: ProbeShort, Prompt: "q", MaxTokens: 150,
 	})
 	if res.ErrorClass != ErrClassProtocol {
 		t.Errorf("class = %q, want %q", res.ErrorClass, ErrClassProtocol)
@@ -525,7 +525,7 @@ func TestNonStreamBodyOnA200IsKept(t *testing.T) {
 	defer srv.Close()
 
 	res, _ := NewClient(testConfig(srv.URL)).Run(context.Background(), Request{
-		ModelID: "m", Probe: ProbeInfer, Prompt: "q", MaxTokens: 150,
+		ModelID: "m", Probe: ProbeShort, Prompt: "q", MaxTokens: 150,
 	})
 	if res.ErrorClass != ErrClassProtocol {
 		t.Errorf("class = %q, want %q", res.ErrorClass, ErrClassProtocol)
@@ -556,7 +556,7 @@ func TestKeptBodyIsBounded(t *testing.T) {
 			defer srv.Close()
 
 			res, _ := NewClient(testConfig(srv.URL)).Run(context.Background(), Request{
-				ModelID: "m", Probe: ProbeInfer, Prompt: "q", MaxTokens: 150,
+				ModelID: "m", Probe: ProbeShort, Prompt: "q", MaxTokens: 150,
 			})
 			if n := len(res.ErrorDetail); n > maxErrorBodyBytes+64 {
 				t.Errorf("detail is %d bytes, want it clipped near %d", n, maxErrorBodyBytes)
@@ -577,7 +577,7 @@ func TestErrorObjectInsideAStreamIsKept(t *testing.T) {
 	defer srv.Close()
 
 	res, _ := NewClient(testConfig(srv.URL)).Run(context.Background(), Request{
-		ModelID: "m", Probe: ProbeInfer, Prompt: "q", MaxTokens: 150,
+		ModelID: "m", Probe: ProbeShort, Prompt: "q", MaxTokens: 150,
 	})
 	if res.ErrorClass != ErrClassProtocol {
 		t.Errorf("class = %q, want %q", res.ErrorClass, ErrClassProtocol)
@@ -595,7 +595,7 @@ func TestHealthyStreamKeepsNoEvidence(t *testing.T) {
 	defer srv.Close()
 
 	res, _ := NewClient(testConfig(srv.URL)).Run(context.Background(), Request{
-		ModelID: "m", Probe: ProbeInfer, Prompt: "q", MaxTokens: 150,
+		ModelID: "m", Probe: ProbeShort, Prompt: "q", MaxTokens: 150,
 	})
 	if !res.OK || res.ErrorDetail != "" {
 		t.Errorf("ok = %v, detail = %q, want a clean run", res.OK, res.ErrorDetail)
@@ -613,7 +613,7 @@ func TestKeptBodyIsCutOnARuneBoundary(t *testing.T) {
 	defer srv.Close()
 
 	res, _ := NewClient(testConfig(srv.URL)).Run(context.Background(), Request{
-		ModelID: "m", Probe: ProbeInfer, Prompt: "q", MaxTokens: 150,
+		ModelID: "m", Probe: ProbeShort, Prompt: "q", MaxTokens: 150,
 	})
 	if !utf8.ValidString(res.ErrorDetail) {
 		t.Errorf("detail is not valid UTF-8: %q", res.ErrorDetail)
@@ -630,7 +630,7 @@ func TestEmptyBodyOnA200KeepsThePlainReason(t *testing.T) {
 	defer srv.Close()
 
 	res, _ := NewClient(testConfig(srv.URL)).Run(context.Background(), Request{
-		ModelID: "m", Probe: ProbeInfer, Prompt: "q", MaxTokens: 150,
+		ModelID: "m", Probe: ProbeShort, Prompt: "q", MaxTokens: 150,
 	})
 	if res.ErrorClass != ErrClassProtocol {
 		t.Errorf("class = %q, want %q", res.ErrorClass, ErrClassProtocol)
@@ -650,7 +650,7 @@ func TestTruncatedStreamIsNotSuccess(t *testing.T) {
 	defer srv.Close()
 
 	res, _ := NewClient(testConfig(srv.URL)).Run(context.Background(), Request{
-		ModelID: "m", Probe: ProbeInfer, Prompt: "q", MaxTokens: 150,
+		ModelID: "m", Probe: ProbeShort, Prompt: "q", MaxTokens: 150,
 	})
 	if res.OK {
 		t.Error("a stream that ended without [DONE] must not be recorded as success")
@@ -674,7 +674,7 @@ func TestCancellationIsNotAFault(t *testing.T) {
 	}()
 
 	res, err := NewClient(testConfig(srv.URL)).Run(ctx, Request{
-		ModelID: "m", Probe: ProbeInfer, Prompt: "q", MaxTokens: 150,
+		ModelID: "m", Probe: ProbeShort, Prompt: "q", MaxTokens: 150,
 	})
 	if err != nil {
 		t.Fatalf("Run: %v", err)

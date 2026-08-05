@@ -35,7 +35,7 @@ func TestPercentileSuppressionBoundary(t *testing.T) {
 		s := New(openTestDB(t))
 		seedCycles(t, s, "mimo-v2.5", now, 19, 900)
 
-		st, err := s.stats(context.Background(), "ttft_ms", "mimo-v2.5", probe.ProbeInfer, now.Add(-w.Duration))
+		st, err := s.stats(context.Background(), "ttft_ms", "mimo-v2.5", probe.ProbeShort, now.Add(-w.Duration))
 		if err != nil {
 			t.Fatalf("stats: %v", err)
 		}
@@ -54,7 +54,7 @@ func TestPercentileSuppressionBoundary(t *testing.T) {
 		s := New(openTestDB(t))
 		seedCycles(t, s, "mimo-v2.5", now, 20, 900)
 
-		st, err := s.stats(context.Background(), "ttft_ms", "mimo-v2.5", probe.ProbeInfer, now.Add(-w.Duration))
+		st, err := s.stats(context.Background(), "ttft_ms", "mimo-v2.5", probe.ProbeShort, now.Add(-w.Duration))
 		if err != nil {
 			t.Fatalf("stats: %v", err)
 		}
@@ -79,7 +79,7 @@ func TestFailedRunsAreExcludedFromPercentilesButCountedInAvailability(t *testing
 	if _, err := s.Save(ctx, Cycle{
 		StartedAt: now.Add(-30 * time.Second), Net: okNet(),
 		Infer: []probe.InferResult{{
-			ModelID: "mimo-v2.5", Probe: probe.ProbeInfer,
+			ModelID: "mimo-v2.5", Probe: probe.ProbeShort,
 			TotalMs: 240000, OK: false, ErrorClass: probe.ErrClassTimeout,
 		}},
 	}); err != nil {
@@ -87,7 +87,7 @@ func TestFailedRunsAreExcludedFromPercentilesButCountedInAvailability(t *testing
 	}
 
 	w, _ := LookupWindow("24h")
-	sum, err := s.Summarize(ctx, w, []string{"mimo-v2.5"}, probe.ProbeInfer, now)
+	sum, err := s.Summarize(ctx, w, []string{"mimo-v2.5"}, probe.ProbeShort, now)
 	if err != nil {
 		t.Fatalf("Summarize: %v", err)
 	}
@@ -131,7 +131,7 @@ func TestPercentilesAreNearestRank(t *testing.T) {
 	}
 
 	w, _ := LookupWindow("24h")
-	st, err := s.stats(ctx, "ttft_ms", "mimo-v2.5", probe.ProbeInfer, now.Add(-w.Duration))
+	st, err := s.stats(ctx, "ttft_ms", "mimo-v2.5", probe.ProbeShort, now.Add(-w.Duration))
 	if err != nil {
 		t.Fatalf("stats: %v", err)
 	}
@@ -198,11 +198,11 @@ func TestSeriesColumnAllowList(t *testing.T) {
 		"error_detail",
 		"",
 	} {
-		if _, err := s.Series(context.Background(), bad, "mimo-v2.5", probe.ProbeInfer, w, time.Now()); err == nil {
+		if _, err := s.Series(context.Background(), bad, "mimo-v2.5", probe.ProbeShort, w, time.Now()); err == nil {
 			t.Errorf("column %q must be rejected", bad)
 		}
 	}
-	if _, err := s.Series(context.Background(), "ttft_ms", "mimo-v2.5", probe.ProbeInfer, w, time.Now()); err != nil {
+	if _, err := s.Series(context.Background(), "ttft_ms", "mimo-v2.5", probe.ProbeShort, w, time.Now()); err != nil {
 		t.Errorf("a valid column must be accepted: %v", err)
 	}
 }
@@ -213,7 +213,7 @@ func TestSeriesBucketsByWindow(t *testing.T) {
 	seedCycles(t, s, "mimo-v2.5", now, 60, 900)
 
 	w, _ := LookupWindow("24h") // 15-minute buckets
-	pts, err := s.Series(context.Background(), "ttft_ms", "mimo-v2.5", probe.ProbeInfer, w, now)
+	pts, err := s.Series(context.Background(), "ttft_ms", "mimo-v2.5", probe.ProbeShort, w, now)
 	if err != nil {
 		t.Fatalf("Series: %v", err)
 	}
@@ -255,7 +255,7 @@ func TestProbeIsAlwaysAFilterNeverAnAggregation(t *testing.T) {
 	}
 
 	w, _ := LookupWindow("24h")
-	inferStats, err := s.stats(ctx, "ttft_ms", "mimo-v2.5", probe.ProbeInfer, now.Add(-w.Duration))
+	inferStats, err := s.stats(ctx, "ttft_ms", "mimo-v2.5", probe.ProbeShort, now.Add(-w.Duration))
 	if err != nil {
 		t.Fatalf("stats: %v", err)
 	}
@@ -273,7 +273,7 @@ func TestRecentSamplesClampsTheLimit(t *testing.T) {
 	now := time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC)
 	seedCycles(t, s, "mimo-v2.5", now, 30, 900)
 
-	rows, err := s.RecentSamples(context.Background(), "mimo-v2.5", probe.ProbeInfer, 999999)
+	rows, err := s.RecentSamples(context.Background(), "mimo-v2.5", probe.ProbeShort, 999999)
 	if err != nil {
 		t.Fatalf("RecentSamples: %v", err)
 	}
@@ -307,14 +307,14 @@ func TestRecentSamplesServesOutputTokens(t *testing.T) {
 	if _, err := s.Save(ctx, Cycle{
 		StartedAt: now.Add(-time.Minute), Net: okNet(),
 		Infer: []probe.InferResult{{
-			ModelID: "mimo-v2.5", Probe: probe.ProbeInfer,
+			ModelID: "mimo-v2.5", Probe: probe.ProbeShort,
 			OK: false, ErrorClass: probe.ErrClassHTTP,
 		}},
 	}); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
 
-	rows, err := s.RecentSamples(ctx, "mimo-v2.5", probe.ProbeInfer, 10)
+	rows, err := s.RecentSamples(ctx, "mimo-v2.5", probe.ProbeShort, 10)
 	if err != nil {
 		t.Fatalf("RecentSamples: %v", err)
 	}
@@ -342,7 +342,7 @@ func TestSampleTypeCannotCarryErrorDetail(t *testing.T) {
 	if _, err := s.Save(context.Background(), Cycle{
 		StartedAt: now.Add(-time.Minute), Net: okNet(),
 		Infer: []probe.InferResult{{
-			ModelID: "mimo-v2.5", Probe: probe.ProbeInfer, TotalMs: 100,
+			ModelID: "mimo-v2.5", Probe: probe.ProbeShort, TotalMs: 100,
 			OK: false, ErrorClass: probe.ErrClassHTTP,
 			ErrorDetail: "SECRET-PROVIDER-BODY-tp-key-fragment",
 		}},
@@ -350,7 +350,7 @@ func TestSampleTypeCannotCarryErrorDetail(t *testing.T) {
 		t.Fatalf("Save: %v", err)
 	}
 
-	rows, err := s.RecentSamples(context.Background(), "mimo-v2.5", probe.ProbeInfer, 10)
+	rows, err := s.RecentSamples(context.Background(), "mimo-v2.5", probe.ProbeShort, 10)
 	if err != nil {
 		t.Fatalf("RecentSamples: %v", err)
 	}
@@ -391,12 +391,12 @@ func TestSummarizeReportsFaultsAndSkips(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
-	if err := s.RecordSkip(ctx, now.Add(-90*time.Second), "mimo-v2.5-pro", probe.ProbeInfer); err != nil {
+	if err := s.RecordSkip(ctx, now.Add(-90*time.Second), "mimo-v2.5-pro", probe.ProbeShort); err != nil {
 		t.Fatalf("RecordSkip: %v", err)
 	}
 
 	w, _ := LookupWindow("24h")
-	sum, err := s.Summarize(ctx, w, []string{"mimo-v2.5"}, probe.ProbeInfer, now)
+	sum, err := s.Summarize(ctx, w, []string{"mimo-v2.5"}, probe.ProbeShort, now)
 	if err != nil {
 		t.Fatalf("Summarize: %v", err)
 	}
@@ -427,7 +427,7 @@ func TestCorrectnessIsSuppressedOnThinData(t *testing.T) {
 	seedCycles(t, s, "mimo-v2.5", now, 5, 900)
 
 	w, _ := LookupWindow("24h")
-	sum, err := s.Summarize(context.Background(), w, []string{"mimo-v2.5"}, probe.ProbeInfer, now)
+	sum, err := s.Summarize(context.Background(), w, []string{"mimo-v2.5"}, probe.ProbeShort, now)
 	if err != nil {
 		t.Fatalf("Summarize: %v", err)
 	}
@@ -458,7 +458,7 @@ func TestWindowBoundsAreRespected(t *testing.T) {
 	}
 
 	w, _ := LookupWindow("24h")
-	st, err := s.stats(ctx, "ttft_ms", "mimo-v2.5", probe.ProbeInfer, now.Add(-w.Duration))
+	st, err := s.stats(ctx, "ttft_ms", "mimo-v2.5", probe.ProbeShort, now.Add(-w.Duration))
 	if err != nil {
 		t.Fatalf("stats: %v", err)
 	}
@@ -495,7 +495,7 @@ func TestUplinkCyclesAreExcludedFromModelAvailability(t *testing.T) {
 			StartedAt: now.Add(-time.Duration(i+1) * time.Hour),
 			Net:       deadNet(),
 			Infer: []probe.InferResult{{
-				ModelID: "mimo-v2.5", Probe: probe.ProbeInfer,
+				ModelID: "mimo-v2.5", Probe: probe.ProbeShort,
 				OK: false, ErrorClass: probe.ErrClassConnectTimeout,
 			}},
 		}); err != nil {
@@ -504,7 +504,7 @@ func TestUplinkCyclesAreExcludedFromModelAvailability(t *testing.T) {
 	}
 
 	w, _ := LookupWindow("24h")
-	sum, err := s.Summarize(ctx, w, []string{"mimo-v2.5"}, probe.ProbeInfer, now)
+	sum, err := s.Summarize(ctx, w, []string{"mimo-v2.5"}, probe.ProbeShort, now)
 	if err != nil {
 		t.Fatalf("Summarize: %v", err)
 	}
@@ -538,7 +538,7 @@ func TestAWindowOfNothingButUplinkReportsNoAttempts(t *testing.T) {
 			StartedAt: now.Add(-time.Duration(i+1) * time.Minute),
 			Net:       deadNet(),
 			Infer: []probe.InferResult{{
-				ModelID: "mimo-v2.5", Probe: probe.ProbeInfer,
+				ModelID: "mimo-v2.5", Probe: probe.ProbeShort,
 				OK: false, ErrorClass: probe.ErrClassConnectTimeout,
 			}},
 		}); err != nil {
@@ -547,7 +547,7 @@ func TestAWindowOfNothingButUplinkReportsNoAttempts(t *testing.T) {
 	}
 
 	w, _ := LookupWindow("24h")
-	sum, err := s.Summarize(ctx, w, []string{"mimo-v2.5"}, probe.ProbeInfer, now)
+	sum, err := s.Summarize(ctx, w, []string{"mimo-v2.5"}, probe.ProbeShort, now)
 	if err != nil {
 		t.Fatalf("Summarize: %v", err)
 	}
@@ -579,7 +579,7 @@ func TestUplinkExclusionAppliesToMimoButNotTheReference(t *testing.T) {
 	}
 
 	w, _ := LookupWindow("24h")
-	sum, err := s.Summarize(ctx, w, []string{"mimo-v2.5"}, probe.ProbeInfer, now)
+	sum, err := s.Summarize(ctx, w, []string{"mimo-v2.5"}, probe.ProbeShort, now)
 	if err != nil {
 		t.Fatalf("Summarize: %v", err)
 	}
@@ -623,7 +623,7 @@ func TestSuccessfulRunsOnUplinkCyclesStillCount(t *testing.T) {
 	}
 
 	w, _ := LookupWindow("24h")
-	sum, err := s.Summarize(ctx, w, []string{"mimo-v2.5"}, probe.ProbeInfer, now)
+	sum, err := s.Summarize(ctx, w, []string{"mimo-v2.5"}, probe.ProbeShort, now)
 	if err != nil {
 		t.Fatalf("Summarize: %v", err)
 	}
@@ -667,7 +667,7 @@ func TestRouteCyclesAreExcludedLikeUplink(t *testing.T) {
 			StartedAt: now.Add(-time.Duration(i+1) * time.Hour),
 			Net:       deadNet(),
 			Infer: []probe.InferResult{{
-				ModelID: "mimo-v2.5", Probe: probe.ProbeInfer,
+				ModelID: "mimo-v2.5", Probe: probe.ProbeShort,
 				OK: false, ErrorClass: probe.ErrClassConnectTimeout,
 			}},
 		})
@@ -683,7 +683,7 @@ func TestRouteCyclesAreExcludedLikeUplink(t *testing.T) {
 	}
 
 	w, _ := LookupWindow("24h")
-	sum, err := s.Summarize(ctx, w, []string{"mimo-v2.5"}, probe.ProbeInfer, now)
+	sum, err := s.Summarize(ctx, w, []string{"mimo-v2.5"}, probe.ProbeShort, now)
 	if err != nil {
 		t.Fatalf("Summarize: %v", err)
 	}
@@ -696,7 +696,7 @@ func TestRouteCyclesAreExcludedLikeUplink(t *testing.T) {
 // failedInfer is a run that reached MiMo and was cut off by our own ladder.
 func failedInfer(model, class string, totalMs float64) probe.InferResult {
 	return probe.InferResult{
-		ModelID: model, Probe: probe.ProbeInfer,
+		ModelID: model, Probe: probe.ProbeShort,
 		TotalMs: totalMs, OK: false, ErrorClass: class,
 	}
 }
@@ -728,7 +728,7 @@ func TestCensoredRunsAreCountedSoTheTruncatedTailIsVisible(t *testing.T) {
 	}
 
 	w, _ := LookupWindow("24h")
-	sum, err := s.Summarize(ctx, w, []string{"mimo-v2.5"}, probe.ProbeInfer, now)
+	sum, err := s.Summarize(ctx, w, []string{"mimo-v2.5"}, probe.ProbeShort, now)
 	if err != nil {
 		t.Fatalf("Summarize: %v", err)
 	}
@@ -768,7 +768,7 @@ func TestCensoredCountExcludesUnattributableCycles(t *testing.T) {
 	}
 
 	w, _ := LookupWindow("24h")
-	sum, err := s.Summarize(ctx, w, []string{"mimo-v2.5"}, probe.ProbeInfer, now)
+	sum, err := s.Summarize(ctx, w, []string{"mimo-v2.5"}, probe.ProbeShort, now)
 	if err != nil {
 		t.Fatalf("Summarize: %v", err)
 	}
@@ -797,7 +797,7 @@ func TestABucketOfNothingButCensoredRunsStillExists(t *testing.T) {
 	}
 
 	w, _ := LookupWindow("24h")
-	pts, err := s.Series(ctx, "ttft_ms", "mimo-v2.5", probe.ProbeInfer, w, now)
+	pts, err := s.Series(ctx, "ttft_ms", "mimo-v2.5", probe.ProbeShort, w, now)
 	if err != nil {
 		t.Fatalf("Series: %v", err)
 	}
@@ -832,7 +832,7 @@ func TestAPartlyCensoredBucketCarriesBothItsValueAndItsCount(t *testing.T) {
 	}
 
 	w, _ := LookupWindow("24h")
-	pts, err := s.Series(ctx, "ttft_ms", "mimo-v2.5", probe.ProbeInfer, w, now)
+	pts, err := s.Series(ctx, "ttft_ms", "mimo-v2.5", probe.ProbeShort, w, now)
 	if err != nil {
 		t.Fatalf("Series: %v", err)
 	}
@@ -872,11 +872,11 @@ func TestTheChartBandAndTheSummaryCountAgreeOnUnattributableCycles(t *testing.T)
 	}
 
 	w, _ := LookupWindow("24h")
-	sum, err := s.Summarize(ctx, w, []string{"mimo-v2.5"}, probe.ProbeInfer, now)
+	sum, err := s.Summarize(ctx, w, []string{"mimo-v2.5"}, probe.ProbeShort, now)
 	if err != nil {
 		t.Fatalf("Summarize: %v", err)
 	}
-	pts, err := s.Series(ctx, "ttft_ms", "mimo-v2.5", probe.ProbeInfer, w, now)
+	pts, err := s.Series(ctx, "ttft_ms", "mimo-v2.5", probe.ProbeShort, w, now)
 	if err != nil {
 		t.Fatalf("Series: %v", err)
 	}
@@ -896,7 +896,7 @@ func TestRecentPulseMatchesRecentSamplesOrderAndClamp(t *testing.T) {
 	now := time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC)
 	seedCycles(t, s, "mimo-v2.5", now, 30, 900)
 
-	rows, err := s.RecentPulse(context.Background(), "mimo-v2.5", probe.ProbeInfer, 999999)
+	rows, err := s.RecentPulse(context.Background(), "mimo-v2.5", probe.ProbeShort, 999999)
 	if err != nil {
 		t.Fatalf("RecentPulse: %v", err)
 	}
@@ -914,7 +914,7 @@ func TestRecentPulseMatchesRecentSamplesOrderAndClamp(t *testing.T) {
 		}
 	}
 
-	full, err := s.RecentSamples(context.Background(), "mimo-v2.5", probe.ProbeInfer, 999999)
+	full, err := s.RecentSamples(context.Background(), "mimo-v2.5", probe.ProbeShort, 999999)
 	if err != nil {
 		t.Fatalf("RecentSamples: %v", err)
 	}
@@ -972,7 +972,7 @@ func TestRecentCyclesAreNewestFirstAndCapped(t *testing.T) {
 	now := time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC)
 	seedCycles(t, s, "mimo-v2.5", now, RecentCycleCount+14, 900)
 
-	got, err := s.RecentCycles(context.Background(), probe.ProbeInfer)
+	got, err := s.RecentCycles(context.Background(), probe.ProbeShort)
 	if err != nil {
 		t.Fatalf("RecentCycles: %v", err)
 	}
@@ -1002,7 +1002,7 @@ func TestRecentCyclesCarryTheStoredFault(t *testing.T) {
 		}
 	}
 
-	got, err := s.RecentCycles(ctx, probe.ProbeInfer)
+	got, err := s.RecentCycles(ctx, probe.ProbeShort)
 	if err != nil {
 		t.Fatalf("RecentCycles: %v", err)
 	}
@@ -1026,7 +1026,7 @@ func TestRecentCyclesIgnoreEveryWindow(t *testing.T) {
 	// Older than the longest window this dashboard offers.
 	seedCycles(t, s, "mimo-v2.5", now.Add(-100*24*time.Hour), 3, 900)
 
-	got, err := s.RecentCycles(context.Background(), probe.ProbeInfer)
+	got, err := s.RecentCycles(context.Background(), probe.ProbeShort)
 	if err != nil {
 		t.Fatalf("RecentCycles: %v", err)
 	}
@@ -1052,7 +1052,7 @@ func TestRecentCyclesCarryEachModelsOutcome(t *testing.T) {
 		t.Fatalf("Save: %v", err)
 	}
 
-	got, err := s.RecentCycles(ctx, probe.ProbeInfer)
+	got, err := s.RecentCycles(ctx, probe.ProbeShort)
 	if err != nil {
 		t.Fatalf("RecentCycles: %v", err)
 	}
@@ -1082,7 +1082,7 @@ func TestRecentCyclesKeepACycleWithNoRuns(t *testing.T) {
 		t.Fatalf("Save: %v", err)
 	}
 
-	got, err := s.RecentCycles(ctx, probe.ProbeInfer)
+	got, err := s.RecentCycles(ctx, probe.ProbeShort)
 	if err != nil {
 		t.Fatalf("RecentCycles: %v", err)
 	}
@@ -1105,7 +1105,7 @@ func TestSummarizeCarriesTheRecentBlock(t *testing.T) {
 	seedCycles(t, s, "mimo-v2.5", now, 4, 900)
 
 	w, _ := LookupWindow("24h")
-	sum, err := s.Summarize(context.Background(), w, []string{"mimo-v2.5"}, probe.ProbeInfer, now)
+	sum, err := s.Summarize(context.Background(), w, []string{"mimo-v2.5"}, probe.ProbeShort, now)
 	if err != nil {
 		t.Fatalf("Summarize: %v", err)
 	}
@@ -1136,7 +1136,7 @@ func TestRecentCyclesAreScopedToTheProbe(t *testing.T) {
 		probeKind string
 		wantOK    bool
 	}{
-		{probe.ProbeInfer, false},
+		{probe.ProbeShort, false},
 		{probe.ProbeWide, true},
 	} {
 		got, err := s.RecentCycles(ctx, tc.probeKind)

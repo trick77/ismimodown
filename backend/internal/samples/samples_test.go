@@ -34,7 +34,7 @@ func okNet() []probe.NetResult {
 func okInfer(model string, ttft float64) probe.InferResult {
 	yes := true
 	return probe.InferResult{
-		ModelID: model, Probe: probe.ProbeInfer,
+		ModelID: model, Probe: probe.ProbeShort,
 		TTFTMs: ttft, TTFATMs: ttft, TotalMs: ttft + 800,
 		ITLP50Ms: 24, ITLP95Ms: 30, OutputTPS: 41,
 		Usage: probe.TokenUsage{
@@ -133,7 +133,7 @@ func TestFailedRunStoresNullTimingsNotZeros(t *testing.T) {
 	id, err := s.Save(context.Background(), Cycle{
 		StartedAt: time.Now(), Net: okNet(),
 		Infer: []probe.InferResult{{
-			ModelID: "mimo-v2.5", Probe: probe.ProbeInfer,
+			ModelID: "mimo-v2.5", Probe: probe.ProbeShort,
 			TotalMs: 240000, OK: false, ErrorClass: probe.ErrClassTimeout,
 			ErrorDetail: "context deadline exceeded",
 		}},
@@ -192,7 +192,7 @@ func TestTimeoutDoesNotPoisonThePercentile(t *testing.T) {
 	if _, err := s.Save(ctx, Cycle{
 		StartedAt: time.Now().Add(10 * time.Minute), Net: okNet(),
 		Infer: []probe.InferResult{{
-			ModelID: "mimo-v2.5", Probe: probe.ProbeInfer,
+			ModelID: "mimo-v2.5", Probe: probe.ProbeShort,
 			TotalMs: 240000, OK: false, ErrorClass: probe.ErrClassTimeout,
 		}},
 	}); err != nil {
@@ -305,7 +305,7 @@ func TestRecordSkip(t *testing.T) {
 	db := openTestDB(t)
 	s := New(db)
 
-	if err := s.RecordSkip(context.Background(), time.Now(), "mimo-v2.5-pro", probe.ProbeInfer); err != nil {
+	if err := s.RecordSkip(context.Background(), time.Now(), "mimo-v2.5-pro", probe.ProbeShort); err != nil {
 		t.Fatalf("RecordSkip: %v", err)
 	}
 
@@ -341,7 +341,7 @@ func TestSweepDeletesOnlyBeyondTheWindow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Save new: %v", err)
 	}
-	if err := s.RecordSkip(ctx, now.Add(-100*24*time.Hour), "m", probe.ProbeInfer); err != nil {
+	if err := s.RecordSkip(ctx, now.Add(-100*24*time.Hour), "m", probe.ProbeShort); err != nil {
 		t.Fatalf("RecordSkip: %v", err)
 	}
 

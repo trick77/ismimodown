@@ -48,7 +48,7 @@ const MinInterval = time.Minute
 
 // WideInterval is how often the wide probe runs FOR ONE MODEL. Landing it ON a
 // cycle rather than on its own timer is deliberate — it gets its own network
-// reading, so its TTFT is decomposable exactly like infer's.
+// reading, so its TTFT is decomposable exactly like the short probe's.
 //
 // Across models the runs are staggered rather than simultaneous: see wideModel.
 // Each model still sees a full WideInterval between its own wide runs, so the
@@ -74,7 +74,7 @@ const WideSlack = CycleInterval / 2
 // MaxRecordedMisses bounds how many dropped slots ONE overrun may claim.
 //
 // A cycle's length is bounded by the probe ladder: a wide cycle costs at most
-// infer+wide per model with the models concurrent, which is minutes, not hours.
+// short+wide per model with the models concurrent, which is minutes, not hours.
 // A catch-up longer than that is not an overrun at all — it is the wall clock
 // moving, from an NTP step, a suspended host or a restored VM snapshot. Left
 // uncapped, a three-hour jump would insert one skipped_runs row per model per
@@ -228,7 +228,7 @@ func (s *Scheduler) Run(ctx context.Context) {
 // cycles run one at a time, so a run is never still in flight when the next one
 // starts. The counter was structurally incapable of being non-zero.
 //
-// Recorded per MODEL and against `infer`: every cycle runs the short probe for
+// Recorded per MODEL and against `short`: every cycle runs the short probe for
 // every model, so those runs really were lost. `wide` is conditional and is not
 // claimed — a slot that would not have carried it did not lose it.
 //
@@ -260,7 +260,7 @@ func (s *Scheduler) recordMissedTicks(ctx context.Context, missed []time.Time) {
 
 	for _, tick := range missed {
 		for _, model := range s.deps.Models {
-			if err := s.deps.Store.RecordSkip(ctx, tick, model, probe.ProbeInfer); err != nil {
+			if err := s.deps.Store.RecordSkip(ctx, tick, model, probe.ProbeShort); err != nil {
 				// Shutdown cancels the context mid-write; that is not a fault,
 				// and the rest of the batch has nowhere to go either.
 				if errors.Is(err, context.Canceled) {
@@ -358,7 +358,7 @@ func (s *Scheduler) nextDelay() (time.Duration, []time.Time) {
 // one because the two runs are aimed at different models. Staggering removes it
 // without costing a single sample: the per-model cadence, the run count and the
 // bill are unchanged, and the wide CYCLES get cheaper, because one now carries
-// infer+wide for one model instead of for every model.
+// short+wide for one model instead of for every model.
 func (s *Scheduler) WideSlot() time.Duration {
 	if n := len(s.deps.Models); n > 1 {
 		return WideInterval / time.Duration(n)
@@ -518,7 +518,7 @@ func (s *Scheduler) RunCycle(ctx context.Context) {
 	// stamp — including minutes after the ping its residual is subtracted
 	// against. Same JOIN, same cycle_id, much less staleness inside it.
 	//
-	// Within one model, infer and wide stay strictly sequential. Two runs at once
+	// Within one model, short and wide stay strictly sequential. Two runs at once
 	// against the same model contend for the same upstream node and each measures
 	// the other's queueing, which is the exact confound this probe exists to
 	// avoid — and it is why the in-flight guard is keyed by model+probe rather
@@ -537,9 +537,9 @@ func (s *Scheduler) RunCycle(ctx context.Context) {
 	// alternative — serialising the models — is the multi-minute sampling
 	// collapse this change exists to remove.
 	//
-	// A wide cycle costs infer+wide for the ONE model carrying wide and infer
+	// A wide cycle costs short+wide for the ONE model carrying wide and short
 	// alone for the rest, so it is bounded by the slower of those two rather than
-	// by infer+wide across the board. It can still run through its slot at the
+	// by short+wide across the board. It can still run through its slot at the
 	// per-model latencies that motivated this; recordMissedTicks makes that
 	// visible rather than silent, which is the honest outcome, and serialising
 	// less than this would cost the isolation above.
@@ -553,7 +553,7 @@ func (s *Scheduler) RunCycle(ctx context.Context) {
 			defer wg.Done()
 
 			var got []probe.InferResult
-			if res, ok := s.runProbe(ctx, model, probe.ProbeInfer, n, started); ok {
+			if res, ok := s.runProbe(ctx, model, probe.ProbeShort, n, started); ok {
 				got = append(got, res)
 			}
 			if model == wideFor {
@@ -639,7 +639,7 @@ func (s *Scheduler) runProbe(
 	} else {
 		q := probe.Pick(n)
 		req.Prompt = q.Prompt()
-		req.MaxTokens = probe.InferMaxTokens
+		req.MaxTokens = probe.ShortMaxTokens
 		req.QuestionID = q.ID
 		req.Assert = q.Assert
 	}
@@ -675,7 +675,7 @@ func (s *Scheduler) runProbe(
 }
 
 // maxLoggedContent bounds the reply quoted into the log. The short probe caps
-// output at InferMaxTokens, so a healthy reply is already well under this; the
+// output at ShortMaxTokens, so a healthy reply is already well under this; the
 // bound is for the reply that is not healthy, which is the whole reason the
 // line exists.
 const maxLoggedContent = 300

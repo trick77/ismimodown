@@ -31,15 +31,15 @@ const wideNonceLen = 8
 
 // WideMaxTokens caps the wide response. 300 output tokens is ~7 s of
 // generation, long enough to watch throughput degrade mid-stream under KV-cache
-// pressure. At infer's ~70 tokens (~1.5 s) only the opening moments of decode
-// are ever observed.
+// pressure. At the short probe's ~70 tokens (~1.5 s) only the opening moments
+// of decode are ever observed.
 const WideMaxTokens = 300
 
-// InferMaxTokens caps the infer response at roughly double the 2-3 sentences
+// ShortMaxTokens caps the short response at roughly double the 2-3 sentences
 // asked for, so a slightly wordy answer completes naturally rather than being
-// truncated — a finish_reason of "length" on infer would mean the ITL series
+// truncated — a finish_reason of "length" on short would mean the ITL series
 // silently stopped describing a whole response.
-const InferMaxTokens = 150
+const ShortMaxTokens = 150
 
 // WidePrompt builds the wide user message: a random nonce, then the fixed
 // framing, then the document.

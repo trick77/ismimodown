@@ -180,7 +180,7 @@ func TestWrongAnswerLogsTheReply(t *testing.T) {
 	s, _ := newTestScheduler(t, prober, &fakePinger{})
 	buf := captureLogs(t)
 
-	if _, ok := s.runProbe(context.Background(), "mimo-v2.5", probe.ProbeInfer, 7, time.Now()); !ok {
+	if _, ok := s.runProbe(context.Background(), "mimo-v2.5", probe.ProbeShort, 7, time.Now()); !ok {
 		t.Fatal("runProbe reported the run as skipped")
 	}
 
@@ -206,7 +206,7 @@ func TestLoggedReplyIsBounded(t *testing.T) {
 	s, _ := newTestScheduler(t, prober, &fakePinger{})
 	buf := captureLogs(t)
 
-	s.runProbe(context.Background(), "mimo-v2.5", probe.ProbeInfer, 1, time.Now())
+	s.runProbe(context.Background(), "mimo-v2.5", probe.ProbeShort, 1, time.Now())
 
 	if n := buf.Len(); n > maxLoggedContent+512 {
 		t.Errorf("log line is %d bytes, want the reply clipped near %d", n, maxLoggedContent)
@@ -235,7 +235,7 @@ func TestOnlyWrongAnswersAreLogged(t *testing.T) {
 			s, _ := newTestScheduler(t, &gradingProber{res: tc.res}, &fakePinger{})
 			buf := captureLogs(t)
 
-			s.runProbe(context.Background(), "mimo-v2.5", probe.ProbeInfer, 1, time.Now())
+			s.runProbe(context.Background(), "mimo-v2.5", probe.ProbeShort, 1, time.Now())
 
 			if strings.Contains(buf.String(), "answer graded wrong") {
 				t.Errorf("logged a wrong answer for a %s: %s", tc.name, buf.String())
@@ -298,7 +298,7 @@ func TestWideRunsHourlyPerModelStaggeredAcrossThem(t *testing.T) {
 
 	inferCount := 0
 	for _, r := range prober.requests() {
-		if r.Probe == probe.ProbeInfer {
+		if r.Probe == probe.ProbeShort {
 			inferCount++
 		}
 	}
@@ -471,10 +471,10 @@ func TestWideAndInferRequestsDifferAsTheMeasurementRequires(t *testing.T) {
 	var sawInfer, sawWide bool
 	for _, r := range prober.requests() {
 		switch r.Probe {
-		case probe.ProbeInfer:
+		case probe.ProbeShort:
 			sawInfer = true
-			if r.MaxTokens != probe.InferMaxTokens {
-				t.Errorf("infer cap = %d, want %d", r.MaxTokens, probe.InferMaxTokens)
+			if r.MaxTokens != probe.ShortMaxTokens {
+				t.Errorf("infer cap = %d, want %d", r.MaxTokens, probe.ShortMaxTokens)
 			}
 			if r.QuestionID == "" {
 				t.Error("infer must carry a question id; it is the correctness canary")
@@ -511,7 +511,7 @@ func TestQuestionRotatesBetweenCycles(t *testing.T) {
 
 	seen := map[string]bool{}
 	for _, r := range prober.requests() {
-		if r.Probe == probe.ProbeInfer {
+		if r.Probe == probe.ProbeShort {
 			seen[r.QuestionID] = true
 		}
 	}
@@ -530,7 +530,7 @@ func TestBothModelsGetTheSameQuestionInACycle(t *testing.T) {
 
 	var ids []string
 	for _, r := range prober.requests() {
-		if r.Probe == probe.ProbeInfer {
+		if r.Probe == probe.ProbeShort {
 			ids = append(ids, r.QuestionID)
 		}
 	}
@@ -599,23 +599,23 @@ func TestOverrunSkipsAndCountsExactlyOnce(t *testing.T) {
 func TestOverrunGuardIsPerModelAndProbe(t *testing.T) {
 	s, _ := newTestScheduler(t, &fakeProber{}, &fakePinger{})
 
-	if !s.acquire("mimo-v2.5/infer") {
+	if !s.acquire("mimo-v2.5/short") {
 		t.Fatal("first acquire must succeed")
 	}
-	if s.acquire("mimo-v2.5/infer") {
+	if s.acquire("mimo-v2.5/short") {
 		t.Error("the same key must not be acquirable twice")
 	}
 	// A different model, and a different probe on the same model, must both be
 	// unaffected.
-	if !s.acquire("mimo-v2.5-pro/infer") {
+	if !s.acquire("mimo-v2.5-pro/short") {
 		t.Error("a different model must not be blocked by another model's run")
 	}
 	if !s.acquire("mimo-v2.5/wide") {
-		t.Error("a different probe kind must not be blocked by infer")
+		t.Error("a different probe kind must not be blocked by short")
 	}
 
-	s.release("mimo-v2.5/infer")
-	if !s.acquire("mimo-v2.5/infer") {
+	s.release("mimo-v2.5/short")
+	if !s.acquire("mimo-v2.5/short") {
 		t.Error("release must free the key")
 	}
 }

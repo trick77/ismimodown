@@ -24,9 +24,15 @@ import { buildCostOption } from "./charts/options";
 const MIN_RUNS = 10;
 
 // How often each probe kind runs, said once beside its per-run price. The NAMES
-// live in format.ts — the words the rest of the page uses, because "infer" is
-// the API's term and never the reader's.
+// live in format.ts; these are the cadences, which no response carries.
+//
+// Keyed on the wire value, which migration 0003 changed from `infer` to
+// `short`. The migration rewrote every row, so nothing should key on the old
+// name — but a miss here fails silently, dropping the cadence and leaving a
+// per-run price with nothing to scale it, so the dead key stays rather than
+// trusting that.
 const PROBE_HINTS: Record<string, string> = {
+  short: "every 5 min",
   infer: "every 5 min",
   wide: "hourly",
 };

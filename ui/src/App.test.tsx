@@ -21,7 +21,7 @@ const summary = (over: Record<string, unknown> = {}) => ({
   models: [
     {
       model_id: "mimo-v2.5",
-      probe: "infer",
+      probe: "short",
       ttft: { n: 288, sufficient: true, p50_ms: 916, p95_ms: 1400 },
       itl: { n: 288, sufficient: true, p50_ms: 24, p95_ms: 40 },
       tps: { n: 288, sufficient: true, p50_ms: 41, p95_ms: 60 },
@@ -55,7 +55,7 @@ const emptySeries = {
   window: "24h",
   bucket_s: 900,
   metric: "ttft",
-  probe: "infer",
+  probe: "short",
   models: {},
 };
 const emptyNet = {
@@ -89,7 +89,7 @@ const cost = () => ({
   ],
   probes: [
     {
-      probe: "infer",
+      probe: "short",
       runs: 576,
       tokens: { prompt: 40320, cached: 0, output: 40320 },
       usd: 0.0908,
@@ -121,7 +121,7 @@ function mockFetch(overrides: Record<string, unknown> = {}) {
           ? emptySeries
           : url.includes("/api/samples")
             ? // Echoed back off the query, because the page now asks twice —
-              // once per probe — and a mock that answered "infer" to both would
+              // once per probe — and a mock that answered "short" to both would
               // hide a merge that dropped one of them.
               {
                 model_id: "mimo-v2.5",
@@ -134,7 +134,7 @@ function mockFetch(overrides: Record<string, unknown> = {}) {
             : url.includes("/api/pulse")
               ? (overrides.pulse ?? {
                   model_id: "mimo-v2.5",
-                  probe: "infer",
+                  probe: "short",
                   cycles: [],
                 })
               : url.includes("/api/cost")
@@ -194,7 +194,7 @@ describe("App", () => {
     expect(await screen.findByText("The whole wait")).toBeInTheDocument();
     expect(
       fetchMock.mock.calls.some((c) =>
-        String(c[0]).includes("metric=total&window=24h&probe=infer"),
+        String(c[0]).includes("metric=total&window=24h&probe=short"),
       ),
     ).toBe(true);
   });
@@ -218,7 +218,7 @@ describe("App", () => {
     });
     const fetchMock = mockFetch({
       samples: {
-        infer: [row({ probe: "infer" })],
+        short: [row({ probe: "short" })],
         // Ungraded, as every wide run is, and sharing the short run's cycle.
         wide: [row({ probe: "wide", answer_ok: null, ttft_ms: 4200 })],
       },
@@ -232,7 +232,7 @@ describe("App", () => {
       .map((c) => String(c[0]))
       .filter((u) => u.includes("/api/samples"))
       .map(probeOf);
-    expect(new Set(asked)).toEqual(new Set(["infer", "wide"]));
+    expect(new Set(asked)).toEqual(new Set(["short", "wide"]));
   });
 
   // The residual must never be called model time anywhere on the page.
@@ -495,7 +495,7 @@ describe("the pulse strip", () => {
 
   const cycle = (model: string, over: Record<string, unknown> = {}) => ({
     model_id: model,
-    probe: "infer",
+    probe: "short",
     cycles: [
       {
         at: "2026-08-04T11:55:00Z",
@@ -532,7 +532,7 @@ describe("the pulse strip", () => {
               : url.includes("/api/series")
                 ? emptySeries
                 : url.includes("/api/samples")
-                  ? { model_id: "mimo-v2.5", probe: "infer", samples: [] }
+                  ? { model_id: "mimo-v2.5", probe: "short", samples: [] }
                   : {};
         return new Response(JSON.stringify(body), {
           status: 200,

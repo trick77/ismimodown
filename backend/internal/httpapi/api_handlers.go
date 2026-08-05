@@ -67,7 +67,7 @@ func (s *server) handleModels(w http.ResponseWriter, r *http.Request) {
 			Probes  []string `json:"probes"`
 			Windows []string `json:"windows"`
 		}{
-			Probes: []string{probe.ProbeInfer, probe.ProbeWide},
+			Probes: []string{probe.ProbeShort, probe.ProbeWide},
 		}
 		for _, id := range s.deps.Models {
 			out.Models = append(out.Models, model{ID: id, Note: notes[id]})
@@ -302,14 +302,29 @@ func (s *server) window(w http.ResponseWriter, r *http.Request) (samples.Window,
 func (s *server) probeKind(w http.ResponseWriter, r *http.Request) (string, bool) {
 	kind := r.URL.Query().Get("probe")
 	if kind == "" {
-		kind = probe.ProbeInfer
+		kind = probe.ProbeShort
 	}
-	if kind != probe.ProbeInfer && kind != probe.ProbeWide {
+	// `infer` was this probe's name until 0003, and it is accepted for one
+	// reason: the page and the daemon ship in the same binary, so the moment it
+	// rolls, every browser still holding the previous bundle keeps asking for
+	// the old name until someone reloads. Rejecting those would blank the whole
+	// dashboard on an error banner for a rename nobody asked to see.
+	//
+	// Translated, not listed: no response ever names it, and nothing downstream
+	// of here knows it exists. It can go once no cached bundle can still be
+	// asking — this is a grace period, not a second spelling.
+	if kind == legacyProbeInfer {
+		kind = probe.ProbeShort
+	}
+	if kind != probe.ProbeShort && kind != probe.ProbeWide {
 		writeJSONError(w, http.StatusBadRequest, "unknown probe")
 		return "", false
 	}
 	return kind, true
 }
+
+// legacyProbeInfer is the pre-0003 name of the short probe. See probeKind.
+const legacyProbeInfer = "infer"
 
 func (s *server) knownModel(id string) bool {
 	for _, m := range s.deps.Models {

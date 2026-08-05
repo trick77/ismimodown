@@ -28,7 +28,7 @@ const series = (points: Point[]): ModelSeries => ({
   window: "24h",
   bucket_s: 900,
   metric: "ttft",
-  probe: "infer",
+  probe: "short",
   models: { "mimo-v2.5": points },
 });
 

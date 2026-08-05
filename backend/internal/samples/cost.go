@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/trick77/mimostats/internal/config"
+	"github.com/trick77/mimostats/internal/probe"
 )
 
 // What this dashboard's own probing costs, priced from the usage MiMo reported
@@ -369,7 +370,10 @@ func (s *Store) Cost(ctx context.Context, w Window, prices map[string]config.Mod
 			out.Phases = append(out.Phases, PhaseCost{Phase: phase, CostGroup: finish(*g, anyPrice)})
 		}
 	}
-	for _, kind := range []string{"infer", "wide"} {
+	// The constants, not literals: this list is what fixes the order the panel
+	// names the probes in, and a string here that no row carries drops a whole
+	// probe from the cost card silently.
+	for _, kind := range []string{probe.ProbeShort, probe.ProbeWide} {
 		if g, ok := byProbe[kind]; ok {
 			out.Probes = append(out.Probes, ProbeCost{Probe: kind, CostGroup: finish(*g, anyPrice)})
 		}
