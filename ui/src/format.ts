@@ -183,22 +183,3 @@ export function formatUSDPrecise(usd: number | null | undefined): string {
   const decimals = Math.min(6, Math.max(2, 2 - magnitude));
   return `$${usd.toFixed(decimals)}`;
 }
-
-// probeName is what a probe kind is CALLED on the page.
-//
-// The wire agrees now — migration 0003 renamed the value, so `short` arrives
-// already spelled the way it is shown, and for both current kinds this is a
-// passthrough. It stays for the two cases where it is not:
-//
-// `infer` is the pre-0003 name. Nothing should still send it: the migration
-// rewrote every row, and the API translates the parameter before answering. But
-// the cost card reads a probe kind straight out of a response, and a card that
-// would print a raw `infer` at a reader is a worse outcome than one line of map.
-//
-// An unrecognised kind comes back verbatim rather than blank: a probe the UI
-// does not know about is exactly the thing an operator needs to see.
-const PROBE_NAMES: Record<string, string> = { infer: "short" };
-
-export function probeName(probe: string): string {
-  return PROBE_NAMES[probe] ?? probe;
-}
