@@ -42,11 +42,13 @@ const CYCLE_MS = 5 * 60 * 1000;
 // goroutine and one of the broker's per-caller stream slots, and costs the
 // crawler 21s of its render budget for a stream that says nothing.
 //
-// Waiting past the render window means a crawler never opens it. A real reader
-// loses nothing worth naming: the initial load has already run, the interval
-// above covers the cadence regardless, and no cycle can land in this window
-// often enough to matter. It is deliberately well past the 21.5s observed —
-// that is one measurement of an undocumented budget, not a constant.
+// Waiting past the render window means a crawler never opens it. The cost to a
+// real reader is bounded by this constant and no more: the initial load has
+// already run, and a cycle that lands inside the wait is picked up by the
+// refetch below the moment the stream opens. It is deliberately well past the
+// 21.5s observed — that is one measurement of an undocumented budget, not a
+// constant.
+//
 // Exported for the tests: they run on fake timers and have to step over this
 // deliberately, which is also what keeps the delay from being quietly deleted.
 export const STREAM_OPEN_DELAY_MS = 45 * 1000;
@@ -179,6 +181,13 @@ export default function App() {
       // Deliberately before the first open, not between reconnects: the point
       // is that a page which is never around for long enough never subscribes.
       await new Promise((r) => setTimeout(r, STREAM_OPEN_DELAY_MS));
+
+      // The broker replays nothing — a subscriber sees only what is published
+      // after it subscribed — so a cycle that completed during the wait would
+      // otherwise sit unseen until the interval's next tick, minutes later. On
+      // the page that answers "is it down right now", that is the wrong minutes
+      // to be blind for. One refetch on open closes it.
+      void load(windowRef.current);
 
       let backoffMs = 1000;
       while (!controller.signal.aborted) {

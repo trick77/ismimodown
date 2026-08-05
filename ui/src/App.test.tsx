@@ -519,11 +519,33 @@ describe("App", () => {
           ).length,
         ).toBeGreaterThan(0),
       );
-      await vi.advanceTimersByTimeAsync(STREAM_OPEN_DELAY_MS - 1000);
+      // Ten seconds of slack, not one: `shouldAdvanceTime` means the waitFor
+      // above burns fake clock at real-time rate, and a loaded runner would eat
+      // a one-second margin.
+      await vi.advanceTimersByTimeAsync(STREAM_OPEN_DELAY_MS - 10000);
       expect(opens()).toBe(0);
 
-      await vi.advanceTimersByTimeAsync(1000);
+      await vi.advanceTimersByTimeAsync(10000);
       await waitFor(() => expect(opens()).toBe(1));
+    });
+
+    // The broker replays nothing, so a cycle that completed during the wait is
+    // never pushed. Without a refetch on open the page sits on it until the
+    // interval's next tick — minutes, on the page that answers "right now".
+    it("refetches when the stream finally opens, not just when it delivers", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      const fetchMock = mockFetch();
+      vi.stubGlobal("fetch", fetchMock);
+      render(<App />);
+
+      const loads = () =>
+        fetchMock.mock.calls.filter((c) =>
+          String(c[0]).includes("/api/dashboard"),
+        ).length;
+
+      await waitFor(() => expect(loads()).toBe(1));
+      await vi.advanceTimersByTimeAsync(STREAM_OPEN_DELAY_MS);
+      await waitFor(() => expect(loads()).toBe(2));
     });
 
     it("reopens the event stream after it drops", async () => {
