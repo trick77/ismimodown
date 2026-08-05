@@ -1,7 +1,13 @@
 import type { Summary } from "./api/types";
-import { Card } from "./ui";
+import { Card, NoChart } from "./ui";
 import { EChart } from "./charts/EChart";
 import { buildDecompositionOption } from "./charts/options";
+
+// Shorter than the shared default: this is two stacked bars, not a time series,
+// and at 240 it was mostly empty plot. Named because the placeholder below has
+// to reserve the same height, and a plot and its stand-in disagreeing about how
+// tall they are is exactly the layout shift both exist to avoid.
+const HEIGHT = 120;
 
 // TTFT split into the measured edge RTT and everything beyond it.
 //
@@ -35,13 +41,13 @@ export function Decomposition({
       {hasData ? (
         <EChart
           option={buildDecompositionOption(models)}
-          height={120}
+          height={HEIGHT}
           ariaLabel="Time to first token split into edge round-trip and server-side time, per model"
         />
       ) : (
-        <p className="font-serif italic text-faint">
+        <NoChart height={HEIGHT}>
           Not enough data yet — first samples within a few minutes.
-        </p>
+        </NoChart>
       )}
       <p className="mt-4 border-l-2 border-accent/60 bg-accent/5 px-4 py-3 text-label text-muted">
         <strong className="text-ink">

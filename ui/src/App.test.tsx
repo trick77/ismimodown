@@ -395,6 +395,65 @@ describe("App", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
+  // "Loading…" is one line at every width. The headline that replaces it is one
+  // line on a desktop and two on a phone, so on a phone the banner grew by a
+  // line the moment the fetch landed and carried the whole page down with it.
+  // jsdom does no layout, so the reservation is asserted where it is declared.
+  it("reserves the headline's second line on a narrow screen", async () => {
+    vi.stubGlobal("fetch", mockFetch());
+    render(<App />);
+
+    await screen.findByTestId("model-card-mimo-v2.5");
+    const banner = screen.getByTestId("verdict");
+    expect(banner).toHaveClass("min-h-[99px]");
+    // And gives it back where the headline fits on one line, rather than
+    // leaving a floor under every desktop banner that ever renders.
+    expect(banner).toHaveClass("sm:min-h-0");
+  });
+
+  // The page's shape for anyone not reading it with their eyes: one main
+  // landmark to jump into, and an outline with no rung missing from it.
+  describe("the document outline", () => {
+    it("puts the findings in a main landmark, and the masthead outside it", async () => {
+      vi.stubGlobal("fetch", mockFetch());
+      render(<App />);
+
+      await screen.findByTestId("model-card-mimo-v2.5");
+      const main = screen.getByRole("main");
+      expect(main).toContainElement(screen.getByTestId("verdict"));
+      expect(main).toContainElement(screen.getByTestId("model-card-mimo-v2.5"));
+      // A <header> nested in <main> is no longer a banner, which is the one
+      // landmark a reader uses to find out what site they are on.
+      expect(main).not.toContainElement(
+        screen.getByRole("heading", { name: /is xiaomi mimo down\?/i }),
+      );
+      // And the footer is outside it for the same reason — the other half of
+      // the claim, and the one nothing else here would catch.
+      expect(main).not.toContainElement(
+        screen.getByRole("contentinfo") as HTMLElement,
+      );
+    });
+
+    it("skips no heading level", async () => {
+      vi.stubGlobal("fetch", mockFetch());
+      render(<App />);
+
+      await screen.findByTestId("model-card-mimo-v2.5");
+      const levels = screen
+        .getAllByRole("heading")
+        .map((h) => Number(h.tagName[1]));
+      expect(levels[0]).toBe(1);
+      // Every heading is either the h1 or a level already reached, or exactly
+      // one deeper than the deepest so far. The model cards used to be h3 with
+      // no h2 above them, which is this assertion's whole reason to exist.
+      let deepest = 1;
+      for (const level of levels) {
+        expect(level).toBeLessThanOrEqual(deepest + 1);
+        deepest = Math.max(deepest, level);
+      }
+    });
+  });
+
   it("surfaces a load failure without blanking the page", async () => {
     vi.stubGlobal(
       "fetch",
@@ -562,7 +621,11 @@ describe("the pulse strip", () => {
     );
     render(<App />);
 
-    const strip = await screen.findByTestId("pulse-strip");
+    // Waited on a card, not on the strip: the strip is in the document from
+    // the first render now — it holds its frame while the fetch is in flight —
+    // so awaiting it would no longer gate on the response having landed.
+    await screen.findByTestId("model-card-mimo-v2.5");
+    const strip = screen.getByTestId("pulse-strip");
     // Both models reported the same cycle, so it is one bar — and the failure
     // on the second model is what it shows.
     expect(strip.children).toHaveLength(1);

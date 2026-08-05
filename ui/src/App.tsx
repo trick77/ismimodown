@@ -202,6 +202,19 @@ export default function App() {
     window.history.replaceState(null, "", url);
   };
 
+  // Nothing has arrived and something still might. This is what the reserved
+  // heights below key on — NOT on the page being empty.
+  //
+  // Empty is the wrong question, because a load that FAILED is also empty: the
+  // strip would go on telling a screen reader it was "still loading" beside a
+  // visible error, and the model cards would hold 500 px of blank ground for a
+  // response that is never coming. Reserving space is a promise that something
+  // is about to fill it, and this is the only state in which that is true.
+  //
+  // False once a refetch is in flight over data already on screen, which is
+  // correct: those cards are still rendered, so there is nothing to hold.
+  const pending = loading && data === null && error === null;
+
   const verdict = buildVerdict(data?.now ?? null, data?.baseline ?? null);
   const mimoEdge =
     data?.summary.net.find((n) => n.target === TARGET_MIMO)?.connect.p50_ms ??
@@ -212,76 +225,87 @@ export default function App() {
       <div className="aura" aria-hidden="true" />
       <div className="relative z-10 mx-auto max-w-[1180px] px-5 pb-24 sm:px-8">
         <Masthead />
-        <VerdictBanner verdict={verdict} loading={loading} />
-        <div className="mb-6">
-          <PulseStrip perModel={data?.pulse.map((p) => p.cycles) ?? []} />
-        </div>
-
-        <nav className="mb-6 flex flex-wrap gap-2" aria-label="Time window">
-          {WINDOWS.map((key) => (
-            <button
-              key={key}
-              type="button"
-              className="pill"
-              aria-pressed={key === windowKey}
-              onClick={() => selectWindow(key)}
-            >
-              {key}
-            </button>
-          ))}
-        </nav>
-
-        {error && (
-          <div
-            role="alert"
-            className="mb-6 rounded-ui border border-danger/40 bg-danger/10 px-4 py-3 text-label text-danger"
-          >
-            {error}
+        {/* Everything the page is FOR, in one landmark, so a screen reader can
+            jump past the masthead in a keystroke instead of arrowing through
+            it. It starts at the verdict rather than at the masthead because
+            Masthead renders the page's <header>, and a banner nested inside
+            <main> stops being a banner. The footer is outside it for the same
+            reason. */}
+        <main>
+          <VerdictBanner verdict={verdict} loading={loading} />
+          <div className="mb-6">
+            <PulseStrip
+              perModel={data?.pulse.map((p) => p.cycles) ?? []}
+              pending={pending}
+            />
           </div>
-        )}
 
-        <div className="grid gap-6">
-          <ModelCards
-            summary={data?.summary ?? null}
-            baseline={data?.baseline ?? null}
-          />
-          <SeriesPanel
-            title="Time to first token"
-            subtitle="P50 per bucket. Failed runs are excluded — an outage is counted as availability, not as latency. Lower is better."
-            series={data?.series.ttft ?? null}
-            models={models}
-            unit="ms"
-          />
-          <SeriesPanel
-            title="Throughput"
-            subtitle="Output tokens per second over the decode window. This leads rather than inter-token latency, because MiMo batches tokens into chunks and delivers them in bursts — the median inter-chunk gap collapses toward zero on a perfectly healthy run. Higher is better."
-            series={data?.series.tps ?? null}
-            models={models}
-            unit="tok/s"
-            forceLinear
-          />
-          {/* The panels above measure the parts — how long until it starts, how
+          <nav className="mb-6 flex flex-wrap gap-2" aria-label="Time window">
+            {WINDOWS.map((key) => (
+              <button
+                key={key}
+                type="button"
+                className="pill"
+                aria-pressed={key === windowKey}
+                onClick={() => selectWindow(key)}
+              >
+                {key}
+              </button>
+            ))}
+          </nav>
+
+          {error && (
+            <div
+              role="alert"
+              className="mb-6 rounded-ui border border-danger/40 bg-danger/10 px-4 py-3 text-label text-danger"
+            >
+              {error}
+            </div>
+          )}
+
+          <div className="grid gap-6">
+            <ModelCards
+              summary={data?.summary ?? null}
+              baseline={data?.baseline ?? null}
+              pending={pending}
+            />
+            <SeriesPanel
+              title="Time to first token"
+              subtitle="P50 per bucket. Failed runs are excluded — an outage is counted as availability, not as latency. Lower is better."
+              series={data?.series.ttft ?? null}
+              models={models}
+              unit="ms"
+            />
+            <SeriesPanel
+              title="Throughput"
+              subtitle="Output tokens per second over the decode window. This leads rather than inter-token latency, because MiMo batches tokens into chunks and delivers them in bursts — the median inter-chunk gap collapses toward zero on a perfectly healthy run. Higher is better."
+              series={data?.series.tps ?? null}
+              models={models}
+              unit="tok/s"
+              forceLinear
+            />
+            {/* The panels above measure the parts — how long until it starts, how
               fast it runs once it has. This is the sum, so it comes after them:
               it is only readable once its parts have been shown. */}
-          <SeriesPanel
-            title="The whole wait"
-            subtitle="P50 end-to-end, request sent to last token. It looks a lot like the time-to-first-token plot above, and that resemblance IS the finding rather than a repeat of it: most of the wait is spent getting to the first token, and the vertical gap between the two — read off the axis, not off the shape — is what decoding the answer adds. This one moves with answer LENGTH as well as with speed — output is capped at 150 tokens, and a short answer finishes sooner than a long one — so read a step change here against the throughput plot before calling it a slowdown. Failed runs are excluded. Lower is better."
-            series={data?.series.total ?? null}
-            models={models}
-            unit="ms"
-          />
-          {/* Below the sum rather than among the parts. This panel does not
+            <SeriesPanel
+              title="The whole wait"
+              subtitle="P50 end-to-end, request sent to last token. It looks a lot like the time-to-first-token plot above, and that resemblance IS the finding rather than a repeat of it: most of the wait is spent getting to the first token, and the vertical gap between the two — read off the axis, not off the shape — is what decoding the answer adds. This one moves with answer LENGTH as well as with speed — output is capped at 150 tokens, and a short answer finishes sooner than a long one — so read a step change here against the throughput plot before calling it a slowdown. Failed runs are excluded. Lower is better."
+              series={data?.series.total ?? null}
+              models={models}
+              unit="ms"
+            />
+            {/* Below the sum rather than among the parts. This panel does not
               measure a share of the wait — it re-plots the first part against a
               second, larger prompt — and sitting between the parts and the sum
               it read as one more component the sum was made of. After it, the
               question it answers is the one a reader actually arrives with:
               given the wait above, what does a bigger prompt add to it? */}
-          <PrefillPanel
-            short={data?.series.ttft ?? null}
-            wide={data?.series.ttft_wide ?? null}
-            models={models}
-          />
-          {/* Everything from here down rests on the handshake, so the panel
+            <PrefillPanel
+              short={data?.series.ttft ?? null}
+              wide={data?.series.ttft_wide ?? null}
+              models={models}
+            />
+            {/* Everything from here down rests on the handshake, so the panel
               that measures it comes first. Above, both of these forward-
               referenced an edge RTT and a Singapore reference host the reader
               had not met yet — the decomposition subtracted a number the page
@@ -289,16 +313,19 @@ export default function App() {
               had yet introduced. (The verdict banner can name that host: it is
               a summary, and a summary is allowed to state a conclusion the
               panels below then show the working for.) */}
-          <NetworkPanel series={data?.series.network ?? null} />
-          <Decomposition summary={data?.summary ?? null} edgeMs={mimoEdge} />
-          <AvailabilityStrip summary={data?.summary ?? null} />
-          {/* Last of the panels, above the raw cycles. Everything over it
+            <NetworkPanel series={data?.series.network ?? null} />
+            <Decomposition summary={data?.summary ?? null} edgeMs={mimoEdge} />
+            <AvailabilityStrip summary={data?.summary ?? null} />
+            {/* Last of the panels, above the raw cycles. Everything over it
               measures the endpoint; this one measures what measuring it costs,
               which is a fact about us rather than about MiMo — so it reads as a
               footnote to the page rather than as one of its findings. */}
-          <CostPanel cost={data?.cost ?? null} />
-          <SamplesTable perGroup={data?.samples.map((g) => g.samples) ?? []} />
-        </div>
+            <CostPanel cost={data?.cost ?? null} />
+            <SamplesTable
+              perGroup={data?.samples.map((g) => g.samples) ?? []}
+            />
+          </div>
+        </main>
         {/* Outside the panel grid: it is not a panel, and inside the grid it
             picked up the gap-6 rhythm and read as one more finding. */}
         <Footer />

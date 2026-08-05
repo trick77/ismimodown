@@ -76,9 +76,30 @@ function maxOrNull(a: number | null, b: number | null): number | null {
   return Math.max(a, b);
 }
 
-export function PulseStrip({ perModel }: { perModel: Cycle[][] }) {
+export function PulseStrip({
+  perModel,
+  pending = false,
+}: {
+  perModel: Cycle[][];
+  // Whether a first response is still on its way, which is what decides
+  // between an empty frame and no strip at all.
+  pending?: boolean;
+}) {
   const ordered = worstPerCycle(perModel);
-  if (ordered.length === 0) {
+  // While the response is in flight, this renders the strip's FRAME rather than
+  // nothing. Returning null unconditionally meant the whole block — 48 px of
+  // bars plus its caption — appeared the moment the dashboard fetch landed,
+  // near the top of the page, shoving the window pills and both model cards
+  // down with it. That single insertion was most of a 0.43 layout shift. An
+  // empty frame holds the same ground it will occupy once the bars arrive, so
+  // the arrival costs nothing.
+  //
+  // Once the answer is in, an empty strip is a strip with nothing to draw, and
+  // it goes back to rendering nothing: there is no arrival left to hold ground
+  // for, and a bordered 48 px void beside an error message is not a
+  // reservation. Nothing below it has been laid out yet either way — this is
+  // the same instant the rest of the page resolves.
+  if (ordered.length === 0 && !pending) {
     return null;
   }
 
@@ -116,14 +137,29 @@ export function PulseStrip({ perModel }: { perModel: Cycle[][] }) {
   return (
     <div>
       <div
-        className="flex h-12 items-end gap-px overflow-hidden max-[720px]:gap-0"
+        // The empty frame gets a surface. Reserving the height alone left a
+        // caption sitting under nothing at all, which reads as a strip that
+        // failed rather than one that has not arrived — and the ground it is
+        // holding is invisible, so the reservation looks like a mistake. Only
+        // while empty: once there are bars, they ARE the surface.
+        className={`flex h-12 items-end gap-px overflow-hidden max-[720px]:gap-0 ${
+          ordered.length === 0 ? "rounded-sm bg-panel/60" : ""
+        }`}
         role="img"
-        aria-label={`Last ${ordered.length} ${plural(
-          ordered.length,
-          "cycle",
-        )}: ${ordered.filter((s) => s.ok).length} succeeded, ${
-          ordered.filter((s) => !s.ok).length
-        } failed`}
+        // "Last 0 cycles: 0 succeeded, 0 failed" is a reading, and the empty
+        // frame has not read anything yet. A screen reader gets the honest
+        // version of the same distinction a sighted reader gets from a strip
+        // with no bars in it.
+        aria-label={
+          ordered.length === 0
+            ? "Cycle history, still loading"
+            : `Last ${ordered.length} ${plural(
+                ordered.length,
+                "cycle",
+              )}: ${ordered.filter((s) => s.ok).length} succeeded, ${
+                ordered.filter((s) => !s.ok).length
+              } failed`
+        }
         data-testid="pulse-strip"
       >
         {ordered.map((s, i) => {

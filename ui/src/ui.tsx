@@ -120,6 +120,32 @@ export function Card({
   );
 }
 
+// NoChart stands in for a plot that has nothing to draw yet, and stands in it
+// at the PLOT'S OWN HEIGHT.
+//
+// Every panel here swaps a one-line sentence for a 240 px canvas the moment the
+// dashboard fetch lands. A one-line sentence is not 240 px, so each swap moved
+// everything below it — and the panels are stacked, so the shifts accumulated
+// down the page. Reserving the height means the canvas drops into ground the
+// sentence was already holding.
+//
+// The height is passed rather than defaulted at the call site, because it must
+// be the SAME number the EChart beside it is given: "Where the time goes" draws
+// at 120, and a placeholder that assumed 240 would trade one shift for another.
+export function NoChart({
+  height,
+  children,
+}: {
+  height: number;
+  children: ReactNode;
+}) {
+  return (
+    <div className="flex items-center" style={{ height }}>
+      <p className="font-serif italic text-faint">{children}</p>
+    </div>
+  );
+}
+
 // Figure renders one number with its label, and renders SUPPRESSION honestly:
 // below the sample threshold it says so in words rather than drawing a zero.
 export function Figure({

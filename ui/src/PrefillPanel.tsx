@@ -1,7 +1,7 @@
 import type { ModelSeries, Point } from "./api/types";
-import { Card, CensoredNote, LogScaleChip } from "./ui";
+import { Card, CensoredNote, LogScaleChip, NoChart } from "./ui";
 import { EChart } from "./charts/EChart";
-import { buildLineOption, colorForModel } from "./charts/options";
+import { CHART_HEIGHT, buildLineOption, colorForModel } from "./charts/options";
 
 // The prefill panel plots the SHORT probe's TTFT against the WIDE probe's, per
 // model. The gap between the two lines is the prefill cost, and a widening gap
@@ -64,9 +64,9 @@ export function PrefillPanel({
           ariaLabel="Time to first token for the short and wide probes, per model"
         />
       ) : (
-        <p className="font-serif italic text-faint">
+        <NoChart height={CHART_HEIGHT}>
           Not enough data yet — first samples within a few minutes.
-        </p>
+        </NoChart>
       )}
       <ul className="mt-3 flex flex-wrap gap-4">
         {models.map((m) => (

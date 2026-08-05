@@ -22,7 +22,15 @@ export function VerdictBanner({
       // mb-10, against the masthead's tighter pb above: the banner reads as a
       // verdict on the page, not as a label for the strip it happens to sit on
       // top of, and it needs the larger gap on the side it is NOT about.
-      className={`mb-10 rounded-xl border px-5 py-4 ${tone}`}
+      //
+      // min-h holds two lines of headline, but only on a narrow screen and only
+      // because that is where the headline needs two. "Loading…" is one line
+      // everywhere; "Everything looks normal right now" is one line on a
+      // desktop and two on a phone, so on a phone the banner grew by a line the
+      // moment the fetch landed and carried the entire page down with it. Above
+      // the sm breakpoint there is nothing to reserve, so nothing is: a fixed
+      // floor there would be dead space under every headline that ever renders.
+      className={`mb-10 min-h-[99px] rounded-xl border px-5 py-4 sm:min-h-0 ${tone}`}
       role="status"
       aria-live="polite"
       data-testid="verdict"

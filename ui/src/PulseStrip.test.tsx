@@ -25,7 +25,33 @@ describe("PulseStrip", () => {
     expect(screen.getByTestId("pulse-strip").children).toHaveLength(3);
   });
 
-  it("renders nothing rather than an empty frame with no data", () => {
+  // The inverse of what this asserted before. Rendering nothing meant the strip
+  // and its caption appeared the instant the fetch landed, near the top of the
+  // page, pushing everything under them down — most of the page's layout shift
+  // came from this one component. An empty frame holds that ground.
+  it("holds its frame while pending, so the bars cost no layout shift", () => {
+    render(<PulseStrip perModel={[]} pending />);
+    const strip = screen.getByTestId("pulse-strip");
+    expect(strip.children).toHaveLength(0);
+    expect(strip).toHaveClass("h-12");
+    expect(screen.getByTestId("pulse-note")).toBeInTheDocument();
+  });
+
+  // "Last 0 cycles: 0 succeeded, 0 failed" is a reading. The empty frame has
+  // not read anything yet, and must not claim a clean day.
+  it("does not report an empty frame as zero failures", () => {
+    render(<PulseStrip perModel={[]} pending />);
+    expect(screen.getByTestId("pulse-strip")).toHaveAttribute(
+      "aria-label",
+      "Cycle history, still loading",
+    );
+  });
+
+  // The frame is a promise that bars are coming. Once the answer is in and
+  // there are none — a failed load, or a database with nothing in it yet —
+  // there is nothing left to hold ground for, and the strip must not go on
+  // telling a screen reader it is loading.
+  it("renders nothing once the answer is in and there is nothing to draw", () => {
     const { container } = render(<PulseStrip perModel={[]} />);
     expect(container.firstChild).toBeNull();
   });

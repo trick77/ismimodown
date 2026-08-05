@@ -1,9 +1,10 @@
 import type { NetSeries } from "./api/types";
 import { TARGET_MIMO, TARGET_REF_SGP } from "./api/types";
-import { Card, LogScaleChip } from "./ui";
+import { Card, LogScaleChip, NoChart } from "./ui";
 import { EChart } from "./charts/EChart";
 import {
   buildLineOption,
+  CHART_HEIGHT,
   MIMO_EDGE_COLOR,
   REFERENCE_COLOR,
   WIRE_COLOR,
@@ -60,9 +61,9 @@ export function NetworkPanel({ series }: { series: NetSeries | null }) {
           ariaLabel="TCP handshake time to MiMo's edge and the reference host"
         />
       ) : (
-        <p className="font-serif italic text-faint">
+        <NoChart height={CHART_HEIGHT}>
           Not enough data yet — first samples within a few minutes.
-        </p>
+        </NoChart>
       )}
       <ul className="mt-3 flex flex-wrap gap-4">
         {order.map((name) => {

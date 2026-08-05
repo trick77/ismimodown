@@ -1,8 +1,8 @@
 import type { CostBreakdown, CostGroup } from "./api/types";
 import { formatInt, formatTime, formatUSD, formatUSDPrecise } from "./format";
-import { Card } from "./ui";
+import { Card, NoChart } from "./ui";
 import { EChart } from "./charts/EChart";
-import { buildCostOption } from "./charts/options";
+import { CHART_HEIGHT, buildCostOption } from "./charts/options";
 
 // What the probing costs, in money.
 //
@@ -100,9 +100,9 @@ export function CostPanel({ cost }: { cost: CostBreakdown | null }) {
       {cost.series.length > 0 ? (
         <EChart option={option} ariaLabel="Inference cost over time" />
       ) : (
-        <p className="font-serif italic text-faint">
+        <NoChart height={CHART_HEIGHT}>
           Not enough data yet — first samples within a few minutes.
-        </p>
+        </NoChart>
       )}
 
       {option.banded && (
