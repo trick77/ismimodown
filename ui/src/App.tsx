@@ -195,12 +195,31 @@ export default function App() {
     };
   }, [load]);
 
+  // Back and forward are the buttons a reader reaches for after clicking
+  // through three windows, and they used to leave the site instead — the URL
+  // was rewritten in place, so the entries they would have moved between never
+  // existed, and the address bar's story ended one step after it began.
+  //
+  // Two halves, and neither works alone: pushState below makes the entries,
+  // this re-reads the window out of whichever one the browser restores. React
+  // state is the view, the URL is the record, and popstate is the only moment
+  // the browser changes the record without going through us.
+  useEffect(() => {
+    const onPop = () => setWindowKey(readWindow());
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+
   // The default needs no parameter to describe it: a bare URL already means
   // 24h, because readWindow falls back to it. So the default DELETES the
   // parameter rather than writing it, and the address bar stays clean for the
   // view most people are on. Every other window still writes itself, so those
   // stay linkable.
   const selectWindow = (key: string) => {
+    // Clicking the window already showing is not a navigation. Without this,
+    // an idle click stacks an entry identical to the current one and back
+    // appears to do nothing.
+    if (key === windowKey) return;
     setWindowKey(key);
     const url = new URL(window.location.href);
     if (key === DEFAULT_WINDOW) {
@@ -208,7 +227,7 @@ export default function App() {
     } else {
       url.searchParams.set("window", key);
     }
-    window.history.replaceState(null, "", url);
+    window.history.pushState(null, "", url);
   };
 
   // Nothing has arrived and something still might. This is what the reserved

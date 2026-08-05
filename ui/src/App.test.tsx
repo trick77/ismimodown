@@ -335,6 +335,50 @@ describe("App", () => {
     await waitFor(() => expect(new URL(window.location.href).search).toBe(""));
   });
 
+  // Back used to leave the site: the URL was rewritten in place, so clicking
+  // through windows left nothing to go back TO.
+  it("follows the browser's back button to the previous window", async () => {
+    vi.stubGlobal("fetch", mockFetch());
+    render(<App />);
+
+    await userEvent.click(screen.getByRole("button", { name: "7d" }));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "7d" })).toHaveAttribute(
+        "aria-pressed",
+        "true",
+      ),
+    );
+
+    window.history.back();
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "24h" })).toHaveAttribute(
+        "aria-pressed",
+        "true",
+      ),
+    );
+    expect(new URL(window.location.href).search).toBe("");
+  });
+
+  // Repeat clicks on the window already showing are not navigations. Stacking
+  // identical entries would make back look broken — one press, no visible
+  // change.
+  it("does not stack a history entry for the window already showing", async () => {
+    vi.stubGlobal("fetch", mockFetch());
+    render(<App />);
+
+    await userEvent.click(screen.getByRole("button", { name: "7d" }));
+    await userEvent.click(screen.getByRole("button", { name: "7d" }));
+    await userEvent.click(screen.getByRole("button", { name: "7d" }));
+
+    window.history.back();
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "24h" })).toHaveAttribute(
+        "aria-pressed",
+        "true",
+      ),
+    );
+  });
+
   it("reads the initial window from the query string", async () => {
     window.history.replaceState(null, "", "/?window=48h");
     vi.stubGlobal("fetch", mockFetch());
