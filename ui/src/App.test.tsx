@@ -119,7 +119,11 @@ function mockFetch(overrides: Record<string, unknown> = {}) {
           : url.includes("/api/samples")
             ? { model_id: "mimo-v2.5", probe: "infer", samples: [] }
             : url.includes("/api/pulse")
-              ? { model_id: "mimo-v2.5", probe: "infer", cycles: [] }
+              ? (overrides.pulse ?? {
+                  model_id: "mimo-v2.5",
+                  probe: "infer",
+                  cycles: [],
+                })
               : url.includes("/api/cost")
                 ? (overrides.cost ?? cost())
                 : {};
@@ -425,5 +429,77 @@ describe("the cost panel", () => {
     expect(
       screen.queryByText("What this dashboard costs to run"),
     ).not.toBeInTheDocument();
+  });
+});
+
+describe("the pulse strip", () => {
+  // The strip probes whatever the summary lists, so a one-model fixture cannot
+  // exercise the merge.
+  const twoModelSummary = () => {
+    const base = summary();
+    const first = base.models[0]!;
+    return {
+      ...base,
+      models: [first, { ...first, model_id: "mimo-v2.5-pro" }],
+    };
+  };
+
+  const cycle = (model: string, over: Record<string, unknown> = {}) => ({
+    model_id: model,
+    probe: "infer",
+    cycles: [
+      {
+        at: "2026-08-04T11:55:00Z",
+        ttft_ms: 900,
+        ok: true,
+        answer_ok: true,
+        error_class: null,
+        ...over,
+      },
+    ],
+  });
+
+  // The reason the strip merges both models at all: it is the page's loudest
+  // "is anything wrong" surface, and drawing one model let a failure on the
+  // other be painted green.
+  it("shows a failure on either model", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/api/events")) return new Promise<Response>(() => {});
+        const body = url.includes("/api/pulse")
+          ? url.includes("mimo-v2.5-pro")
+            ? cycle("mimo-v2.5-pro", {
+                ok: false,
+                ttft_ms: null,
+                error_class: "timeout",
+              })
+            : cycle("mimo-v2.5")
+          : url.includes("/api/summary")
+            ? twoModelSummary()
+            : url.includes("metric=network")
+              ? emptyNet
+              : url.includes("/api/series")
+                ? emptySeries
+                : url.includes("/api/samples")
+                  ? { model_id: "mimo-v2.5", probe: "infer", samples: [] }
+                  : {};
+        return new Response(JSON.stringify(body), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }),
+    );
+    render(<App />);
+
+    const strip = await screen.findByTestId("pulse-strip");
+    // Both models reported the same cycle, so it is one bar — and the failure
+    // on the second model is what it shows.
+    expect(strip.children).toHaveLength(1);
+    expect(strip).toHaveAttribute(
+      "aria-label",
+      expect.stringContaining("0 succeeded, 1 failed"),
+    );
   });
 });
