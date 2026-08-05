@@ -131,10 +131,10 @@ services:
       traefik.enable: "true"
       traefik.docker.network: traefik
       # Host rule for this deployment; change if the domain moves.
-      traefik.http.routers.mimostats.rule: Host(`mimostats.trick77.com`)
-      traefik.http.routers.mimostats.entrypoints: websecure
-      traefik.http.routers.mimostats.tls: "true"
-      traefik.http.services.mimostats.loadbalancer.server.port: "8080"
+      traefik.http.routers.ismimodown.rule: Host(`mimostats.trick77.com`)
+      traefik.http.routers.ismimodown.entrypoints: websecure
+      traefik.http.routers.ismimodown.tls: "true"
+      traefik.http.services.ismimodown.loadbalancer.server.port: "8080"
       # HSTS is set HERE and not in the Go handler, because only the TLS
       # terminator knows the site is reachable over TLS at all: the container
       # serves plain HTTP, and a Strict-Transport-Security header emitted on an
@@ -146,8 +146,8 @@ services:
       # No `preload`: that submits the parent domain to the browser preload
       # list, which is effectively irreversible and is not this service's call
       # to make for trick77.com.
-      traefik.http.middlewares.mimostats-hsts.headers.stsSeconds: "31536000"
-      traefik.http.middlewares.mimostats-hsts.headers.stsIncludeSubdomains: "true"
+      traefik.http.middlewares.ismimodown-hsts.headers.stsSeconds: "31536000"
+      traefik.http.middlewares.ismimodown-hsts.headers.stsIncludeSubdomains: "true"
       # Compression belongs to the terminator, not the binary — the app should
       # not be negotiating encodings with a client it never speaks to directly.
       # It was simply never switched on: /api/dashboard is one JSON document
@@ -158,10 +158,10 @@ services:
       # Traefik does not compress below minResponseBodyBytes (1024 by default),
       # which is the right shape for this: /healthz and an error body stay
       # uncompressed, the dashboard does not.
-      traefik.http.middlewares.mimostats-compress.compress: "true"
+      traefik.http.middlewares.ismimodown-compress.compress: "true"
       # Order matters: hsts first, so the header is attached whatever the
       # encoding negotiation does.
-      traefik.http.routers.mimostats.middlewares: mimostats-hsts@docker,mimostats-compress@docker
+      traefik.http.routers.ismimodown.middlewares: ismimodown-hsts@docker,ismimodown-compress@docker
 
 networks:
   traefik:
