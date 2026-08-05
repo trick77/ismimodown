@@ -182,6 +182,16 @@
         letter-spacing: -0.03em;
         color: var(--color-ink);
       }
+      /* The subject, accented. Not italic: at this size the serif italic reads
+         as a citation rather than as emphasis. Mirrors the <span> in
+         Masthead.tsx.
+
+         This colour is why the width assertion in gen-og.sh thresholds at 45%
+         rather than 60%. #d97757 is about 57% grey, so a 60% cut dropped these
+         two words from the mask entirely and measured "Is" alone. */
+      h1 .mark {
+        color: var(--color-accent-strong);
+      }
 
       .lede {
         margin-top: 28px;
@@ -193,11 +203,13 @@
         line-height: 1.3;
         color: var(--color-ink-dim);
       }
+      /* Currently unused — the lede carries no accent, the heading does. Kept
+         as the contract for any future emphasis here: italic, accented, and
+         never broken across lines, since an accented phrase split over two
+         rows reads as two list items rather than one. */
       .lede em {
         font-style: italic;
         color: var(--color-accent-strong);
-        /* "answer correctness" is one idea and breaks across lines at this
-           measure otherwise, which reads as two list items rather than one. */
         white-space: nowrap;
       }
 
@@ -267,7 +279,7 @@
            a fallback face re-broke the question one word later and measured
            WIDER than the real one, which is the one thing that assertion must
            never accept. -->
-      <h1>Is Xiaomi MiMo<br />down?</h1>
+      <h1>Is <span class="mark">Xiaomi MiMo</span><br />down?</h1>
 
       <!-- The masthead's leading clause, verbatim. Its second clause — the one
            about separating reaching the endpoint from what happens once you are
@@ -278,10 +290,11 @@
 
            It no longer names Xiaomi MiMo: the heading above does that now, and
            at preview size the same two words twice in three lines was the most
-           conspicuous thing on the card. The accent moved to what the page does
-           that a plain uptime checker does not. -->
+           conspicuous thing on the card. Nothing here is accented either — the
+           heading holds the card's one accent, and a second one immediately
+           under it split the emphasis in two. -->
       <p class="lede">
-        Latency, throughput, availability and <em>answer correctness</em>.
+        Latency, throughput, availability and answer correctness.
       </p>
 
       <div class="legend">

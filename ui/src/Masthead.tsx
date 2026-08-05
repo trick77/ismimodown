@@ -58,16 +58,22 @@ export function Masthead() {
       {/* The clamp ceiling drops from 4rem to 3.4rem: the old wordmark was one
           nine-character word, this is four words, and at 4rem it wrapped to
           three ragged lines on a laptop. */}
+      {/* The accent sits on the subject, not on the question around it: what a
+          reader scanning for "did I land on the right page" needs is the NAME,
+          and colouring it puts the answer to that in the first glance. The rest
+          of the sentence is grammar.
+
+          Not italic, unlike the accented spans in the prose below. At display
+          size the serif italic reads as a citation rather than as emphasis. */}
       <h1 className="mt-3 font-serif text-[clamp(2.1rem,6vw,3.4rem)] font-normal leading-[0.95] tracking-tight text-balance text-ink">
-        Is Xiaomi MiMo down?
+        Is <span className="text-accent-strong">Xiaomi MiMo</span> down?
       </h1>
       {/* No longer "for Xiaomi MiMo": the heading above names it, and repeating
-          it one line later was the first thing the eye caught. The accent moved
-          to answer correctness, which is the measurement a plain uptime checker
-          does not make and the reason this page is longer than a green dot. */}
+          it one line later was the first thing the eye caught. Nothing here is
+          accented either — the heading carries the one accent in this block,
+          and a second one directly under it split the emphasis in two. */}
       <p className="mt-4 max-w-[52ch] font-serif text-[clamp(1rem,2vw,1.3rem)] leading-snug text-ink-dim">
-        Latency, throughput, availability and{" "}
-        <em className="text-accent-strong">answer correctness</em> — separating
+        Latency, throughput, availability and answer correctness — separating
         how long it takes to <em>reach</em> the API endpoint in Singapore from
         what happens once you are there.
       </p>

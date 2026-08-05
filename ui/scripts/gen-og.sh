@@ -123,16 +123,32 @@ fi
 # Threshold, not -fuzz -trim. The ground is the aura gradient rather than a flat
 # colour, so trim's corner-colour comparison walks out into the wash and reports
 # most of the canvas as ink (862px against a true 534px). Reducing to a
-# black-and-white mask at 60% keeps the near-white heading and drops both the
-# gradient and the muted text around it.
+# black-and-white mask keeps the type and drops the gradient.
 #
-# The band is y=115..315 — 200px tall, against 130px when the heading was one
-# line. The ink sits at 149..279, clear of the eyebrow above and the lede below
-# with about 34px of slack each way. Keep the slack: a band that clips the
-# heading measures a fragment and reports a fallback that is not there. That is
-# not hypothetical here — at 84px the two lines outgrew a 200px window and this
-# check read 347px, a clipped fragment, rather than the 630px overflow it was
-# actually looking at.
+# 50%, not the 60% this used while the heading was a single ink-coloured word.
+# "Xiaomi MiMo" is set in the accent, #d97757, which is about 57% grey — a 60%
+# cut dropped those two words from the mask and measured "down?" alone at 376px.
+# 50% is the window: it keeps the accent and still drops --color-muted (60%) and
+# the wash. Repainting the accent to white before the mask was tried instead and
+# does not work; the aura's warm corners are within any usable -fuzz of it.
+#
+# The crop is 960x190+120+135, and both offsets earn their place:
+#
+#   x — inset 120px from each edge. At 50% the aura's bright corner survives as
+#   a few stray pixels at the extreme left, and -trim measures to them: 858px
+#   for a heading that is really 527px. Nothing legitimate goes near the edge;
+#   the composition is centred. The square-crop guard still holds, because a
+#   heading wider than the 960px window clips to it and reports ~960, well past
+#   the upper bound below.
+#
+#   y — starts at 135 rather than 115, because the eyebrow's icon has an accent
+#   border that at 50% reaches into the top of a taller band.
+#
+# The ink sits at 171..301 inside that window, clear of the eyebrow above and
+# the lede below. Keep the slack: a band that clips the heading measures a
+# fragment and reports a fallback that is not there. Not hypothetical — at 84px
+# the two lines outgrew a 200px window and this check read 347px, a clipped
+# fragment, rather than the overflow it was actually looking at.
 #
 # If the band comes back all black — type gone, or the band moved off the
 # wordmark — -trim has nothing to trim. ImageMagick 7 treats that as a WARNING,
@@ -145,8 +161,8 @@ fi
 # ImageMagick error. stderr is deliberately NOT silenced: on a real failure that
 # warning names the cause, and this is the check most likely to be the first
 # sign that something moved.
-MARK_W="$(magick "$SHOT" -crop "${W}x200+0+115" +repage -alpha off \
-	-colorspace gray -threshold 60% -trim -format '%w' info: || echo 0)"
+MARK_W="$(magick "$SHOT" -crop "960x190+120+135" +repage -alpha off \
+	-colorspace gray -threshold 50% -trim -format '%w' info: || echo 0)"
 if ((MARK_W < 505 || MARK_W > 570)); then
 	echo "gen-og: heading measures ${MARK_W}px, expected 505-570 — font fallback, or type resized past the square crop" >&2
 	fail=1
