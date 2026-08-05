@@ -5,6 +5,7 @@
 // plain functions, where the canvas-backed renderer is not reachable from jsdom.
 import type { Point } from "../api/types";
 import {
+  formatAxisMs,
   formatDate,
   formatDateTime,
   formatTime,
@@ -69,6 +70,93 @@ function toPairs(points: Point[], key: "p50" | "p95" = "p50") {
 
 function allValues(series: Record<string, Point[]>): (number | null)[] {
   return Object.values(series).flatMap((points) => points.map((p) => p.p50));
+}
+
+// BOUND_MANTISSAS is the ladder a log axis's ends are allowed to land on.
+//
+// Left to itself ECharts rounds a log axis out to whole DECADES, and one spike
+// is enough to buy an entire empty one: a chart reading 830 ms to 56 s was
+// drawn from 100 ms to 100 s, with the data squeezed into the middle half and
+// two of its four gridlines standing over nothing at all. Snapping the ends to
+// a finer ladder gives that space back — the same chart runs 700 ms to 70 s.
+//
+// Finer than 1-2-5 because 1-2-5 cannot express a bound just past a half
+// decade: the 56 s reading above falls between 50 and 100, so it would still
+// have taken the whole decade.
+const BOUND_MANTISSAS = [1, 1.5, 2, 3, 5, 7];
+
+// TICK_MANTISSAS are the gridline ladders, sparse first.
+//
+// Decades alone once the plot spans more than a couple of them, and finer as it
+// narrows, so that the count stays readable rather than the spacing staying
+// constant. Every entry is a round number, which is the whole reason the ticks
+// are chosen here: ECharts, handed a min and a max, splits the span evenly in
+// log space and puts gridlines at 5011.87 and 50118.72.
+const TICK_MANTISSAS = [[1], [1, 3], [1, 2, 5]];
+
+// A log axis wants its lowest reading off the floor and its highest off the
+// ceiling, or the line is drawn along an edge and reads as clipped.
+const BOUND_PAD = 1.05;
+
+function niceLogBound(v: number, up: boolean): number {
+  const decade = Math.pow(10, Math.floor(Math.log10(v)));
+  const candidates = BOUND_MANTISSAS.map((m) => m * decade);
+  if (up) {
+    return candidates.find((c) => c >= v) ?? decade * 10;
+  }
+  return [...candidates].reverse().find((c) => c <= v) ?? decade;
+}
+
+// logAxis fits a log axis to the values it has to hold: ends snapped outward to
+// the nearest nice bound, gridlines on round numbers strictly inside them.
+//
+// Null when the data cannot support a fitted axis — no positive values, or a
+// single distinct one — in which case the caller leaves the axis to ECharts
+// rather than pinning it to a range of zero width.
+export function logAxis(
+  values: (number | null)[],
+): { min: number; max: number; ticks: number[] } | null {
+  const finite = values.filter(
+    (v): v is number => v !== null && Number.isFinite(v) && v > 0,
+  );
+  if (finite.length === 0) {
+    return null;
+  }
+  const min = niceLogBound(Math.min(...finite) / BOUND_PAD, false);
+  const max = niceLogBound(Math.max(...finite) * BOUND_PAD, true);
+  if (!(max > min)) {
+    return null;
+  }
+
+  const ticksFor = (mantissas: number[]) => {
+    const out: number[] = [];
+    const from = Math.floor(Math.log10(min));
+    const to = Math.ceil(Math.log10(max));
+    for (let k = from; k <= to; k++) {
+      for (const m of mantissas) {
+        const v = m * Math.pow(10, k);
+        // Strictly inside: a gridline drawn ON the bound is the plot's own
+        // edge, so it costs a label without drawing a line.
+        if (v > min && v < max) {
+          out.push(v);
+        }
+      }
+    }
+    return out.sort((a, b) => a - b);
+  };
+
+  // Three gridlines is the fewest that still reads as a scale rather than as a
+  // single annotated height. The densest ladder is the floor: below ~20x the
+  // axis would not have gone log in the first place.
+  let ticks = ticksFor(TICK_MANTISSAS[TICK_MANTISSAS.length - 1]!);
+  for (const mantissas of TICK_MANTISSAS) {
+    const candidate = ticksFor(mantissas);
+    if (candidate.length >= 3) {
+      ticks = candidate;
+      break;
+    }
+  }
+  return { min, max, ticks };
 }
 
 // The censoring band colour. The fault amber, not a series hue: a stretch where
@@ -202,6 +290,8 @@ export function buildLineOption({
   // the spike. The caller stamps "LOG SCALE" on the plot when this is true — a
   // log axis read as linear is worse than no chart.
   const log = !forceLinear && shouldUseLogScale(allValues(series));
+  // Fitted to the data rather than rounded out to decades — see logAxis.
+  const fitted = log ? logAxis(allValues(series)) : null;
 
   // Where the timeout ladder cut runs off, the line is drawn from the runs that
   // FINISHED — so it is at its most flattering exactly where it is least
@@ -287,9 +377,31 @@ export function buildLineOption({
       // drops such points; min is left to ECharts rather than pinned to 0 for
       // the same reason.
       type: log ? "log" : "value",
+      // Undefined rather than absent when the axis is linear or unfittable, so
+      // ECharts falls back to its own nicing instead of being handed a bound.
+      min: fitted?.min,
+      max: fitted?.max,
       axisLine: { show: false },
-      axisLabel: { color: AXIS, fontSize: 10 },
-      splitLine: { lineStyle: { color: GRID, type: "dashed" } },
+      axisLabel: {
+        color: AXIS,
+        fontSize: 10,
+        // customValues is the only way to hold BOTH a fitted range and round
+        // gridlines: ECharts, given a min and a max, divides the span evenly in
+        // log space and lands its ticks on values like 5011.87.
+        customValues: fitted?.ticks,
+        // Milliseconds are what the wire carries and what every tick is
+        // counted in, but a spike axis runs to five digits, and "100,000" is
+        // not a latency anybody reads. On the linear axes too, where the same
+        // ticks were printing as "1,000" and "2,000". Only for the ms charts:
+        // the unit is the caller's, and a token count formatted as a duration
+        // would be a lie.
+        formatter: unit === "ms" ? formatAxisMs : undefined,
+      },
+      axisTick: { customValues: fitted?.ticks },
+      splitLine: {
+        customValues: fitted?.ticks,
+        lineStyle: { color: GRID, type: "dashed" },
+      },
     },
     series: names.map((name, i) => {
       // Ground, not figure — see `muted` on LineOpts. Thinner and dimmer, and

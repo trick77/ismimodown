@@ -26,6 +26,25 @@ export function formatMs(ms: number | null | undefined): string {
   return `${round(ms / 60_000, 1)} min`;
 }
 
+// formatAxisMs is formatMs's two-unit sibling, for a y-axis tick.
+//
+// Deliberately NOT formatMs: that one rolls over to minutes above 60 s, and a
+// log axis whose gridlines read "300 ms", "3 s", "1.7 min" asks the reader to
+// convert between three units to see that the steps are even. An axis is read
+// as a ladder, so it gets one break and no more — milliseconds below a second,
+// seconds above, however large.
+export function formatAxisMs(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) {
+    return "";
+  }
+  // Zero is the baseline of a linear axis, not a duration. "0 ms" sitting
+  // under "1 s" reads as though the axis means something different down there.
+  if (ms === 0) {
+    return "0";
+  }
+  return ms < 1000 ? `${round(ms, 0)} ms` : `${round(ms / 1000, 2)} s`;
+}
+
 export function formatPct(pct: number | null | undefined, digits = 1): string {
   if (pct === null || pct === undefined || !Number.isFinite(pct)) {
     return "—";
