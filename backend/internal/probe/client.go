@@ -16,6 +16,7 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"unicode/utf8"
 )
 
 // maxErrorBodyBytes bounds how much of a provider error body is read. It goes
@@ -245,20 +246,8 @@ func (c *Client) readStream(
 			// Only while the stream has yet to produce anything. Once it is
 			// flowing, non-data lines are SSE comments and keepalives — normal
 			// traffic, and no evidence of anything.
-			//
-			// The cap is checked BEFORE the separator, not only against the
-			// line: a body of ten thousand lines would otherwise keep
-			// appending newlines long after the last one that carried any
-			// text, and error_detail is a column, not a scratch buffer.
-			if room := maxErrorBodyBytes - preamble.Len(); firstDelta.IsZero() && line != "" && room > 0 {
-				if preamble.Len() > 0 {
-					preamble.WriteByte('\n')
-					room--
-				}
-				// Clipped rather than skipped when it does not fit whole: one
-				// SSE line may be up to maxSSELineBytes, so a length check
-				// alone would let a single line blow past the cap.
-				preamble.WriteString(clip(line, room))
+			if firstDelta.IsZero() {
+				keepEvidence(&preamble, line)
 			}
 			continue
 		}
@@ -281,6 +270,15 @@ func (c *Client) readStream(
 			res.Usage = *chunk.Usage
 		}
 		if len(chunk.Choices) == 0 {
+			// A well-formed frame carrying no choices is where an
+			// OpenAI-compatible proxy puts its error object — `data:
+			// {"error":{"message":"..."}}` is the commonest shape of a failure
+			// served inside a 200 stream, and it is not a non-data line, so
+			// the branch above never sees it. Kept on the same terms: only
+			// until a delta proves the stream real, and under the same cap.
+			if firstDelta.IsZero() {
+				keepEvidence(&preamble, payload)
+			}
 			continue
 		}
 		choice := chunk.Choices[0]
@@ -296,6 +294,15 @@ func (c *Client) readStream(
 			choice.Delta.Content != "" ||
 			choice.Delta.ReasoningContent != ""
 		now := time.Now()
+
+		// Same evidence, one frame further in: a chunk with a choice but no
+		// delta at all (a bare finish_reason, say) is another way for a stream
+		// to end having said nothing. Recorded after the timestamp is taken so
+		// it cannot land inside ttft_ms, and discarded the moment a delta
+		// arrives.
+		if firstDelta.IsZero() {
+			keepEvidence(&preamble, payload)
+		}
 
 		// ttft_ms: the first chunk carrying ANY delta.
 		if hasDelta && firstDelta.IsZero() {
@@ -378,15 +385,44 @@ func (c *Client) readStream(
 	res.OK = true
 }
 
+// keepEvidence appends s to b as one more line of a body that was not a
+// stream, bounded by maxErrorBodyBytes.
+//
+// The cap is checked BEFORE the separator, not only against the line: a body of
+// ten thousand lines would otherwise keep appending newlines long after the
+// last one that carried any text, and error_detail is a column, not a scratch
+// buffer.
+func keepEvidence(b *strings.Builder, s string) {
+	room := maxErrorBodyBytes - b.Len()
+	if s == "" || room <= 0 {
+		return
+	}
+	if b.Len() > 0 {
+		b.WriteByte('\n')
+		room--
+	}
+	// Clipped rather than skipped when it does not fit whole: one SSE line may
+	// be up to maxSSELineBytes, so a length check alone would let a single line
+	// blow past the cap.
+	b.WriteString(clip(s, room))
+}
+
 // clip returns at most n bytes of s. A negative or zero n yields "", so a
 // caller that has already filled its budget writes nothing rather than
 // panicking on a negative slice bound.
+//
+// Cut on a rune boundary: an upstream error page is text, often not in English,
+// and half a multi-byte character is a replacement glyph where the diagnosis
+// should be.
 func clip(s string, n int) string {
 	if n <= 0 {
 		return ""
 	}
 	if len(s) <= n {
 		return s
+	}
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
 	}
 	return s[:n]
 }

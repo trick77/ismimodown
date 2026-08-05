@@ -23,8 +23,9 @@ import { buildCostOption } from "./charts/options";
 // produces a total that is technically correct and reads as the daily bill.
 const MIN_RUNS = 10;
 
-// The probe kinds, in the order the panel names them, with the words the rest of
-// the page uses. "infer" is the API's term and never the reader's.
+// How often each probe kind runs, said once beside its per-run price. The NAMES
+// live in format.ts — the words the rest of the page uses, because "infer" is
+// the API's term and never the reader's.
 const PROBE_HINTS: Record<string, string> = {
   infer: "every 5 min",
   wide: "hourly",

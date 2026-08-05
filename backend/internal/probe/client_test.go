@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 // testConfig is a fast ladder so timeout tests finish in milliseconds while
@@ -561,6 +562,61 @@ func TestKeptBodyIsBounded(t *testing.T) {
 				t.Errorf("detail is %d bytes, want it clipped near %d", n, maxErrorBodyBytes)
 			}
 		})
+	}
+}
+
+// The commonest shape of a failure served inside a 200 stream: a well-formed
+// SSE frame carrying an error object and no choices. It is not a non-data line,
+// so keeping only the non-SSE preamble would still leave the operator with
+// nothing but "nothing arrived".
+func TestErrorObjectInsideAStreamIsKept(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, `data: {"error":{"message":"upstream at capacity"}}`+"\n\n")
+	}))
+	defer srv.Close()
+
+	res, _ := NewClient(testConfig(srv.URL)).Run(context.Background(), Request{
+		ModelID: "m", Probe: ProbeInfer, Prompt: "q", MaxTokens: 150,
+	})
+	if res.ErrorClass != ErrClassProtocol {
+		t.Errorf("class = %q, want %q", res.ErrorClass, ErrClassProtocol)
+	}
+	if !strings.Contains(res.ErrorDetail, "upstream at capacity") {
+		t.Errorf("detail = %q, want it to carry the error object", res.ErrorDetail)
+	}
+}
+
+// A healthy stream says nothing extra. The frames before the first delta are
+// collected, and dropping them once the stream proves real is what keeps a
+// normal run's error_detail empty.
+func TestHealthyStreamKeepsNoEvidence(t *testing.T) {
+	srv := sseServer(t, 5*time.Millisecond, nil, []string{"Pa", "ris"})
+	defer srv.Close()
+
+	res, _ := NewClient(testConfig(srv.URL)).Run(context.Background(), Request{
+		ModelID: "m", Probe: ProbeInfer, Prompt: "q", MaxTokens: 150,
+	})
+	if !res.OK || res.ErrorDetail != "" {
+		t.Errorf("ok = %v, detail = %q, want a clean run", res.OK, res.ErrorDetail)
+	}
+}
+
+// An upstream error page is text, and often not in English. Cutting it at a
+// byte boundary would put a replacement glyph where the last character of the
+// diagnosis should be.
+func TestKeptBodyIsCutOnARuneBoundary(t *testing.T) {
+	body := strings.Repeat("服务不可用", 4096) // 3 bytes per rune, so 4096 splits one
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, body)
+	}))
+	defer srv.Close()
+
+	res, _ := NewClient(testConfig(srv.URL)).Run(context.Background(), Request{
+		ModelID: "m", Probe: ProbeInfer, Prompt: "q", MaxTokens: 150,
+	})
+	if !utf8.ValidString(res.ErrorDetail) {
+		t.Errorf("detail is not valid UTF-8: %q", res.ErrorDetail)
 	}
 }
 

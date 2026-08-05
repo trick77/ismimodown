@@ -28,10 +28,15 @@ const ROWS = 20;
 // exactly, so without one the pair would swap places between renders. Probe
 // name, so the order is the same on every load.
 export function newestFirst(perProbe: Sample[][]): Sample[] {
-  return perProbe.flat().sort((a, b) => {
-    const byTime = Date.parse(b.at) - Date.parse(a.at);
-    return byTime !== 0 ? byTime : a.probe.localeCompare(b.probe);
-  });
+  // Parsed once per sample rather than twice per comparison: the merge runs on
+  // every stream event, and Date.parse is the expensive part of the sort.
+  return perProbe
+    .flat()
+    .map((s) => ({ s, t: Date.parse(s.at) }))
+    .sort((a, b) =>
+      b.t !== a.t ? b.t - a.t : a.s.probe.localeCompare(b.s.probe),
+    )
+    .map(({ s }) => s);
 }
 
 // Raw cycles, nothing aggregated away — the one place on the page a screen
