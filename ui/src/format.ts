@@ -47,6 +47,15 @@ export function formatInt(n: number | null | undefined): string {
   return new Intl.NumberFormat("en-GB").format(Math.round(n));
 }
 
+// plural picks the noun for a count, for the sentences that interpolate one.
+//
+// Only for nouns that differ by a suffix. Where the singular case says
+// something DIFFERENT — "One run is not yet a pattern" — the sentence is
+// written out by hand at the call site instead; see verdict.ts.
+export function plural(n: number, one: string, many = `${one}s`): string {
+  return Math.abs(n) === 1 ? one : many;
+}
+
 function round(v: number, digits: number): string {
   // toFixed then strip trailing zeros, so 900.00 renders as 900 rather than
   // implying a precision the measurement does not have.

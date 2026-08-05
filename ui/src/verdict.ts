@@ -2,6 +2,7 @@
 // published without the context needed to read it.
 import type { ModelSummary, RecentCycle, Summary } from "./api/types";
 import { FAULT_EDGE, FAULT_OK, FAULT_ROUTE, FAULT_UPLINK } from "./api/types";
+import { plural } from "./format";
 
 export type State = "normal" | "elevated" | "degraded" | "unknown";
 
@@ -346,7 +347,7 @@ export function buildVerdict(
         "Reasoning is switched on — the latency figures are not measuring what they claim",
       detail: reasoning.map(
         (m) =>
-          `${m.model_id} returned up to ${m.max_reasoning_tokens} reasoning tokens despite thinking being disabled.`,
+          `${m.model_id} returned up to ${m.max_reasoning_tokens} reasoning ${plural(m.max_reasoning_tokens, "token")} despite thinking being disabled.`,
       ),
     };
   }
@@ -375,6 +376,11 @@ export function buildVerdict(
       detail:
         infra.lastRedAgo !== null
           ? [
+              // No singular branch, and none is reachable: lastRedAgo is an
+              // index into the whole served block while count covers the first
+              // RECENT_CYCLES of it, so a red anywhere near the front makes the
+              // network branch above return first. Getting here at all means
+              // the last red is at least RECENT_CYCLES back.
               `The last failed cycle was ${agoWords(infra.lastRedMinutes ?? infra.lastRedAgo * 5)}; the ${infra.lastRedAgo} since have all been clean.`,
             ]
           : detail,
@@ -417,11 +423,11 @@ function faultVerdict(state: State, recent: RecentCycle[], t: Track): Verdict {
     );
   } else if (t.count > 1) {
     detail.push(
-      `${t.count} of the last ${horizon} cycles failed, the most recent ${when}.`,
+      `${t.count} of the last ${horizon} ${plural(horizon, "cycle")} failed, the most recent ${when}.`,
     );
   } else {
     detail.push(
-      `1 of the last ${horizon} cycles failed, ${when}. One cycle is not yet a pattern.`,
+      `1 of the last ${horizon} ${plural(horizon, "cycle")} failed, ${when}. One cycle is not yet a pattern.`,
     );
   }
 
@@ -499,8 +505,8 @@ function scoreModel(
     // does not say so reads as a verdict.
     detail.push(
       failures.count === 1
-        ? `${model.model_id} failed 1 of the last ${horizon} runs. One run is not yet a pattern.`
-        : `${model.model_id} failed ${failures.count} of the last ${horizon} runs.`,
+        ? `${model.model_id} failed 1 of the last ${horizon} ${plural(horizon, "run")}. One run is not yet a pattern.`
+        : `${model.model_id} failed ${failures.count} of the last ${horizon} ${plural(horizon, "run")}.`,
     );
   }
 
@@ -510,6 +516,10 @@ function scoreModel(
   );
   const correctness = scoreTrack(wrong, WRONG_THRESHOLDS);
   if (correctness !== "normal") {
+    // No "one is not yet a pattern" softener here, unlike the two branches
+    // above, and none is needed: ELEVATED_WRONG_RECENT is 2, so a single wrong
+    // answer scores normal and this sentence never speaks at all. Silence is
+    // the softener.
     detail.push(
       `${model.model_id} answered ${wrong.count} of the last ${horizon} questions wrongly.`,
     );
