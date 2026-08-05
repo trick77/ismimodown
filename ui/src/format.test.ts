@@ -3,6 +3,7 @@ import {
   dynamicRange,
   formatAxisMs,
   formatDate,
+  formatAgo,
   formatDateTime,
   formatInt,
   formatMs,
@@ -179,6 +180,41 @@ describe("the formatters are not pinned to a zone", () => {
     for (const opts of options) {
       expect(opts ?? {}).not.toHaveProperty("timeZone");
     }
+  });
+});
+
+describe("formatAgo", () => {
+  const now = Date.parse("2026-08-04T12:00:00Z");
+
+  // Every minute counts, unlike verdict.ts's agoWords: cycles are five minutes
+  // apart, and a formatter that said "just now" up to five would print it
+  // against the newest rows of the table this exists for.
+  it("counts single minutes", () => {
+    expect(formatAgo(new Date(now - 30_000), now)).toBe("just now");
+    expect(formatAgo(new Date(now - 60_000), now)).toBe("1 min ago");
+    expect(formatAgo(new Date(now - 25 * 60_000), now)).toBe("25 min ago");
+    expect(formatAgo(new Date(now - 59 * 60_000), now)).toBe("59 min ago");
+  });
+
+  it("steps up to hours and then days", () => {
+    expect(formatAgo(new Date(now - 3 * 3_600_000), now)).toBe("3 h ago");
+    expect(formatAgo(new Date(now - 30 * 3_600_000), now)).toBe("1 d ago");
+  });
+
+  // A stamp a second into the future is a client clock a second behind the
+  // daemon's, not a measurement from the future.
+  it("clamps a future stamp rather than counting backwards", () => {
+    expect(formatAgo(new Date(now + 30_000), now)).toBe("just now");
+  });
+
+  it("handles an unparseable timestamp", () => {
+    expect(formatAgo("not a date", now)).toBe("—");
+  });
+
+  // The seconds/milliseconds trap toDate carries: a bare number is epoch
+  // SECONDS, and the row stamps that reach this are ISO strings either way.
+  it("reads a bare number as epoch seconds, like the other formatters", () => {
+    expect(formatAgo(now / 1000 - 600, now)).toBe("10 min ago");
   });
 });
 

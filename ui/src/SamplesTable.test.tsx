@@ -1,8 +1,12 @@
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { act, render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SamplesTable, newestFirst } from "./SamplesTable";
 import type { Sample } from "./api/types";
-import { formatTime } from "./format";
+import { formatDateTime } from "./format";
+
+// The column reads as a distance from now, so every expectation below is
+// relative to a pinned now — the same instant the fixtures are stamped at.
+const NOW = new Date("2026-08-04T12:00:00Z");
 
 const sample = (over: Partial<Sample> = {}): Sample => ({
   at: "2026-08-04T12:00:00Z",
@@ -99,6 +103,17 @@ describe("newestFirst", () => {
 });
 
 describe("SamplesTable", () => {
+  // shouldAdvanceTime, so React's own scheduling still runs while the clock the
+  // ages are measured against is the pinned one.
+  beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(NOW);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   // The caller hands over a whole day so PulseStrip can draw it. The table is
   // not the place to re-read that day.
   it("renders at most the twenty most recent runs", () => {
@@ -134,7 +149,7 @@ describe("SamplesTable", () => {
       .filter((t): t is string => t !== null);
     // 20 rows of two models is 40 minutes here: 8 five-minute ticks at two
     // short runs each, plus the two wide runs sharing the newest of them.
-    expect(times[times.length - 1]).toBe(formatTime(at(40)));
+    expect(times[times.length - 1]).toBe("40 min ago");
     expect(screen.getAllByText("wide")).toHaveLength(2);
   });
 
@@ -151,7 +166,39 @@ describe("SamplesTable", () => {
         ]}
       />,
     );
-    expect(cellsOfFirstRow()[0]).toBe(formatTime("2026-08-04T12:00:00Z"));
+    expect(cellsOfFirstRow()[0]).toBe("just now");
+  });
+
+  // The stamp a distance cannot carry. A reader matching a row against a log
+  // line elsewhere needs the instant, so it stays on the cell rather than being
+  // traded away for the column's readability.
+  it("keeps the exact stamp on the cell it no longer prints", () => {
+    render(
+      <SamplesTable perGroup={[[sample({ at: "2026-08-04T11:35:00Z" })]]} />,
+    );
+
+    const cell = screen.getByText("25 min ago");
+    expect(cell).toHaveAttribute("datetime", "2026-08-04T11:35:00Z");
+    expect(cell).toHaveAttribute(
+      "title",
+      formatDateTime("2026-08-04T11:35:00Z"),
+    );
+  });
+
+  // The rows only change when a cycle completes, five minutes apart. Without a
+  // clock of its own the column would sit at the age it had on the last render
+  // and quietly lie for the rest of the gap.
+  it("ages the rows while the page sits open", () => {
+    render(<SamplesTable perGroup={[[sample()]]} />);
+    expect(screen.getByText("just now")).toBeInTheDocument();
+
+    // When four minutes pass with no new data
+    act(() => {
+      vi.advanceTimersByTime(4 * 60_000);
+    });
+
+    // Then
+    expect(screen.getByText("4 min ago")).toBeInTheDocument();
   });
 
   it("shows fewer rows without complaint when fewer cycles exist", () => {
