@@ -154,16 +154,20 @@ means `.env` was not filled in; compose fails before the container starts, by
 design, because a container running without a key would record an unbroken wall
 of auth failures that renders on the dashboard as a MiMo outage.
 
-## Confirming the reference host from this box
+## Confirming the reference hosts from this box
 
-The reference ping target is what stops a route problem, or an outage of our
-own, from being published as a MiMo outage — so it has to be reachable **from
-the probe host**, not from wherever it was last checked.
+The reference ping targets are what stop a route problem, or an outage of our
+own, from being published as a MiMo outage — so they have to be reachable **from
+the probe host**, not from wherever they were last checked.
+
+Four targets, in two pairs: an edge and its independent reference per region.
+The script forces `AF_INET` because the probe itself is IPv4-only.
 
 ```sh
 python3 - <<'PY'
 import socket, statistics, time
-for h in ["token-plan-sgp.xiaomimimo.com", "sgp.proof.ovh.net"]:
+for h in ["token-plan-sgp.xiaomimimo.com", "sgp.proof.ovh.net",
+          "token-plan-ams.xiaomimimo.com", "speedtest.amsterdam.linode.com"]:
     try:
         ip = socket.getaddrinfo(h, 443, socket.AF_INET, socket.SOCK_STREAM)[0][4][0]
     except Exception as e:
@@ -181,25 +185,47 @@ for h in ["token-plan-sgp.xiaomimimo.com", "sgp.proof.ovh.net"]:
 PY
 ```
 
-Both must answer. If the Singapore reference does not, override it — a dead
-reference does not create a false outage (attribution only consults it once
-MiMo is already unreachable), but it costs the edge-vs-everything-else
-distinction exactly when that distinction matters, and every unreachable cycle
-then lands in the excluded bucket instead of being attributed:
+All four must answer. The two that matter differently:
+
+**Singapore** is the region every verdict on the page is about. If its reference
+does not answer, override it — a dead reference does not create a false outage
+(attribution only consults it once MiMo is already unreachable), but it costs
+the edge-vs-everything-else distinction exactly when that distinction matters,
+and every unreachable cycle then lands in the excluded bucket instead of being
+attributed:
 
 ```sh
 echo 'BACKEND_PING_REF_SGP_HOST=<a real Singapore host>' >> .env && docker compose up -d
 ```
 
-This is the only probe target with a setting. MiMo's own ping host is derived
-from `BACKEND_MIMO_BASE_URL` and cannot be pointed elsewhere on its own.
+**Amsterdam** feeds no verdict at all. It is charted in "The wire itself" and
+never summarised, never attributed — so a dead Amsterdam reference costs a chart
+line and nothing else. It is still the likelier of the two to need overriding,
+because `speedtest.amsterdam.linode.com` resolves to a SINGLE address rather
+than a rotation, so one host down takes the whole series with it:
 
-The default is `sgp.proof.ovh.net`, OVH's Singapore speedtest node — same
+```sh
+echo 'BACKEND_PING_REF_AMS_HOST=ams.speedtest.clouvider.net' >> .env && docker compose up -d
+```
+
+That fallback is tested: `194.127.172.176`, answering on 443 from Amsterdam.
+
+These two are the only probe targets with a setting. Both of MiMo's own ping
+hosts are fixed — Singapore is derived from `BACKEND_MIMO_BASE_URL`, Amsterdam
+is a constant (`token-plan-ams.xiaomimimo.com`, a CNAME to
+`mimo-pri-azams.alb.xiaomi.com`) — and neither can be pointed elsewhere.
+
+Both references must be a hostname or an **IPv4** address. The probe resolves
+and dials A records only, so that all four numbers measure the same kind of
+path; an IPv6 literal is refused at boot rather than becoming a ping that fails
+forever.
+
+The Singapore default is `sgp.proof.ovh.net`, OVH's Singapore speedtest node — same
 carrier as the probe box, which is what makes "the route is fine" a claim about
 MiMo's own transit rather than about some other network's. Replace it if you
 deploy somewhere OVH is not the relevant path, or if it stops answering.
 
-Pick a genuine Singapore endpoint, and verify it with the script above rather
+Pick a genuine endpoint in the region you are replacing, and verify it with the script above rather
 than by name: several plausible-looking hostnames answer from anycast PoPs in
 Europe, which would put a European host in the Singapore slot — the precise
 failure this reference exists to detect. `sgp.ovh` is exactly this trap; it is

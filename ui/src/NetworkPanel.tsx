@@ -1,35 +1,59 @@
 import type { NetSeries } from "./api/types";
-import { TARGET_MIMO, TARGET_REF_SGP } from "./api/types";
+import {
+  TARGET_MIMO,
+  TARGET_REF_SGP,
+  TARGET_MIMO_AMS,
+  TARGET_REF_AMS,
+} from "./api/types";
 import { Card, LogScaleChip, NoChart } from "./ui";
 import { EChart } from "./charts/EChart";
 import {
   buildLineOption,
   CHART_HEIGHT,
   MIMO_EDGE_COLOR,
+  MIMO_EDGE_AMS_COLOR,
   REFERENCE_COLOR,
+  REFERENCE_AMS_COLOR,
   WIRE_COLOR,
 } from "./charts/options";
 
+// Region named in every label, on both halves of every pair. "MiMo edge" and
+// "Reference" unqualified would be two ambiguous labels on a chart whose whole
+// point is the comparison between regions.
 const LABELS: Record<string, string> = {
   [TARGET_MIMO]: "MiMo edge (Singapore)",
   [TARGET_REF_SGP]: "Reference (Singapore)",
+  [TARGET_MIMO_AMS]: "MiMo edge (Amsterdam)",
+  [TARGET_REF_AMS]: "Reference (Amsterdam)",
 };
 
-// The reference line is faint; MiMo's own edge is the one being read. The edge
-// carries a hue and the reference stays neutral, so the two separate on sight
-// rather than on the legend — see MIMO_EDGE_COLOR for why a green is acceptable
-// on a chart that measures no health, and REFERENCE_COLOR for the contrast
-// floor that stops the reference going darker still.
+// Role is hue-versus-ink, region is which one: an edge carries a colour and a
+// reference is grey, so a reader can tell a measurement from its control
+// without the legend, and the violet/teal and dark/light-grey split then says
+// which region each belongs to. See MIMO_EDGE_AMS_COLOR for the measured
+// separations, MIMO_EDGE_COLOR for why the accent family could not supply these
+// hues, and REFERENCE_COLOR for the contrast floor that forced Amsterdam's grey
+// to be the lighter of the two rather than the darker.
 const COLORS: Record<string, string> = {
   [TARGET_MIMO]: MIMO_EDGE_COLOR,
   [TARGET_REF_SGP]: REFERENCE_COLOR,
+  [TARGET_MIMO_AMS]: MIMO_EDGE_AMS_COLOR,
+  [TARGET_REF_AMS]: REFERENCE_AMS_COLOR,
 };
 
 export function NetworkPanel({ series }: { series: NetSeries | null }) {
   const targets = series?.targets ?? {};
   const relabelled: Record<string, (typeof targets)[string]> = {};
   const order: string[] = [];
-  for (const key of [TARGET_MIMO, TARGET_REF_SGP]) {
+  // Edge before its reference, Singapore before Amsterdam: Singapore is where
+  // inference actually goes, so it leads, and each edge sits next to the control
+  // it is read against rather than the two edges being grouped together.
+  for (const key of [
+    TARGET_MIMO,
+    TARGET_REF_SGP,
+    TARGET_MIMO_AMS,
+    TARGET_REF_AMS,
+  ]) {
     const points = targets[key];
     if (points && points.length) {
       relabelled[LABELS[key]!] = points;
@@ -52,13 +76,13 @@ export function NetworkPanel({ series }: { series: NetSeries | null }) {
   return (
     <Card
       title="The wire itself"
-      subtitle="Time to complete the TCP handshake on port 443 — no TLS, no HTTP, no auth, no tokens. The reference host is what keeps a route problem, or an outage of our own, from being published as a MiMo outage. Lower is better."
+      subtitle="Time to complete the TCP handshake on port 443 — no TLS, no HTTP, no auth, no tokens. Each Xiaomi MiMo edge is paired with an independent reference host in the same city, which is what keeps a route problem, or an outage of our own, from being published as a MiMo outage. Only Singapore serves the inference this page measures; Amsterdam is the same service from another region, for comparison. Lower is better."
       right={option.logScale ? <LogScaleChip /> : null}
     >
       {order.length > 0 ? (
         <EChart
           option={option}
-          ariaLabel="TCP handshake time to MiMo's edge and the reference host"
+          ariaLabel="TCP handshake time to MiMo's Singapore and Amsterdam edges and their reference hosts"
         />
       ) : (
         <NoChart height={CHART_HEIGHT}>
