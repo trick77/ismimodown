@@ -137,6 +137,13 @@ export type Failure = {
   probe: string;
   error_class: string | null;
   http_status: number | null;
+  // The cycle's stored attribution, so a row can say whose failure it was. Raw,
+  // including the historical FAULT_ROUTE and the empty string a cycle with no
+  // attribution carries — reading those is the client's job, as it is for
+  // RecentCycle.fault. A failure on an unattributable cycle stays in the list
+  // and gets labelled: dropping it would make the card claim a clean day during
+  // an outage.
+  fault: string;
 };
 
 export type SamplesResponse = {

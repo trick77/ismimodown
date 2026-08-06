@@ -408,3 +408,73 @@ func TestFailuresCoverOnlyConfiguredModels(t *testing.T) {
 		t.Errorf("failures = %+v, want only the configured model", got.Failures)
 	}
 }
+
+// Every row carries whose failure it was.
+//
+// This block is the one public surface that neither excludes unattributable
+// cycles nor aggregates them away, so without the attribution it would list our
+// own uplink outage as if MiMo had answered badly — the exact conflation the
+// two-probe design exists to prevent. It is carried, not filtered: dropping
+// those rows would make the card say "nothing failed" during a real outage.
+func TestFailuresCarryTheCycleFault(t *testing.T) {
+	h, store := newAPIServer(t)
+
+	// MiMo unreachable while the unrelated Singapore host answers: the path is
+	// fine, so the fault is MiMo's.
+	if _, err := store.Save(context.Background(), samples.Cycle{
+		StartedAt: testNow.Add(-time.Minute),
+		Net: []probe.NetResult{
+			{Target: probe.TargetMimoSGP, OK: false, ErrorClass: probe.ErrClassConnectTimeout},
+			{Target: probe.TargetRefSGP, OK: true, ConnectMs: 265},
+		},
+		Infer: []probe.InferResult{{
+			ModelID: "mimo-v2.5", Probe: probe.ProbeShort,
+			OK: false, ErrorClass: probe.ErrClassConnectTimeout,
+		}},
+	}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	// Nothing in Singapore answers: unattributable, and the run that failed
+	// under it cannot be shown to be MiMo's fault.
+	if _, err := store.Save(context.Background(), samples.Cycle{
+		StartedAt: testNow.Add(-2 * time.Minute),
+		Net: []probe.NetResult{
+			{Target: probe.TargetMimoSGP, OK: false, ErrorClass: probe.ErrClassConnectTimeout},
+			{Target: probe.TargetRefSGP, OK: false, ErrorClass: probe.ErrClassConnectTimeout},
+		},
+		Infer: []probe.InferResult{{
+			ModelID: "mimo-v2.5", Probe: probe.ProbeShort,
+			OK: false, ErrorClass: probe.ErrClassConnectTimeout,
+		}},
+	}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	got := getDashboard(t, h, "24h")
+	if len(got.Failures) != 2 {
+		t.Fatalf("failures = %d, want both", len(got.Failures))
+	}
+	if got.Failures[0].Fault != probe.FaultEdge {
+		t.Errorf("fault = %q, want %q", got.Failures[0].Fault, probe.FaultEdge)
+	}
+	// The one that must never read as MiMo's.
+	if got.Failures[1].Fault != probe.FaultUplink {
+		t.Errorf("fault = %q, want %q", got.Failures[1].Fault, probe.FaultUplink)
+	}
+}
+
+// A healthy network under a failed call is the ordinary case, and it has to
+// come back as the fault it was stored with rather than as the empty string —
+// the client reads "" as "nobody attributed this", which is a different claim.
+func TestFailuresOnAttributedCyclesSayOK(t *testing.T) {
+	h, store := newAPIServer(t)
+	seedFailure(t, store, time.Minute, "mimo-v2.5", probe.ErrClassHTTP, "boom", 500)
+
+	got := getDashboard(t, h, "24h")
+	if len(got.Failures) != 1 {
+		t.Fatalf("failures = %d, want 1", len(got.Failures))
+	}
+	if got.Failures[0].Fault != probe.FaultOK {
+		t.Errorf("fault = %q, want %q — both probes answered", got.Failures[0].Fault, probe.FaultOK)
+	}
+}

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { Failure } from "./api/types";
+import { FAULT_ROUTE, FAULT_UPLINK } from "./api/types";
 import { Card } from "./ui";
 import { formatAgo, formatDateTime } from "./format";
 
@@ -19,6 +20,11 @@ import { formatAgo, formatDateTime } from "./format";
 // the request back, and it belongs in the daemon's logs rather than on a public
 // page. The class and the status are the daemon's own vocabulary, and between
 // them they name the failure without quoting anyone.
+//
+// And it is the only public surface that neither excludes unattributable
+// cycles nor aggregates them — so it is the only one that has to label them on
+// the row. See unattributable() below for why they are labelled rather than
+// dropped.
 
 // How often the ages are recomputed, matching SamplesTable: half a minute is
 // under the resolution the column prints, so no row is visibly stale by a unit
@@ -50,6 +56,23 @@ const CLASS_GLOSS: Record<string, string> = {
   canceled: "shutdown, not a fault",
 };
 
+// A failure nobody could pin on MiMo.
+//
+// Both classes travel together everywhere in this codebase — route is no longer
+// produced, but stored cycles carry it, and handling only uplink would silently
+// misread them. Same pairing as unattributable() in verdict.ts; keep the two in
+// step.
+//
+// The row stays in the list. The availability arithmetic drops these from its
+// denominator because it is computing a claim ABOUT MiMo, and a failure during
+// our own outage is not evidence for it. This card is not computing a claim —
+// it is reporting what happened — and a monitor that goes quiet when the
+// network dies would hide the very incident it exists to show. So the run is
+// listed and the row says who it belongs to.
+function unattributable(fault: string): boolean {
+  return fault === FAULT_UPLINK || fault === FAULT_ROUTE;
+}
+
 // null is NOT the empty list, and the difference is the whole card. An empty
 // list is evidence — the server looked and found nothing — and the sentence it
 // earns is a claim about the endpoint's health. null is the absence of
@@ -69,7 +92,7 @@ export function RecentErrors({ failures }: { failures: Failure[] | null }) {
   return (
     <Card
       title="Most recent errors"
-      subtitle="Only the failed calls, from the last 24 hours whichever range is selected above — each with the status code the endpoint answered with, where it got that far."
+      subtitle="Only the failed calls, from the last 24 hours whichever range is selected above — each with the status code the endpoint answered with, where it got that far. A run that failed while nothing in Singapore was reachable says so: it is listed, but it is not MiMo's."
     >
       {failures === null ? (
         // Nothing has answered yet. Neutral wording, matching the raw table
@@ -106,13 +129,31 @@ export function RecentErrors({ failures }: { failures: Failure[] | null }) {
                   <td className="num py-2 pr-4">{f.model_id}</td>
                   <td className="num py-2 pr-4">{f.probe}</td>
                   <td className="py-2 pr-4">
-                    <span className="num text-danger">
+                    {/* Not red when nothing in Singapore answered. The colour
+                        on this column means "MiMo failed", and during our own
+                        outage that is the one thing the row cannot claim — the
+                        run genuinely failed, but the evidence stops at our
+                        uplink. Muted, with the label below saying why. */}
+                    <span
+                      className={
+                        unattributable(f.fault)
+                          ? "num text-muted"
+                          : "num text-danger"
+                      }
+                    >
                       {f.error_class ?? "failed"}
                     </span>
-                    {f.error_class && CLASS_GLOSS[f.error_class] && (
-                      <span className="mt-[2px] block text-micro text-faint">
-                        {CLASS_GLOSS[f.error_class]}
+                    {unattributable(f.fault) ? (
+                      <span className="mt-[2px] block text-micro text-fault-uplink">
+                        our uplink — not attributable to MiMo
                       </span>
+                    ) : (
+                      f.error_class &&
+                      CLASS_GLOSS[f.error_class] && (
+                        <span className="mt-[2px] block text-micro text-faint">
+                          {CLASS_GLOSS[f.error_class]}
+                        </span>
+                      )
                     )}
                   </td>
                   <td className="num py-2 text-right">
