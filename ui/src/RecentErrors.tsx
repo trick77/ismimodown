@@ -13,10 +13,12 @@ import { formatAgo, formatDateTime } from "./format";
 // wrong recently" stops depending on whether anything went wrong recently
 // enough to still be on screen.
 //
-// It is also the only place two operator fields surface: the HTTP status, and a
-// bounded quote of what the endpoint actually said. The server redacts and
-// clips that text before serving it — see samples.Failure — and the card must
-// not be given anything that isn't already through that filter.
+// It is also the only place the HTTP status surfaces, which is what separates a
+// 429 from a 503 when both arrive under the class "http_error". What the
+// endpoint SAID stays out: that text is the upstream's own bytes, it can echo
+// the request back, and it belongs in the daemon's logs rather than on a public
+// page. The class and the status are the daemon's own vocabulary, and between
+// them they name the failure without quoting anyone.
 
 // How often the ages are recomputed, matching SamplesTable: half a minute is
 // under the resolution the column prints, so no row is visibly stale by a unit
@@ -60,21 +62,20 @@ export function RecentErrors({ failures }: { failures: Failure[] }) {
   return (
     <Card
       title="Most recent errors"
-      subtitle="Only the failed calls, from the last 24 hours whichever range is selected above — with the status code and a trimmed quote of what the endpoint said."
+      subtitle="Only the failed calls, from the last 24 hours whichever range is selected above — each with the status code the endpoint answered with, where it got that far."
     >
       {failures.length > 0 ? (
         <div className="overflow-x-auto">
-          {/* Narrower than the raw table: six columns, and the last one is
-              prose that wraps rather than a figure that must not. */}
-          <table className="w-full min-w-[640px] text-label">
+          {/* Narrower than the raw table: five columns, and one of them is a
+              class with a line of prose under it rather than a figure. */}
+          <table className="w-full min-w-[520px] text-label">
             <thead>
               <tr className="text-micro uppercase tracking-wider text-ghost">
                 <th className="py-2 pr-4 text-left font-medium">When</th>
                 <th className="py-2 pr-4 text-left font-medium">Model</th>
                 <th className="py-2 pr-4 text-left font-medium">Probe</th>
                 <th className="py-2 pr-4 text-left font-medium">Error</th>
-                <th className="py-2 pr-4 text-right font-medium">Status</th>
-                <th className="py-2 text-left font-medium">What came back</th>
+                <th className="py-2 text-right font-medium">Status</th>
               </tr>
             </thead>
             <tbody>
@@ -100,26 +101,13 @@ export function RecentErrors({ failures }: { failures: Failure[] }) {
                       </span>
                     )}
                   </td>
-                  <td className="num py-2 pr-4 text-right">
+                  <td className="num py-2 text-right">
                     {/* A transport failure never got a status, and a dash says
                         that. Printing 0 would read as a status code. */}
                     {f.http_status === null ? (
                       <span className="text-ghost">—</span>
                     ) : (
                       f.http_status
-                    )}
-                  </td>
-                  <td className="py-2">
-                    {f.error_detail === "" ? (
-                      <span className="text-ghost">—</span>
-                    ) : (
-                      // Monospace and wrapping on any character: this is
-                      // upstream text, often JSON or an HTML fragment, and it
-                      // has no spaces to break at. max-w keeps a long quote
-                      // from stretching the table past the panel.
-                      <span className="num block max-w-[46ch] break-all text-faint">
-                        {f.error_detail}
-                      </span>
                     )}
                   </td>
                 </tr>

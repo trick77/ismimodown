@@ -6,10 +6,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/trick77/ismimodown/internal/probe"
-	"github.com/trick77/ismimodown/internal/redact"
 )
 
 // MinSamplesForPercentile is the suppression threshold.
@@ -696,10 +694,9 @@ func checkSeriesColumn(column string) error {
 
 // Sample is one raw row, as served publicly.
 //
-// Note what is absent: error_detail. A provider error body can echo request
-// fragments, so this projection — which carries every run, healthy or not —
-// does not select it. The one public shape that does is Failure, over at most a
-// handful of failed runs and only after redaction and clipping.
+// Note what is absent: error_detail. It is operator-only, because a provider
+// error body can echo request fragments, and a test asserts it never appears in
+// any public payload.
 type Sample struct {
 	At        time.Time `json:"at"`
 	ModelID   string    `json:"model_id"`
@@ -846,59 +843,27 @@ func (s *Store) RecentSamples(ctx context.Context, modelID, probeKind string, li
 	return out, rows.Err()
 }
 
-// MaxFailureDetail bounds the upstream text a served failure quotes.
-//
-// The same 300 the scheduler allows a log line, and for the same reason: a
-// provider answering with an HTML error page would otherwise put a whole
-// document in the payload. It matters more here than in a log, because this
-// column is the one operator-only field the failures block now serves — see
-// Failure — so the bound is a containment measure, not a formatting one.
-const MaxFailureDetail = 300
-
-// clip shortens s to n bytes, marking that it did so, cutting on a rune
-// boundary so no half-character reaches the page.
-//
-// Callers must redact BEFORE clipping: cutting a credential in half leaves the
-// first half of a live key in the response. redact.String's own doc comment
-// states the same ordering rule.
-func clip(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	cut := n
-	for cut > 0 && !utf8.RuneStart(s[cut]) {
-		cut--
-	}
-	return s[:cut] + "…"
-}
-
 // Failure is one failed inference call, as the errors block serves it.
 //
-// This is the ONE public shape that carries error_detail, and it does so under
-// two conditions that nothing else may drop: the text passes through
-// redact.String, and it is clipped to MaxFailureDetail. Both happen in
-// RecentFailures rather than in the handler, so no future caller can select the
-// raw column by taking a different route to it.
+// Note what is absent, and that it stays absent: error_detail. The column holds
+// raw upstream bytes — on an HTTP error it is the response body verbatim — and
+// a provider error body can echo request fragments, including credentials and
+// the prompt. Redacting it on the way out was considered and rejected:
+// redaction is a denylist tuned to one credential's shape, which is the right
+// bet for an operator log and the wrong one for a public unauthenticated
+// endpoint. The detail stays in the database and in the daemon's logs, where
+// the operator can read it.
 //
-// Understand what is being traded. The column stores raw upstream bytes — on an
-// HTTP error it is the response body verbatim — and a provider error body can
-// echo request fragments, which is why every other public projection here omits
-// it. Redaction is a denylist tuned to the MiMo key's shape, so it is a strong
-// bet against a leaked credential and a weaker one against anything else the
-// upstream chose to quote back. The clip is what bounds that residue.
-//
-// HTTPStatus carries no such risk — it is an integer — and it is the field that
-// tells a 429 apart from a 503 when both land as error_class "http_error".
+// HTTPStatus is what this shape adds over the raw table, and it carries no such
+// risk — it is an integer. It is what tells a 429 apart from a 503 when both
+// land as error_class "http_error". Null when the run never reached a status,
+// which is every transport failure.
 type Failure struct {
 	At         time.Time `json:"at"`
 	ModelID    string    `json:"model_id"`
 	Probe      string    `json:"probe"`
 	ErrorClass *string   `json:"error_class"`
 	HTTPStatus *int64    `json:"http_status"`
-	// Empty when the run recorded no detail — a transport failure often has
-	// only its class. Absent rather than a placeholder, so the client decides
-	// how to draw "nothing to quote".
-	ErrorDetail string `json:"error_detail"`
 }
 
 // MaxFailureLimit clamps how many failures any caller can ask for.
@@ -943,9 +908,11 @@ func (s *Store) RecentFailures(ctx context.Context, models []string, since time.
 	}
 	args = append(args, since.UTC().Format(time.RFC3339Nano), limit)
 
+	// error_detail is not selected, for the same reason no other public
+	// projection selects it: it is raw upstream text and this row is served
+	// publicly. See Failure.
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT c.started_at, i.model_id, i.probe, i.error_class, i.http_status,
-		       i.error_detail
+		SELECT c.started_at, i.model_id, i.probe, i.error_class, i.http_status
 		FROM infer_probes i
 		JOIN cycles c ON c.id = i.cycle_id
 		WHERE i.ok = 0
@@ -962,16 +929,17 @@ func (s *Store) RecentFailures(ctx context.Context, models []string, since time.
 	for rows.Next() {
 		var f Failure
 		var at string
-		var class, detail sql.NullString
+		var class sql.NullString
 		var status sql.NullInt64
-		if err := rows.Scan(&at, &f.ModelID, &f.Probe, &class, &status, &detail); err != nil {
+		if err := rows.Scan(&at, &f.ModelID, &f.Probe, &class, &status); err != nil {
 			return nil, err
 		}
 		f.At, _ = time.Parse(time.RFC3339Nano, at)
 		f.ErrorClass = nullS(class)
+		// Null rather than 0 when the run never reached a status: the write
+		// path nulls the zero, and the card draws a dash for it. Printing 0
+		// would read as a status code.
 		f.HTTPStatus = nullI(status)
-		// Redact first, then clip. The other order leaves half a key behind.
-		f.ErrorDetail = clip(redact.String(detail.String), MaxFailureDetail)
 		out = append(out, f)
 	}
 	return out, rows.Err()
@@ -1031,9 +999,8 @@ func (s *Store) RecentPulse(ctx context.Context, modelID, probeKind string, limi
 		var ttft sql.NullFloat64
 		var answerOK sql.NullInt64
 		// error_detail is not selected here for the same reason it is not
-		// selected in RecentSamples: it can echo request fragments, and a day
-		// of bars is the last place to quote upstream bytes. Failure is where
-		// it surfaces, bounded and redacted.
+		// selected in RecentSamples: it can echo request fragments, and this
+		// row is served publicly.
 		var class sql.NullString
 		if err := rows.Scan(&at, &ttft, &okInt, &answerOK, &class); err != nil {
 			return nil, err

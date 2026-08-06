@@ -124,22 +124,19 @@ export type Sample = {
 
 // One failed inference call, as the errors block serves it.
 //
-// This is the only shape on the wire that carries error_detail, and the server
-// only lets it through after redacting credentials and clipping the text — see
-// samples.Failure. Everything else here still omits the column entirely.
+// http_status is what this adds over the raw table: it tells a 429 apart from a
+// 503 when both arrive as error_class "http_error". Null on a transport
+// failure, which never got as far as a status — the card draws a dash for that
+// rather than a 0, which would read as a status code.
 //
-// http_status is what tells a 429 apart from a 503 when both arrive as
-// error_class "http_error"; it is null on a transport failure, which never got
-// as far as a status.
+// Note what is absent, here as everywhere else: error_detail. The upstream's
+// own words can echo the request back, so they stay in the daemon's logs.
 export type Failure = {
   at: string;
   model_id: string;
   probe: string;
   error_class: string | null;
   http_status: number | null;
-  // Empty when the run recorded nothing quotable — a connect timeout has only
-  // its class. The card draws a dash rather than an empty cell.
-  error_detail: string;
 };
 
 export type SamplesResponse = {

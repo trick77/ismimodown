@@ -179,16 +179,12 @@ func TestNetworkSeriesIsSeparateFromModels(t *testing.T) {
 	}
 }
 
-// THE assertion: no public endpoint may ever emit an error_detail VALUE
-// unredacted. A provider error body can echo request fragments, including
-// credentials.
+// THE assertion: no public endpoint may ever emit error_detail. A provider
+// error body can echo request fragments, including credentials.
 //
-// The field NAME is now served, on the failures block alone and only after
-// redact.String and a clip to samples.MaxFailureDetail — so the old
-// "the string error_detail must not appear anywhere" check has been narrowed
-// to the samples and pulse projections, which still carry every run and still
-// must not select the column. The value check below is unchanged and
-// unconditional: it is the assertion that actually matters.
+// The failures block was the one shape that nearly crossed this line, and it
+// does not: it serves the error class and the HTTP status, both of which are
+// the daemon's own vocabulary, and leaves the upstream text where it was.
 func TestNoPublicEndpointEmitsErrorDetail(t *testing.T) {
 	h, store := newAPIServer(t)
 
@@ -228,21 +224,10 @@ func TestNoPublicEndpointEmitsErrorDetail(t *testing.T) {
 			if strings.Contains(body, secret) {
 				t.Errorf("endpoint leaked an error_detail VALUE: %s", body)
 			}
-			// Everything EXCEPT the failures block must not carry the field at
-			// all, so a future struct change that starts serializing it on the
-			// samples or pulse projections — which carry every run rather than
-			// a bounded handful — fails here.
-			var whole map[string]json.RawMessage
-			if err := json.Unmarshal(rec.Body.Bytes(), &whole); err != nil {
-				t.Fatalf("decode: %v", err)
-			}
-			delete(whole, "failures")
-			rest, err := json.Marshal(whole)
-			if err != nil {
-				t.Fatalf("re-encode: %v", err)
-			}
-			if strings.Contains(string(rest), "error_detail") {
-				t.Errorf("a projection outside the failures block exposes error_detail: %s", rest)
+			// No data endpoint should carry the field at all, so a future
+			// struct change that starts serializing it fails here.
+			if strings.Contains(body, "error_detail") {
+				t.Errorf("data endpoint exposes the error_detail field: %s", body)
 			}
 		})
 	}
@@ -256,6 +241,10 @@ const testUserAgent = "someagent/9.9.9 probe-fixture/1.0"
 //
 // Two things in particular: the client string the probe presents, and the id of
 // the rotating question. Both are recorded and both stay unserved.
+//
+// The failures block is why the second cycle below is a FAILED run: that block
+// is the newest surface to project a row publicly, and a payload it never
+// appeared in would pass this for the wrong reason.
 func TestRequestShapeIsNotServed(t *testing.T) {
 	h, store := newAPIServer(t)
 
@@ -268,6 +257,23 @@ func TestRequestShapeIsNotServed(t *testing.T) {
 		Infer: []probe.InferResult{{
 			ModelID: "mimo-v2.5", Probe: probe.ProbeShort, TTFTMs: 900,
 			OK: true, QuestionID: "capital-france",
+		}},
+	}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	// A FAILED run too, so the failures block is populated rather than empty —
+	// the assertions below used to run against a payload the new block never
+	// appeared in, which would have passed for the wrong reason.
+	if _, err := store.Save(context.Background(), samples.Cycle{
+		StartedAt: testNow.Add(-2 * time.Minute),
+		Net: []probe.NetResult{
+			{Target: probe.TargetMimoSGP, OK: true, ConnectMs: 170},
+			{Target: probe.TargetRefSGP, OK: true, ConnectMs: 265},
+		},
+		Infer: []probe.InferResult{{
+			ModelID: "mimo-v2.5", Probe: probe.ProbeShort,
+			OK: false, ErrorClass: probe.ErrClassHTTP, HTTPStatus: 500,
+			ErrorDetail: "upstream unavailable", QuestionID: "capital-france",
 		}},
 	}); err != nil {
 		t.Fatalf("Save: %v", err)

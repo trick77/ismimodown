@@ -94,8 +94,9 @@ type dashboardPayload struct {
 	Cost        samples.CostBreakdown `json:"cost"`
 	Pulse       []any                 `json:"pulse"`
 	Samples     []any                 `json:"samples"`
-	// The last few failed inference calls, newest first, over a fixed day —
-	// see dashboardFailureWindow for why it ignores the selected window.
+	// The last few failed inference calls, newest first, over a fixed day — see
+	// dashboardFailureWindow for why it ignores the selected window. Class and
+	// status only: samples.Failure explains why the upstream text stays behind.
 	Failures []samples.Failure `json:"failures"`
 }
 

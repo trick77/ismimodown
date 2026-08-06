@@ -13,7 +13,6 @@ const failure = (over: Partial<Failure> = {}): Failure => ({
   probe: "short",
   error_class: "http_error",
   http_status: 503,
-  error_detail: "upstream connect error",
   ...over,
 });
 
@@ -31,7 +30,7 @@ describe("RecentErrors", () => {
     vi.useRealTimers();
   });
 
-  it("draws the class, the status and what the endpoint said", () => {
+  it("draws the model, the probe, the class and the status", () => {
     render(<RecentErrors failures={[failure()]} />);
 
     const cells = cellsOfFirstRow();
@@ -39,7 +38,6 @@ describe("RecentErrors", () => {
     expect(cells[2]).toBe("short");
     expect(cells[3]).toContain("http_error");
     expect(cells[4]).toBe("503");
-    expect(cells[5]).toBe("upstream connect error");
   });
 
   // "ttft_timeout" does not say "accepted, then queued", and that distinction
@@ -67,18 +65,24 @@ describe("RecentErrors", () => {
     render(
       <RecentErrors
         failures={[
-          failure({
-            error_class: "connect_timeout",
-            http_status: null,
-            error_detail: "",
-          }),
+          failure({ error_class: "connect_timeout", http_status: null }),
         ]}
       />,
     );
 
     const cells = cellsOfFirstRow();
     expect(cells[4]).toBe("—");
-    expect(cells[5]).toBe("—");
+  });
+
+  // The upstream's own words never reach this card — the type has no field for
+  // them, and this is what fails if one is ever added.
+  it("has no column for what the endpoint said", () => {
+    render(<RecentErrors failures={[failure()]} />);
+
+    const headers = [...screen.getAllByRole("columnheader")].map(
+      (th) => th.textContent,
+    );
+    expect(headers).toEqual(["When", "Model", "Probe", "Error", "Status"]);
   });
 
   // A card that vanishes when nothing failed is indistinguishable from a card
@@ -96,15 +100,15 @@ describe("RecentErrors", () => {
     render(
       <RecentErrors
         failures={[
-          failure({ at: "2026-08-04T11:59:00Z", error_detail: "newest" }),
-          failure({ at: "2026-08-04T11:00:00Z", error_detail: "older" }),
+          failure({ at: "2026-08-04T11:59:00Z", http_status: 503 }),
+          failure({ at: "2026-08-04T11:00:00Z", http_status: 429 }),
         ]}
       />,
     );
 
-    const details = [
+    const statuses = [
       ...screen.getByRole("table").querySelectorAll("tbody tr td:last-child"),
     ].map((td) => td.textContent);
-    expect(details).toEqual(["newest", "older"]);
+    expect(statuses).toEqual(["503", "429"]);
   });
 });

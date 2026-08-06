@@ -294,9 +294,9 @@ func seedFailure(
 	}
 }
 
-// The failures block is the newest few, newest first, and it carries the two
-// fields the raw table cannot: the HTTP status and a bounded quote of what the
-// upstream actually said.
+// The failures block is the newest few, newest first, and it carries the one
+// field the raw table cannot: the HTTP status, which is what tells a 429 apart
+// from a 503 when both arrive as error_class "http_error".
 func TestDashboardServesTheNewestFailures(t *testing.T) {
 	h, store := newAPIServer(t)
 	seed(t, store, 25, 900)
@@ -311,12 +311,9 @@ func TestDashboardServesTheNewestFailures(t *testing.T) {
 	if len(got.Failures) != dashboardFailureLimit {
 		t.Fatalf("failures = %d, want %d", len(got.Failures), dashboardFailureLimit)
 	}
-	// Newest first: the one-minute-old row leads, and the six-minute-old one
-	// is the row the cap dropped.
+	// Newest first: the one-minute-old row leads, carrying its own status, and
+	// the six-minute-old one is the row the cap dropped.
 	first := got.Failures[0]
-	if first.ErrorDetail != "upstream said 1" {
-		t.Errorf("leading failure detail = %q, want the newest", first.ErrorDetail)
-	}
 	if first.HTTPStatus == nil || *first.HTTPStatus != 501 {
 		t.Errorf("http_status = %v, want the status the run recorded", first.HTTPStatus)
 	}
@@ -353,43 +350,49 @@ func TestFailuresAreIdenticalAcrossWindows(t *testing.T) {
 	if len(day.Failures) != 1 {
 		t.Fatalf("24h failures = %d, want the one inside the day", len(day.Failures))
 	}
+	// A transport failure never reached a status, and the column must say so
+	// with a dash rather than print 0 — which reads as a status code. The zero
+	// is nulled on the way in (samples.go), and this is what holds that.
+	if day.Failures[0].HTTPStatus != nil {
+		t.Errorf("http_status = %v on a run that never got one, want null",
+			*day.Failures[0].HTTPStatus)
+	}
 	if !reflect.DeepEqual(day.Failures, quarter.Failures) {
 		t.Errorf("the block moved with the selector:\n24h = %+v\n3mo = %+v",
 			day.Failures, quarter.Failures)
 	}
-	for _, f := range quarter.Failures {
-		if strings.Contains(f.ErrorDetail, "ancient") {
-			t.Errorf("a failure older than the fixed day was served: %+v", f)
-		}
+	// The failure outside the fixed day is the one that must not appear at all,
+	// on either window.
+	if !day.Failures[0].At.Equal(testNow.Add(-2 * time.Hour)) {
+		t.Errorf("failure at = %v, want the one inside the day", day.Failures[0].At)
 	}
 }
 
-// The failures block is the one public shape that quotes upstream bytes, so it
-// is also the one that has to prove the credential never survives the trip.
-func TestFailureDetailIsRedactedAndBounded(t *testing.T) {
+// The block quotes the daemon's own vocabulary and nothing the upstream said.
+// A provider error body can echo the request, so error_detail stays where it
+// is; this is the newest surface that could have leaked it.
+func TestFailuresCarryNoUpstreamText(t *testing.T) {
 	h, store := newAPIServer(t)
 
-	const key = "tp-livebillablekey000000000000000"
-	seedFailure(t, store, time.Minute, "mimo-v2.5", probe.ErrClassAuth,
-		`{"error":"bad credential","api_key":"`+key+`"}`, 401)
-	// Longer than the clip, so the bound is exercised rather than assumed.
-	seedFailure(t, store, 2*time.Minute, "mimo-v2.5", probe.ErrClassHTTP,
-		strings.Repeat("x", samples.MaxFailureDetail*2), 500)
+	const secret = "SECRET-PROVIDER-BODY-tp-livekey-fragment"
+	seedFailure(t, store, time.Minute, "mimo-v2.5", probe.ErrClassAuth, secret, 401)
 
 	rec := get(t, h, "/api/dashboard?window=24h")
-	if strings.Contains(rec.Body.String(), key) {
-		t.Fatalf("the failures block served a live key: %s", rec.Body.String())
+	body := rec.Body.String()
+	if strings.Contains(body, secret) {
+		t.Fatalf("the failures block served the upstream body: %s", body)
 	}
-
+	// The class and the status are the whole point of the block, so absence of
+	// the detail must not have taken them with it.
 	got := getDashboard(t, h, "24h")
-	if len(got.Failures) != 2 {
-		t.Fatalf("failures = %d, want 2", len(got.Failures))
+	if len(got.Failures) != 1 {
+		t.Fatalf("failures = %d, want 1", len(got.Failures))
 	}
-	if !strings.Contains(got.Failures[0].ErrorDetail, "redacted") {
-		t.Errorf("the key vanished with no marker: %q", got.Failures[0].ErrorDetail)
+	if got.Failures[0].ErrorClass == nil || *got.Failures[0].ErrorClass != probe.ErrClassAuth {
+		t.Errorf("error_class = %v, want %s", got.Failures[0].ErrorClass, probe.ErrClassAuth)
 	}
-	if n := len(got.Failures[1].ErrorDetail); n > samples.MaxFailureDetail+len("…") {
-		t.Errorf("detail is %d bytes, past the %d-byte bound", n, samples.MaxFailureDetail)
+	if got.Failures[0].HTTPStatus == nil || *got.Failures[0].HTTPStatus != 401 {
+		t.Errorf("http_status = %v, want 401", got.Failures[0].HTTPStatus)
 	}
 }
 
