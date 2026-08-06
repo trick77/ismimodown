@@ -42,10 +42,16 @@
 // scripts/gen-og.sh and the measurement in that file's comment after any
 // reword.
 //
-// The subtitle says "the API endpoint in Singapore", not just "Singapore":
-// nothing above it names the place any more, so this is the first mention, and
-// on its own "Singapore" would read as where the model runs. It is the address
-// we dial, and this is the one line with room to say so.
+// The subtitle said "the API endpoint in Singapore" and now says only "the API
+// endpoint". Once the eyebrow stopped naming the place, this was the last
+// mention in the header — and between it, the availability strip and the
+// verdict banner the location was said four times over before a reader reached
+// a number, which made the page read as if it were about a place rather than
+// about MiMo.
+//
+// Where the reference host sits is still discoverable: NetworkPanel's series
+// labels name it, which is the one spot where the place identifies a line on a
+// chart rather than colouring prose. Deliberate — do not put it back here.
 //
 // The bottom padding is deliberately smaller than the top. The verdict banner
 // directly below is a statement ABOUT the subtitle here, so it belongs nearer to
@@ -105,8 +111,8 @@ export function Masthead() {
           and a second one directly under it split the emphasis in two. */}
       <p className="mt-4 max-w-[52ch] font-serif text-[clamp(1rem,2vw,1.3rem)] leading-snug text-ink-dim">
         Latency, throughput, availability and answer correctness — separating
-        how long it takes to <em>reach</em> the API endpoint in Singapore from
-        what happens once you are there.
+        how long it takes to <em>reach</em> the API endpoint from what happens
+        once you are there.
       </p>
     </header>
   );

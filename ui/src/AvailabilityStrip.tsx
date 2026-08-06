@@ -8,8 +8,8 @@ const FAULT_LABELS: Record<string, string> = {
   [FAULT_OK]: "fine",
   [FAULT_EDGE]: "MiMo's edge unreachable",
   // Historical: produced only while a second reference host existed.
-  [FAULT_ROUTE]: "route to Singapore degraded",
-  [FAULT_UPLINK]: "nothing in Singapore reachable",
+  [FAULT_ROUTE]: "route to the endpoint degraded",
+  [FAULT_UPLINK]: "nothing at the far end reachable",
 };
 
 // The attribution table, rendered. "MiMo is down" and "the path to MiMo is bad"
@@ -22,7 +22,7 @@ export function AvailabilityStrip({ summary }: { summary: Summary | null }) {
   return (
     <Card
       title="What broke, and whose fault it was"
-      subtitle="Every cycle is attributed from two independent TCP probes, with no heuristics: if an unrelated Singapore host answers while MiMo does not, the path is fine and the fault is MiMo's."
+      subtitle="Every cycle is attributed from two independent TCP probes, with no heuristics: if an unrelated host beside MiMo's edge answers while MiMo does not, the path is fine and the fault is MiMo's."
       right={
         summary && summary.skipped_runs > 0 ? (
           <span
