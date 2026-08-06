@@ -267,7 +267,10 @@ describe("buildVerdict", () => {
       summary({ recent: recent([FAULT_ROUTE, FAULT_ROUTE]) }),
       summary(),
     );
-    expect(v.headline).toMatch(/route to the endpoint/i);
+    expect(v.headline).toMatch(/route to the far end/i);
+    // Never "the endpoint": that noun is MiMo's API everywhere else on the
+    // page, and a route fault is explicitly not MiMo's.
+    expect(v.headline).not.toMatch(/route to the endpoint/i);
   });
 
   // A daemon that died mid-incident leaves its last red cycles on record. Every

@@ -440,6 +440,14 @@ function faultVerdict(state: State, recent: RecentCycle[], t: Track): Verdict {
     );
   }
 
+  // "the far end", never "the endpoint". This page has already bound "the
+  // endpoint" to MiMo's API — the masthead subtitle, the errors card's status
+  // codes, the samples note — so "the route to the endpoint is fine" beside
+  // "MiMo's edge is unreachable" reads as the banner contradicting itself, and
+  // "the route to the endpoint is degraded — not MiMo" fights its own
+  // disclaimer. The far end is the whole far side of the path, which is what
+  // these two classes are actually about. AvailabilityStrip and RecentErrors
+  // carry the same pair of words.
   if (fault === FAULT_UPLINK || fault === FAULT_ROUTE) {
     const headline =
       fault === FAULT_UPLINK
@@ -447,14 +455,14 @@ function faultVerdict(state: State, recent: RecentCycle[], t: Track): Verdict {
           ? "Nothing at the far end was reachable — this says nothing about MiMo"
           : "A cycle reached nothing at the far end — this says nothing about MiMo"
         : sustained
-          ? "The route to the endpoint is degraded — not MiMo, and not us"
-          : "A cycle found no route to the endpoint — not MiMo, and not us";
+          ? "The route to the far end is degraded — not MiMo, and not us"
+          : "A cycle found no route to the far end — not MiMo, and not us";
     // Singular at elevated, like the edge branch below: one cycle described in
     // the plural is the same over-claim the headline just stopped making.
     const those = t.count === 1 ? "That cycle" : "Those cycles";
     detail.push(
       fault === FAULT_UPLINK
-        ? `${those} reached neither MiMo nor the reference host, so ${t.count === 1 ? "it is" : "they are"} excluded from availability. From one vantage point our own connection and the route to the endpoint look identical, and neither is MiMo's to answer for.`
+        ? `${those} reached neither MiMo nor the reference host, so ${t.count === 1 ? "it is" : "they are"} excluded from availability. From one vantage point our own connection and the route to the far end look identical, and neither is MiMo's to answer for.`
         : `${those} could not reach MiMo's edge OR an unrelated host beside it.`,
     );
     // A mixed run has to disclose the mix, or the headline claims more than the
@@ -482,8 +490,8 @@ function faultVerdict(state: State, recent: RecentCycle[], t: Track): Verdict {
   return {
     state,
     headline: sustained
-      ? "MiMo's edge is unreachable — the route to the endpoint is fine"
-      : "MiMo's edge missed a cycle — the route to the endpoint is fine",
+      ? "MiMo's edge is unreachable — the route to the far end is fine"
+      : "MiMo's edge missed a cycle — the route to the far end is fine",
     detail,
   };
 }
