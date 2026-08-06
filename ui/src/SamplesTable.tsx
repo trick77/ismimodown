@@ -45,13 +45,15 @@ const ROWS = 20;
 // lands in an earlier field today and the bug cannot fire; the cadence is not
 // something this function should have to know.
 //
-// The tie-break is not cosmetic, and it grew with the table. Models run
-// CONCURRENTLY within a cycle and are stamped with that cycle's instant, so
-// every ordinary cycle now puts two rows on the same timestamp and a wide cycle
-// puts three. Probe alone stopped being a total order the moment the second
-// model arrived — the two short runs would tie and swap places between renders,
-// on a table a reader is scanning down. Model, then probe: both sorts are
-// stable and total, so a run sits in the same place on every load.
+// The tie-break is not cosmetic, and it grew with the table. Every run in a
+// cycle is stamped with that CYCLE'S instant rather than its own, so an ordinary
+// cycle puts two rows on the same timestamp and a wide cycle puts three. That
+// holds however the daemon dispatches them — the runs are serialised now, and
+// the rows still tie, because the stamp was never the dispatch time. Probe
+// alone stopped being a total order the moment the second model arrived — the
+// two short runs would tie and swap places between renders, on a table a reader
+// is scanning down. Model, then probe: both sorts are stable and total, so a run
+// sits in the same place on every load.
 export function newestFirst(perGroup: Sample[][]): Sample[] {
   // Parsed once per sample rather than twice per comparison: the merge runs on
   // every stream event, and Date.parse is the expensive part of the sort.
@@ -82,11 +84,11 @@ export function newestFirst(perGroup: Sample[][]): Sample[] {
 // requested, and every request named the first model, so the page's only raw
 // record showed one probe of one model on a page about two of each.
 //
-// Three consequences are shown rather than hidden. Models run concurrently
-// within a cycle, so When repeats down the column and Model and Probe beside it
-// are what tell the rows apart. Wide has no single assertable answer, so it is
-// never graded and its Answer cell is a dash. And In jumps ~200x between the
-// probes — that step IS the difference between them, not an anomaly.
+// Three consequences are shown rather than hidden. Every run in a cycle carries
+// the cycle's instant, so When repeats down the column and Model and Probe
+// beside it are what tell the rows apart. Wide has no single assertable answer,
+// so it is never graded and its Answer cell is a dash. And In jumps ~200x
+// between the probes — that step IS the difference between them, not an anomaly.
 //
 // Tokens sits between Total and Throughput because that is the order the four
 // columns explain each other in: how long the run took, what went in, what came

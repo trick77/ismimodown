@@ -39,13 +39,16 @@ are not censoring: nothing was measured. Never fold censored runs back INTO the 
 `MIN_FAILURES_FOR_STATE`.** One cut-off run in 288 daily cycles is a rounding error, and an
 amber box about it sits on the card forever. Chart bands still draw it. Gate prose, never data.
 
-**Models concurrent within a cycle, probes within a model sequential.** Sequential models make
-a cycle cost the sum, breaking the cadence at ~`CycleInterval / len(Models)` — the series thins
-out during the incident it exists to record. Two probes at once contend for one upstream node.
-A wide cycle can still overrun: recorded, not prevented.
+**ONE inference call in flight, process-wide, `DispatchGap` apart.** Not per model, not per
+probe: MiMo throttles the API key and there is one key. Concurrent models returned 429s that
+publish as a MiMo outage (`rate_limited` is neither censoring nor availability-exempt). The gap
+covers a short-window limiter, which serialising alone does not. Never race the models back.
 
-**A dropped tick is recorded.** An overrunning cycle is the only thing that writes
-`skipped_runs`; the `inFlight` guard cannot fire while cycles run one at a time.
+**The slot BLOCKS, never skips.** A row's bucket is its cycle's `started_at`, so a probe that
+waits still lands in its own bucket however late; a skipped probe leaves that bucket empty and
+reads as a probe that was never running. Cost: a cycle costs the SUM and can overrun —
+recorded by `logMissedTicks`, not prevented. Do NOT cap it by shortening later probes'
+deadlines; that moves `censored` and the percentiles for scheduling reasons.
 
 **`itl_p50_ms` is a chunk gap, not inter-token latency.** MiMo batches into bursts — a real run
 measured 0.0075 ms against 70 tok/s. Never lead a chart with it; `output_tps` is the robust one.

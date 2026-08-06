@@ -54,6 +54,11 @@ func main() {
 			r.Target, target.host, r.OK, r.DNSMs, r.ConnectMs, r.ErrorClass)
 	}
 
+	// Sequential, and it has to stay that way. The scheduler's dispatch slot is
+	// process-local, so it cannot reach this binary — but MiMo's rate limit is on
+	// the API KEY, which is shared. Running the models concurrently here would
+	// trip it exactly as it did in the daemon, and against a live daemon this is
+	// already a second caller on the same key.
 	for _, model := range cfg.Models {
 		q := probe.Pick(0)
 		res, err := client.Run(context.Background(), probe.Request{

@@ -85,11 +85,57 @@ func (f *fakeProber) Run(_ context.Context, req probe.Request) (probe.InferResul
 	}, nil
 }
 
+// overlapProber answers instantly-but-not-quite and records whether two calls
+// were ever inside Run at the same time. The delay is what gives an overlap
+// somewhere to happen: with an instant Run, a broken serialiser would still
+// mostly look serial.
+type overlapProber struct {
+	delay      time.Duration
+	live       atomic.Int32
+	calls      atomic.Int32
+	overlapped atomic.Bool
+}
+
+func (o *overlapProber) Run(_ context.Context, req probe.Request) (probe.InferResult, error) {
+	o.calls.Add(1)
+	if o.live.Add(1) > 1 {
+		o.overlapped.Store(true)
+	}
+	defer o.live.Add(-1)
+
+	time.Sleep(o.delay)
+	return probe.InferResult{
+		ModelID: req.ModelID, Probe: req.Probe, QuestionID: req.QuestionID,
+		TTFTMs: 900, TotalMs: 1700, ITLP50Ms: 24, OK: true,
+	}, nil
+}
+
+// waitFor spins until cond holds, so a test can synchronise on a probe actually
+// being in flight instead of on a sleep long enough to usually work.
+func waitFor(t *testing.T, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for !cond() {
+		if time.Now().After(deadline) {
+			t.Fatal("condition never held")
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
 func (f *fakeProber) requests() []probe.Request {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return append([]probe.Request(nil), f.reqs...)
 }
+
+// noWait stands in for the DispatchGap sleep everywhere the gap is not the
+// subject. Real sleeps here would cost DispatchGap per probe per cycle across
+// the whole file for a constant with its own test below.
+//
+// It still honours cancellation, so the shutdown paths behave as they do in
+// production.
+func noWait(ctx context.Context, _ time.Duration) bool { return ctx.Err() == nil }
 
 func newTestScheduler(t *testing.T, prober Prober, pinger Pinger) (*Scheduler, *sql.DB) {
 	t.Helper()
@@ -99,6 +145,7 @@ func newTestScheduler(t *testing.T, prober Prober, pinger Pinger) (*Scheduler, *
 		Prober: prober,
 		Pinger: pinger,
 		Models: []string{"mimo-v2.5", "mimo-v2.5-pro"},
+		Wait:   noWait,
 	}), db
 }
 
@@ -113,6 +160,7 @@ func newSchedulerOn(db *sql.DB, prober Prober, pinger Pinger, now *time.Time) *S
 		Pinger: pinger,
 		Models: []string{"mimo-v2.5", "mimo-v2.5-pro"},
 		Now:    func() time.Time { return *now },
+		Wait:   noWait,
 	})
 }
 
@@ -662,80 +710,242 @@ func TestBothModelsGetTheSameQuestionInACycle(t *testing.T) {
 	}
 }
 
-// The overrun guard: if the previous run is still in flight when the next cycle
-// fires, skip and count it. Two concurrent runs against one model would contend
-// for the same upstream node and each would measure the other's queueing.
-func TestOverrunSkipsAndCountsExactlyOnce(t *testing.T) {
+// A cycle that arrives while a probe is still in flight WAITS. It used to skip,
+// and a skipped probe leaves its bucket empty — indistinguishable from a probe
+// that was never running. Every row is stamped with its cycle's start, so
+// waiting costs latency and nothing else.
+func TestASecondCycleWaitsForTheFirstsProbeRatherThanSkippingIt(t *testing.T) {
 	prober := &fakeProber{block: make(chan struct{}), blockModel: "mimo-v2.5"}
 	s, db := newTestScheduler(t, prober, &fakePinger{})
-	logs := captureLogs(t)
 
-	// A wide probe ran a moment ago, so no cycle here is due one. Without this
-	// the first cycle carries wide for the blocked model too, and since the
-	// prober blocks by MODEL the cycle waits on its own channel forever. The
-	// overrun guard is what is under test; the wide cadence has its own tests.
+	// A wide probe ran a moment ago, so no cycle here is due one — two probes
+	// per cycle rather than three keeps the arithmetic below readable. The wide
+	// cadence has its own tests.
 	seedWideProbe(t, db, time.Now().UTC())
 
-	// Start a cycle that blocks inside the prober.
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		s.RunCycle(context.Background())
-	}()
+	// A cycle that blocks inside its first probe.
+	first := make(chan struct{})
+	go func() { defer close(first); s.RunCycle(context.Background()) }()
+	waitFor(t, func() bool { return prober.running.Load() == 1 })
 
-	// Wait until the first probe is genuinely in flight.
-	deadline := time.Now().Add(3 * time.Second)
-	for prober.running.Load() == 0 {
-		if time.Now().After(deadline) {
-			t.Fatal("first probe never started")
-		}
-		time.Sleep(time.Millisecond)
+	// A second cycle, fired while that probe is still in flight.
+	second := make(chan struct{})
+	go func() { defer close(second); s.RunCycle(context.Background()) }()
+
+	// Nothing else may go out. One request means the second cycle is queued on
+	// the slot rather than dispatching alongside the first.
+	time.Sleep(50 * time.Millisecond)
+	if got := len(prober.requests()); got != 1 {
+		t.Fatalf("requests in flight = %d, want 1; a second call went out beside the blocked one", got)
 	}
-
-	// Fire a second cycle while the first is still running.
-	s.RunCycle(context.Background())
 
 	close(prober.block)
-	<-done
+	<-first
+	<-second
 
-	// The guard's record is its log line — it also wrote a skipped_runs row
-	// until 0005 dropped that table, and the row never said anything this does
-	// not. Silent skipping is still the thing being prevented.
-	if got := logs.String(); !strings.Contains(got, "probe overrun; skipping") {
-		t.Fatalf("log = %q, want the overrun recorded; silent skipping makes availability lie by omission", got)
-	}
-
-	// And the skip must not have produced a phantom sample.
-	var inferRows int
-	db.QueryRow(`SELECT count(*) FROM infer_probes`).Scan(&inferRows)
-	if inferRows == 0 {
-		t.Error("the completed cycle should still have written its own rows")
+	// Both cycles, both models. Counted on `short` alone, because the seeded
+	// cycle above contributes a `wide` row that is not either cycle's.
+	var shortRows int
+	db.QueryRow(`SELECT count(*) FROM infer_probes WHERE probe = 'short'`).Scan(&shortRows)
+	if shortRows != 4 {
+		t.Errorf("short rows = %d, want 4; a probe that waited must still be recorded", shortRows)
 	}
 }
 
-// A slow model must not suppress the other's samples — a global lock would
-// manufacture a correlated outage across two independent series.
-func TestOverrunGuardIsPerModelAndProbe(t *testing.T) {
+// The slot is global. Keyed by model+probe it admitted mimo-v2.5 and
+// mimo-v2.5-pro at the same instant — one API key, two calls, two 429s.
+func TestTheDispatchSlotIsGlobalNotKeyed(t *testing.T) {
 	s, _ := newTestScheduler(t, &fakeProber{}, &fakePinger{})
 
-	if !s.acquire("mimo-v2.5/short") {
+	if !s.acquire(context.Background()) {
 		t.Fatal("first acquire must succeed")
 	}
-	if s.acquire("mimo-v2.5/short") {
-		t.Error("the same key must not be acquirable twice")
-	}
-	// A different model, and a different probe on the same model, must both be
-	// unaffected.
-	if !s.acquire("mimo-v2.5-pro/short") {
-		t.Error("a different model must not be blocked by another model's run")
-	}
-	if !s.acquire("mimo-v2.5/wide") {
-		t.Error("a different probe kind must not be blocked by short")
+
+	// A second acquire must block. It is given a deadline rather than asserted
+	// against instantly, because "blocks" is the claim and only waiting shows it.
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	if s.acquire(ctx) {
+		t.Error("a second call was admitted while one was in flight; the key is one and so is the limit")
 	}
 
-	s.release("mimo-v2.5/short")
-	if !s.acquire("mimo-v2.5/short") {
-		t.Error("release must free the key")
+	s.release()
+	if !s.acquire(context.Background()) {
+		t.Error("release must free the slot")
+	}
+	s.release()
+}
+
+// A cancelled context must not get a probe dispatched, even when the slot is
+// free and no gap is outstanding — which is the ORDINARY case for the first
+// probe of a cycle, whose predecessor returned a whole CycleInterval ago.
+// Neither the select nor the gap consults ctx on that path, so acquire has to.
+//
+// The cost of getting it wrong is not just a wasted call: a wide dispatched into
+// a dead context is recorded by noteWideDispatch as sent, and the hour it was
+// meant for goes unmeasured.
+func TestACancelledContextIsNotAdmittedWhenNoGapIsOutstanding(t *testing.T) {
+	prober := &fakeProber{}
+	s, _ := newTestScheduler(t, prober, &fakePinger{})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if s.acquire(ctx) {
+		t.Fatal("a cancelled context was admitted; shutdown must not dispatch")
+	}
+	// And the slot was handed back, not leaked — a leaked slot would wedge every
+	// probe after it forever.
+	if !s.acquire(context.Background()) {
+		t.Error("the slot was not released on the cancelled path")
+	}
+	s.release()
+
+	if got := len(prober.requests()); got != 0 {
+		t.Errorf("requests = %d, want 0", got)
+	}
+}
+
+// The invariant this whole change exists for, asserted directly: no two
+// inference calls overlap, ever. Everything else in this file is a proxy for it.
+//
+// Driven by CONCURRENT cycles on purpose. RunCycle's loop is sequential in one
+// goroutine, so a single cycle cannot overlap anything and would pass this test
+// with the slot deleted outright — which is no test at all. The slot is there
+// for exactly the case below: more than one caller wanting the key at once,
+// which is how a fan-out inside RunCycle produced the 429s in the first place.
+func TestNoTwoInferenceCallsAreEverInFlightAtOnce(t *testing.T) {
+	// Long enough that an unguarded dispatch would visibly overlap, short enough
+	// that six of them are still a fast test.
+	prober := &overlapProber{delay: 20 * time.Millisecond}
+	s, db := newTestScheduler(t, prober, &fakePinger{})
+	seedWideProbe(t, db, time.Now().UTC()) // two probes per cycle, not three
+
+	var wg sync.WaitGroup
+	for range 3 {
+		wg.Add(1)
+		go func() { defer wg.Done(); s.RunCycle(context.Background()) }()
+	}
+	wg.Wait()
+
+	if got := prober.calls.Load(); got != 6 {
+		t.Fatalf("calls = %d, want 6 (a short per model across three cycles)", got)
+	}
+	if prober.overlapped.Load() {
+		t.Error("two inference calls were in flight at once; MiMo rate-limits the key, and the key is one")
+	}
+}
+
+// And the same invariant across the probe KINDS, which is the pair that actually
+// came back 429: one cycle, one model going wide, short and wide back to back.
+func TestTheWideAndShortOfOneModelNeverOverlap(t *testing.T) {
+	prober := &overlapProber{delay: 20 * time.Millisecond}
+	s, _ := newTestScheduler(t, prober, &fakePinger{})
+
+	// No seeded wide, so this cycle carries one: three calls, the widest a cycle
+	// gets.
+	s.RunCycle(context.Background())
+
+	if got := prober.calls.Load(); got != 3 {
+		t.Fatalf("calls = %d, want 3 (a short per model plus one wide)", got)
+	}
+	if prober.overlapped.Load() {
+		t.Error("a wide and a short were in flight at once against one model")
+	}
+}
+
+// DispatchGap is the half of the fix that serialising does not give: the two
+// 429s were a short and a wide that were already sequential, and back-to-back is
+// indistinguishable from simultaneous to a short-window limiter.
+func TestConsecutiveDispatchesAreSeparatedByTheGap(t *testing.T) {
+	var (
+		mu    sync.Mutex
+		waits []time.Duration
+	)
+	db := openTestDB(t)
+	s := New(Deps{
+		Store:  samples.New(db),
+		Prober: &fakeProber{},
+		Pinger: &fakePinger{},
+		Models: []string{"mimo-v2.5", "mimo-v2.5-pro"},
+		Wait: func(ctx context.Context, d time.Duration) bool {
+			mu.Lock()
+			waits = append(waits, d)
+			mu.Unlock()
+			return ctx.Err() == nil
+		},
+	})
+
+	s.RunCycle(context.Background())
+
+	mu.Lock()
+	defer mu.Unlock()
+	// Three calls, so two gaps. The first pays nothing: there is no previous
+	// dispatch to be quiet after.
+	if len(waits) != 2 {
+		t.Fatalf("gaps waited = %d, want 2 (one before each call after the first)", len(waits))
+	}
+	for i, d := range waits {
+		// The fake prober returns instantly, so the whole gap is still outstanding
+		// by the time it is asked for; the slack only covers the scheduler's own
+		// bookkeeping between release and acquire.
+		if d > DispatchGap || d < DispatchGap-time.Second {
+			t.Errorf("gap %d = %v, want ~%v", i, d, DispatchGap)
+		}
+	}
+}
+
+// The bucket guarantee. A probe slower than the whole cycle interval must still
+// land in ITS OWN cycle: Series buckets on cycles.started_at and every
+// infer_probes row inherits it, so lateness costs nothing as long as the row is
+// written at all.
+func TestAProbeSlowerThanTheCycleStillLandsInItsOwnCycle(t *testing.T) {
+	prober := &overlapProber{delay: 20 * time.Millisecond}
+	now := time.Now().UTC().Truncate(time.Second)
+	db := openTestDB(t)
+	s := newSchedulerOn(db, prober, &fakePinger{}, &now)
+
+	started := now
+	s.RunCycle(context.Background())
+
+	// Three rows, all against the cycle stamped at the moment it STARTED — not at
+	// the moment each probe happened to come back.
+	rows := []struct {
+		startedAt string
+		model     string
+		probe     string
+	}{}
+	q, err := db.Query(`
+		SELECT c.started_at, i.model_id, i.probe
+		FROM infer_probes i JOIN cycles c ON c.id = i.cycle_id
+		ORDER BY i.id`)
+	if err != nil {
+		t.Fatalf("query: %v", err)
+	}
+	defer q.Close()
+	for q.Next() {
+		var r struct {
+			startedAt string
+			model     string
+			probe     string
+		}
+		if err := q.Scan(&r.startedAt, &r.model, &r.probe); err != nil {
+			t.Fatalf("scan: %v", err)
+		}
+		rows = append(rows, r)
+	}
+	if len(rows) != 3 {
+		t.Fatalf("infer rows = %d, want 3; a slow probe must not be dropped to keep the cadence", len(rows))
+	}
+	for _, r := range rows {
+		got, err := time.Parse(time.RFC3339Nano, r.startedAt)
+		if err != nil {
+			t.Fatalf("parse started_at %q: %v", r.startedAt, err)
+		}
+		if !got.Equal(started) {
+			t.Errorf("%s/%s is stamped %v, want the cycle's own start %v; the bucket is decided at cycle start",
+				r.model, r.probe, got, started)
+		}
 	}
 }
 
@@ -923,39 +1133,42 @@ func TestNoTicksMissedLogsNothing(t *testing.T) {
 	}
 }
 
-// Sequentially, a cycle costs the SUM of the models' latencies, so one model
-// stalling spends the other's budget and the whole cadence breaks at roughly
-// CycleInterval/len(models) — about 145 s per model with two of them. That is
-// well inside what mimo-v2.5-pro does on a bad day.
-func TestASlowModelDoesNotHoldUpTheOtherModelsProbe(t *testing.T) {
+// A slow model DOES hold the next one back now, and that is the trade this
+// change makes on purpose. It used to be the opposite, on the reasoning that a
+// cycle costing the SUM breaks the cadence at roughly CycleInterval/len(models)
+// — about 145 s per model with two, well inside what mimo-v2.5-pro does on a bad
+// day. That cost is real and accepted: the models share one API key, so racing
+// them buys sample density with 429s that publish as a MiMo outage.
+func TestASlowModelHoldsTheNextModelBackRatherThanRacingIt(t *testing.T) {
 	prober := &fakeProber{block: make(chan struct{}), blockModel: "mimo-v2.5"}
 	s, db := newTestScheduler(t, prober, &fakePinger{})
 	seedWideProbe(t, db, time.Now().UTC()) // keep this cycle to one probe per model
 
 	done := make(chan struct{})
 	go func() { defer close(done); s.RunCycle(context.Background()) }()
+	waitFor(t, func() bool { return prober.running.Load() == 1 })
 
-	// The unblocked model must get all the way through while the other is still
-	// stuck inside its probe.
-	deadline := time.Now().Add(3 * time.Second)
-	for {
-		got := 0
-		for _, r := range prober.requests() {
-			if r.ModelID == "mimo-v2.5-pro" {
-				got++
-			}
+	// mimo-v2.5-pro must NOT have gone out beside the stalled mimo-v2.5.
+	time.Sleep(50 * time.Millisecond)
+	for _, r := range prober.requests() {
+		if r.ModelID == "mimo-v2.5-pro" {
+			t.Fatal("the second model dispatched while the first was still in flight")
 		}
-		if got > 0 {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("the second model never ran while the first was blocked; the models are serialised")
-		}
-		time.Sleep(time.Millisecond)
 	}
 
 	close(prober.block)
 	<-done
+
+	// And it does get its turn once the slot frees — held back, never dropped.
+	got := 0
+	for _, r := range prober.requests() {
+		if r.ModelID == "mimo-v2.5-pro" {
+			got++
+		}
+	}
+	if got != 1 {
+		t.Errorf("mimo-v2.5-pro calls = %d, want 1; waiting must not become skipping", got)
+	}
 }
 
 // A three-hour gap is not a cycle that ran long — no cycle can, the probe

@@ -70,8 +70,8 @@ describe("newestFirst", () => {
   });
 
   // Probe alone stopped being a total order when the table started drawing
-  // every model: the two models run CONCURRENTLY within a cycle and carry that
-  // cycle's instant, so their short runs tie on both timestamp and probe. The
+  // every model: every run in a cycle carries that CYCLE'S instant rather than
+  // its own, so the two models' short runs tie on both timestamp and probe. The
   // pair would swap places between renders on a table a reader scans down.
   it("breaks a tie between models the same way every time", () => {
     const at = "2026-08-04T12:00:00Z";
