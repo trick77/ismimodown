@@ -18,9 +18,9 @@ describe("installClarity", () => {
 
     installClarity();
 
-    const [tag, ...rest] = tags();
-    expect(tag).toBeDefined();
-    expect(rest).toHaveLength(0);
+    const found = tags();
+    expect(found).toHaveLength(1);
+    const tag = found[0]!;
     // The project id is the whole install: a wrong one reports into someone
     // else's dashboard and looks exactly like a working setup from here.
     expect(tag.src).toBe("https://www.clarity.ms/tag/xy577xi4l2?ref=bwt");
@@ -45,6 +45,6 @@ describe("installClarity", () => {
 
     installClarity();
 
-    expect(new URL(tags()[0].src).origin).toBe("https://www.clarity.ms");
+    expect(new URL(tags()[0]!.src).origin).toBe("https://www.clarity.ms");
   });
 });
