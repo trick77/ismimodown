@@ -58,10 +58,12 @@
      charts/options.ts — canvas cannot read a CSS variable. */
   --color-server: #c6613f;
 
-  /* Fault colours, matching the attribution table. Distinct from the series
-     palette so a failure can never be mistaken for a measurement. */
+  /* Fault colours. Distinct from the series palette so a failure can never be
+     mistaken for a measurement. --color-fault-edge is the elevated state chip
+     (ui.tsx); --color-fault-uplink is held for the danger-adjacent fault it
+     names. --color-fault-route went with the attribution table: the fault it
+     coloured is no longer produced (see FAULT_ROUTE in api/types.ts). */
   --color-fault-edge: #c98500;
-  --color-fault-route: #9085e9;
   --color-fault-uplink: #c14638;
 
   --font-sans:

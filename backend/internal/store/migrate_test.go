@@ -116,6 +116,17 @@ func migrateUpTo(t *testing.T, db *sql.DB, prefix string) {
 		if name >= prefix {
 			break
 		}
+		// Skip what is already applied, so this can be called twice to walk a
+		// database forward one migration at a time — which is how a test that
+		// inspects the state BETWEEN two migrations has to be written.
+		var applied int
+		if err := db.QueryRow(
+			`SELECT count(*) FROM schema_migrations WHERE version = ?`, name).Scan(&applied); err != nil {
+			t.Fatalf("read schema_migrations: %v", err)
+		}
+		if applied > 0 {
+			continue
+		}
 		body, err := migrationsFS.ReadFile("migrations/" + name)
 		if err != nil {
 			t.Fatalf("read %s: %v", name, err)
@@ -184,9 +195,10 @@ func TestRenameMigrationRewritesExistingRows(t *testing.T) {
 		t.Fatalf("commit bulk: %v", err)
 	}
 
-	if err := Migrate(db); err != nil {
-		t.Fatalf("Migrate: %v", err)
-	}
+	// Up to 0004, not all the way: 0003 is what this test is about, and 0004
+	// drops skipped_runs — which this test still has to inspect to prove 0003
+	// rebuilt it without losing rows. The drop gets its own assertion below.
+	migrateUpTo(t, db, "0004")
 
 	// Nothing was left behind and nothing was lost: the named short row, the
 	// wide one, and every bulk row.
@@ -253,5 +265,29 @@ func TestRenameMigrationRewritesExistingRows(t *testing.T) {
 		`INSERT INTO infer_probes (cycle_id, model_id, probe, ok) VALUES (1, 'mimo-v2.5', 'short', 1)`,
 	); err != nil {
 		t.Errorf("inserting the current probe name failed: %v", err)
+	}
+
+	// Then 0004 takes the table away entirely, ON A DATABASE THAT HAS ROWS IN
+	// IT. A DROP is trivially correct against an empty table and is exactly the
+	// statement a production database would meet with three months of history,
+	// so it is applied here rather than only from a fresh schema.
+	if err := Migrate(db); err != nil {
+		t.Fatalf("Migrate to 0004: %v", err)
+	}
+	var n int
+	if err := db.QueryRow(
+		`SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'skipped_runs'`,
+	).Scan(&n); err != nil {
+		t.Fatalf("read sqlite_master: %v", err)
+	}
+	if n != 0 {
+		t.Error("skipped_runs survived 0004")
+	}
+	// The cycles it never hung off are untouched: 0004 must not cascade.
+	if err := db.QueryRow(`SELECT count(*) FROM cycles`).Scan(&n); err != nil {
+		t.Fatalf("count cycles: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("cycles = %d, want 1 — 0004 must only drop its own table", n)
 	}
 }

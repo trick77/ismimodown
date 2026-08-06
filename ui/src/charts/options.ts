@@ -37,8 +37,8 @@ export const WIRE_COLOR = "#9c9a92";
 // glance.
 //
 // This is --color-online, the page's one green, and the overlap is known: the
-// pulse strip, the availability strip and FAULT_COLORS.ok all use it to mean
-// "up". Accepted because nothing in this chart encodes health — both series are
+// pulse strip also uses it to mean "up". Accepted because nothing in this chart
+// encodes health — both series are
 // handshake milliseconds, and the panel has a legend naming each line. Do NOT
 // extend the green to anything that could be read as a verdict.
 export const MIMO_EDGE_COLOR = "#5aa06a";
@@ -64,13 +64,6 @@ export const REFERENCE_COLOR = "#6b6963";
 // This is the page accent, which encodes emphasis rather than identity.
 // Against #1f1f1e, paired with WIRE_COLOR: CVD ΔE 10.8, normal-vision ΔE 15.3.
 export const SERVER_COLOR = "#c6613f";
-
-export const FAULT_COLORS: Record<string, string> = {
-  ok: "#5aa06a",
-  edge: "#c98500",
-  route: "#9085e9",
-  uplink: "#c14638",
-};
 
 export function colorForModel(modelID: string, models: string[]): string {
   const i = models.indexOf(modelID);

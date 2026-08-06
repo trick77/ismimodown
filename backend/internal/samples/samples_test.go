@@ -301,22 +301,9 @@ func TestSaveIsAtomic(t *testing.T) {
 	}
 }
 
-func TestRecordSkip(t *testing.T) {
-	db := openTestDB(t)
-	s := New(db)
-
-	if err := s.RecordSkip(context.Background(), time.Now(), "mimo-v2.5-pro", probe.ProbeShort); err != nil {
-		t.Fatalf("RecordSkip: %v", err)
-	}
-
-	var n int
-	var model string
-	db.QueryRow(`SELECT count(*) FROM skipped_runs`).Scan(&n)
-	db.QueryRow(`SELECT model_id FROM skipped_runs`).Scan(&model)
-	if n != 1 || model != "mimo-v2.5-pro" {
-		t.Errorf("skipped_runs = %d rows, model %q", n, model)
-	}
-}
+// TestRecordSkip is gone with RecordSkip and the skipped_runs table it wrote to
+// (migration 0004). The overrun it recorded is now only logged; the scheduler
+// tests cover that it still detects one.
 
 // Retention: a sample older than the window goes, one inside it survives, and
 // the children go with their cycle rather than accumulating as orphans that
@@ -341,10 +328,6 @@ func TestSweepDeletesOnlyBeyondTheWindow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Save new: %v", err)
 	}
-	if err := s.RecordSkip(ctx, now.Add(-100*24*time.Hour), "m", probe.ProbeShort); err != nil {
-		t.Fatalf("RecordSkip: %v", err)
-	}
-
 	// 3-month window.
 	deleted, err := s.Sweep(ctx, now.Add(-2160*time.Hour))
 	if err != nil {
@@ -368,9 +351,7 @@ func TestSweepDeletesOnlyBeyondTheWindow(t *testing.T) {
 	if n != 0 {
 		t.Error("infer_probes outlived their swept cycle")
 	}
-	// skipped_runs hangs off no cycle and needs its own sweep.
-	db.QueryRow(`SELECT count(*) FROM skipped_runs`).Scan(&n)
-	if n != 0 {
-		t.Error("skipped_runs grew without bound; it is not covered by the cascade")
-	}
+	// skipped_runs used to be checked here too: it hung off no cycle, so the
+	// cascade missed it and Sweep deleted it separately. The table is gone
+	// (migration 0004) and the cascade now covers everything that remains.
 }

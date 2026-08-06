@@ -29,9 +29,7 @@ const summary = (models: ModelSummary[]): Summary => ({
   cycles: 288,
   models,
   net: [],
-  faults: { ok: 288 },
   recent: [],
-  skipped_runs: 0,
   generated_at: "2026-08-04T12:00:00Z",
 });
 

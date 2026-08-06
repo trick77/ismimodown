@@ -168,8 +168,8 @@ export type Track = {
   // How long ago the newest red actually was, in minutes, read off the stored
   // timestamps rather than multiplied out of the index above.
   //
-  // The two disagree exactly when a slot was dropped — which the scheduler now
-  // records as skipped_runs rather than pretending it did not happen — so an
+  // The two disagree exactly when a slot was dropped — which the scheduler
+  // logs rather than pretending it did not happen — so an
   // index-derived "20 minutes ago" can describe a failure from an hour back,
   // understating it in the direction that flatters.
   lastRedMinutes: number | null;
@@ -296,9 +296,9 @@ export function buildVerdict(
   summary: Summary | null,
   baseline: Summary | null,
 ): Verdict {
-  // `?? []` for the same reason `faults` carried one: a payload that predates
-  // the field must read as "nothing to say", never crash the page it is the
-  // headline of.
+  // `?? []` because a payload that predates the field must read as "nothing to
+  // say", never crash the page it is the headline of. (`faults` carried one for
+  // the same reason, until the panel that read it was removed.)
   const recent = summary?.recent ?? [];
   // Deliberately NOT `summary.cycles === 0`. cycles counts the fixed window;
   // recent does not. A daemon dead for longer than that window has cycles = 0

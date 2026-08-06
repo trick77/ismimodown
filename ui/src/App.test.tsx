@@ -44,9 +44,7 @@ const summary = (over: Record<string, unknown> = {}) => ({
       available_pct: 100,
     },
   ],
-  faults: { ok: 288 },
   recent: cleanCycles(),
-  skipped_runs: 0,
   generated_at: "2026-08-04T12:00:00Z",
   ...over,
 });
@@ -438,7 +436,6 @@ describe("App", () => {
           cycles: 0,
           models: [],
           net: [],
-          faults: {},
           recent: [],
         }),
       }),
