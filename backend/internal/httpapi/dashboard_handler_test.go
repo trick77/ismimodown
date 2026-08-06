@@ -1,8 +1,11 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -42,6 +45,7 @@ type dashboardBody struct {
 		Probe   string           `json:"probe"`
 		Samples []samples.Sample `json:"samples"`
 	} `json:"samples"`
+	Failures []samples.Failure `json:"failures"`
 }
 
 func getDashboard(t *testing.T, h http.Handler, window string) dashboardBody {
@@ -266,5 +270,138 @@ func TestOneLoadIsOneToken(t *testing.T) {
 		if rec := get(t, h, "/api/dashboard?window=24h"); rec.Code != http.StatusOK {
 			t.Fatalf("load %d returned %d; a page load must cost one token", i, rec.Code)
 		}
+	}
+}
+
+// seedFailure records one failed inference call, ago before testNow.
+func seedFailure(
+	t *testing.T, store *samples.Store, ago time.Duration,
+	model, class, detail string, status int,
+) {
+	t.Helper()
+	if _, err := store.Save(context.Background(), samples.Cycle{
+		StartedAt: testNow.Add(-ago),
+		Net: []probe.NetResult{
+			{Target: probe.TargetMimoSGP, ConnectMs: 170, OK: true},
+			{Target: probe.TargetRefSGP, ConnectMs: 265, OK: true},
+		},
+		Infer: []probe.InferResult{{
+			ModelID: model, Probe: probe.ProbeShort,
+			OK: false, ErrorClass: class, ErrorDetail: detail, HTTPStatus: status,
+		}},
+	}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+}
+
+// The failures block is the newest few, newest first, and it carries the two
+// fields the raw table cannot: the HTTP status and a bounded quote of what the
+// upstream actually said.
+func TestDashboardServesTheNewestFailures(t *testing.T) {
+	h, store := newAPIServer(t)
+	seed(t, store, 25, 900)
+
+	// Six failures, oldest first, so the cap has something to drop.
+	for i := 6; i >= 1; i-- {
+		seedFailure(t, store, time.Duration(i)*time.Minute,
+			"mimo-v2.5", probe.ErrClassHTTP, fmt.Sprintf("upstream said %d", i), 500+i)
+	}
+
+	got := getDashboard(t, h, "24h")
+	if len(got.Failures) != dashboardFailureLimit {
+		t.Fatalf("failures = %d, want %d", len(got.Failures), dashboardFailureLimit)
+	}
+	// Newest first: the one-minute-old row leads, and the six-minute-old one
+	// is the row the cap dropped.
+	first := got.Failures[0]
+	if first.ErrorDetail != "upstream said 1" {
+		t.Errorf("leading failure detail = %q, want the newest", first.ErrorDetail)
+	}
+	if first.HTTPStatus == nil || *first.HTTPStatus != 501 {
+		t.Errorf("http_status = %v, want the status the run recorded", first.HTTPStatus)
+	}
+	if first.ErrorClass == nil || *first.ErrorClass != probe.ErrClassHTTP {
+		t.Errorf("error_class = %v, want %s", first.ErrorClass, probe.ErrClassHTTP)
+	}
+	for i := 1; i < len(got.Failures); i++ {
+		if got.Failures[i].At.After(got.Failures[i-1].At) {
+			t.Errorf("failure %d is newer than the one before it; the block is not newest-first", i)
+		}
+	}
+	// Only failures. A healthy run in the block would make the card lie about
+	// what it is showing.
+	for _, f := range got.Failures {
+		if f.ErrorClass == nil {
+			t.Errorf("a run with no error class reached the failures block: %+v", f)
+		}
+	}
+}
+
+// The block reaches back a fixed day whatever pill is selected — the same
+// independence RecentCycles has. Tying it to the selector would let a 30d
+// selection quote a fortnight-old error as the current one.
+func TestFailuresAreIdenticalAcrossWindows(t *testing.T) {
+	h, store := newAPIServer(t)
+	seed(t, store, 25, 900)
+	seedFailure(t, store, 2*time.Hour, "mimo-v2.5", probe.ErrClassTimeout, "read timeout", 0)
+	// Older than the fixed day, so no window may surface it.
+	seedFailure(t, store, 48*time.Hour, "mimo-v2.5", probe.ErrClassHTTP, "ancient failure", 500)
+
+	day := getDashboard(t, h, "24h")
+	quarter := getDashboard(t, h, "3mo")
+
+	if len(day.Failures) != 1 {
+		t.Fatalf("24h failures = %d, want the one inside the day", len(day.Failures))
+	}
+	if !reflect.DeepEqual(day.Failures, quarter.Failures) {
+		t.Errorf("the block moved with the selector:\n24h = %+v\n3mo = %+v",
+			day.Failures, quarter.Failures)
+	}
+	for _, f := range quarter.Failures {
+		if strings.Contains(f.ErrorDetail, "ancient") {
+			t.Errorf("a failure older than the fixed day was served: %+v", f)
+		}
+	}
+}
+
+// The failures block is the one public shape that quotes upstream bytes, so it
+// is also the one that has to prove the credential never survives the trip.
+func TestFailureDetailIsRedactedAndBounded(t *testing.T) {
+	h, store := newAPIServer(t)
+
+	const key = "tp-livebillablekey000000000000000"
+	seedFailure(t, store, time.Minute, "mimo-v2.5", probe.ErrClassAuth,
+		`{"error":"bad credential","api_key":"`+key+`"}`, 401)
+	// Longer than the clip, so the bound is exercised rather than assumed.
+	seedFailure(t, store, 2*time.Minute, "mimo-v2.5", probe.ErrClassHTTP,
+		strings.Repeat("x", samples.MaxFailureDetail*2), 500)
+
+	rec := get(t, h, "/api/dashboard?window=24h")
+	if strings.Contains(rec.Body.String(), key) {
+		t.Fatalf("the failures block served a live key: %s", rec.Body.String())
+	}
+
+	got := getDashboard(t, h, "24h")
+	if len(got.Failures) != 2 {
+		t.Fatalf("failures = %d, want 2", len(got.Failures))
+	}
+	if !strings.Contains(got.Failures[0].ErrorDetail, "redacted") {
+		t.Errorf("the key vanished with no marker: %q", got.Failures[0].ErrorDetail)
+	}
+	if n := len(got.Failures[1].ErrorDetail); n > samples.MaxFailureDetail+len("…") {
+		t.Errorf("detail is %d bytes, past the %d-byte bound", n, samples.MaxFailureDetail)
+	}
+}
+
+// A model that has left the config still has rows in the database. Serving its
+// failures would report an outage in something no other panel draws.
+func TestFailuresCoverOnlyConfiguredModels(t *testing.T) {
+	h, store := newAPIServer(t)
+	seedFailure(t, store, time.Minute, "mimo-retired", probe.ErrClassHTTP, "gone", 500)
+	seedFailure(t, store, 2*time.Minute, "mimo-v2.5", probe.ErrClassHTTP, "current", 500)
+
+	got := getDashboard(t, h, "24h")
+	if len(got.Failures) != 1 || got.Failures[0].ModelID != "mimo-v2.5" {
+		t.Errorf("failures = %+v, want only the configured model", got.Failures)
 	}
 }

@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/trick77/ismimodown/internal/probe"
+	"github.com/trick77/ismimodown/internal/redact"
 )
 
 // MinSamplesForPercentile is the suppression threshold.
@@ -694,9 +696,10 @@ func checkSeriesColumn(column string) error {
 
 // Sample is one raw row, as served publicly.
 //
-// Note what is absent: error_detail. It is operator-only, because a provider
-// error body can echo request fragments, and a test asserts it never appears in
-// any public payload.
+// Note what is absent: error_detail. A provider error body can echo request
+// fragments, so this projection — which carries every run, healthy or not —
+// does not select it. The one public shape that does is Failure, over at most a
+// handful of failed runs and only after redaction and clipping.
 type Sample struct {
 	At        time.Time `json:"at"`
 	ModelID   string    `json:"model_id"`
@@ -843,6 +846,142 @@ func (s *Store) RecentSamples(ctx context.Context, modelID, probeKind string, li
 	return out, rows.Err()
 }
 
+// MaxFailureDetail bounds the upstream text a served failure quotes.
+//
+// The same 300 the scheduler allows a log line, and for the same reason: a
+// provider answering with an HTML error page would otherwise put a whole
+// document in the payload. It matters more here than in a log, because this
+// column is the one operator-only field the failures block now serves — see
+// Failure — so the bound is a containment measure, not a formatting one.
+const MaxFailureDetail = 300
+
+// clip shortens s to n bytes, marking that it did so, cutting on a rune
+// boundary so no half-character reaches the page.
+//
+// Callers must redact BEFORE clipping: cutting a credential in half leaves the
+// first half of a live key in the response. redact.String's own doc comment
+// states the same ordering rule.
+func clip(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	cut := n
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut] + "…"
+}
+
+// Failure is one failed inference call, as the errors block serves it.
+//
+// This is the ONE public shape that carries error_detail, and it does so under
+// two conditions that nothing else may drop: the text passes through
+// redact.String, and it is clipped to MaxFailureDetail. Both happen in
+// RecentFailures rather than in the handler, so no future caller can select the
+// raw column by taking a different route to it.
+//
+// Understand what is being traded. The column stores raw upstream bytes — on an
+// HTTP error it is the response body verbatim — and a provider error body can
+// echo request fragments, which is why every other public projection here omits
+// it. Redaction is a denylist tuned to the MiMo key's shape, so it is a strong
+// bet against a leaked credential and a weaker one against anything else the
+// upstream chose to quote back. The clip is what bounds that residue.
+//
+// HTTPStatus carries no such risk — it is an integer — and it is the field that
+// tells a 429 apart from a 503 when both land as error_class "http_error".
+type Failure struct {
+	At         time.Time `json:"at"`
+	ModelID    string    `json:"model_id"`
+	Probe      string    `json:"probe"`
+	ErrorClass *string   `json:"error_class"`
+	HTTPStatus *int64    `json:"http_status"`
+	// Empty when the run recorded no detail — a transport failure often has
+	// only its class. Absent rather than a placeholder, so the client decides
+	// how to draw "nothing to quote".
+	ErrorDetail string `json:"error_detail"`
+}
+
+// MaxFailureLimit clamps how many failures any caller can ask for.
+const MaxFailureLimit = 50
+
+// RecentFailures returns the most recent FAILED inference calls across every
+// configured model and both probe kinds, newest first.
+//
+// Deliberately its own query rather than a filter over RecentSamples. That
+// projection is capped per model and probe at what the raw table draws — about
+// three quarters of an hour of runs — so filtering it client-side would answer
+// "did anything fail in the last 45 minutes", which on a healthy endpoint is an
+// empty block that looks broken. This reaches back over `since` instead and
+// returns nothing when nothing failed, which is a different and honest answer.
+//
+// `since` is the caller's, and the dashboard fixes it at a day regardless of
+// which window the reader selected — the same independence RecentCycles has,
+// and for the same reason: the last five failures are a fact about the endpoint,
+// not about the chart selector.
+//
+// Models are filtered to the configured list. A model that has been retired
+// from the config still has rows in the database, and surfacing its failures
+// under a name no other panel draws would read as an outage in something the
+// page does not otherwise mention.
+func (s *Store) RecentFailures(ctx context.Context, models []string, since time.Time, limit int) ([]Failure, error) {
+	if len(models) == 0 {
+		return nil, nil
+	}
+	if limit <= 0 {
+		limit = 5
+	}
+	if limit > MaxFailureLimit {
+		limit = MaxFailureLimit
+	}
+
+	// Placeholders built from len(models), never from the values: the model
+	// names are still bound parameters, so nothing caller-shaped reaches the
+	// SQL text.
+	args := make([]any, 0, len(models)+2)
+	for _, m := range models {
+		args = append(args, m)
+	}
+	args = append(args, since.UTC().Format(time.RFC3339Nano), limit)
+
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT c.started_at, i.model_id, i.probe, i.error_class, i.http_status,
+		       i.error_detail
+		FROM infer_probes i
+		JOIN cycles c ON c.id = i.cycle_id
+		WHERE i.ok = 0
+		  AND i.model_id IN (`+placeholders(len(models))+`)
+		  AND c.started_at >= ?
+		ORDER BY c.started_at DESC, i.id DESC
+		LIMIT ?`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []Failure
+	for rows.Next() {
+		var f Failure
+		var at string
+		var class, detail sql.NullString
+		var status sql.NullInt64
+		if err := rows.Scan(&at, &f.ModelID, &f.Probe, &class, &status, &detail); err != nil {
+			return nil, err
+		}
+		f.At, _ = time.Parse(time.RFC3339Nano, at)
+		f.ErrorClass = nullS(class)
+		f.HTTPStatus = nullI(status)
+		// Redact first, then clip. The other order leaves half a key behind.
+		f.ErrorDetail = clip(redact.String(detail.String), MaxFailureDetail)
+		out = append(out, f)
+	}
+	return out, rows.Err()
+}
+
+// placeholders renders n bound-parameter markers for an IN clause.
+func placeholders(n int) string {
+	return strings.TrimSuffix(strings.Repeat("?,", n), ",")
+}
+
 // Pulse is one cycle reduced to what a single bar of the strip draws: when it
 // ran, how tall it is, what colour it is, and what the tooltip says.
 //
@@ -892,8 +1031,9 @@ func (s *Store) RecentPulse(ctx context.Context, modelID, probeKind string, limi
 		var ttft sql.NullFloat64
 		var answerOK sql.NullInt64
 		// error_detail is not selected here for the same reason it is not
-		// selected in RecentSamples: it can echo request fragments, and this
-		// row is served publicly.
+		// selected in RecentSamples: it can echo request fragments, and a day
+		// of bars is the last place to quote upstream bytes. Failure is where
+		// it surfaces, bounded and redacted.
 		var class sql.NullString
 		if err := rows.Scan(&at, &ttft, &okInt, &answerOK, &class); err != nil {
 			return nil, err

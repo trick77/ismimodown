@@ -122,6 +122,26 @@ export type Sample = {
   error_class: string | null;
 };
 
+// One failed inference call, as the errors block serves it.
+//
+// This is the only shape on the wire that carries error_detail, and the server
+// only lets it through after redacting credentials and clipping the text — see
+// samples.Failure. Everything else here still omits the column entirely.
+//
+// http_status is what tells a 429 apart from a 503 when both arrive as
+// error_class "http_error"; it is null on a transport failure, which never got
+// as far as a status.
+export type Failure = {
+  at: string;
+  model_id: string;
+  probe: string;
+  error_class: string | null;
+  http_status: number | null;
+  // Empty when the run recorded nothing quotable — a connect timeout has only
+  // its class. The card draws a dash rather than an empty cell.
+  error_detail: string;
+};
+
 export type SamplesResponse = {
   model_id: string;
   probe: string;
@@ -179,6 +199,10 @@ export type Dashboard = {
   cost: CostBreakdown;
   pulse: PulseResponse[];
   samples: SamplesResponse[];
+  // The last few failed calls over a FIXED day, whichever window is selected.
+  // The server pins that day deliberately: the current failures are a fact
+  // about the endpoint, not about the chart selector.
+  failures: Failure[];
 };
 
 export const TARGET_MIMO = "mimo_sgp";

@@ -37,7 +37,9 @@ type NetResult struct {
 	ConnectMs  float64
 	OK         bool
 	ErrorClass string
-	// ErrorDetail is operator-only and never served publicly.
+	// ErrorDetail is operator-only and never served publicly. Unlike the
+	// inference side, no public shape quotes the network probe's detail: the
+	// failures block is about inference calls, and nothing else reads it.
 	ErrorDetail string
 }
 

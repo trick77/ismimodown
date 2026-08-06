@@ -45,6 +45,21 @@ const (
 	// to its own ROWS; asking for fewer than that here would quietly shorten
 	// how far back the table reaches without saving a request.
 	dashboardSampleLimit = 20
+
+	// The failures block: how many, and how far back.
+	//
+	// Five, because the block answers "what is going wrong right now" and a
+	// sixth row does not answer it better — the raw table below carries the
+	// full record, and the availability strip carries the counting.
+	//
+	// A day, fixed, whatever window the reader selected. Same independence
+	// RecentCycles has and for the same reason: the last few failures are a
+	// fact about the endpoint, not about the chart selector, and tying them to
+	// the pills would make a 30d selection quote a fortnight-old error as the
+	// current one. A handler test asserts the block is identical on 24h and
+	// 3mo.
+	dashboardFailureLimit  = 5
+	dashboardFailureWindow = 24 * time.Hour
 )
 
 // handleDashboard serves the whole page for one window.
@@ -79,6 +94,9 @@ type dashboardPayload struct {
 	Cost        samples.CostBreakdown `json:"cost"`
 	Pulse       []any                 `json:"pulse"`
 	Samples     []any                 `json:"samples"`
+	// The last few failed inference calls, newest first, over a fixed day —
+	// see dashboardFailureWindow for why it ignores the selected window.
+	Failures []samples.Failure `json:"failures"`
 }
 
 // dashboardSeries names the five lines the page draws.
@@ -216,6 +234,20 @@ func (s *server) buildDashboard(ctx context.Context, window samples.Window, now 
 			})
 		}
 	}
+
+	// Failures last, and NOT scoped to `window`: the block reaches back a fixed
+	// day so the errors card says the same thing whichever pill is selected.
+	failures, err := s.deps.Samples.RecentFailures(
+		ctx, s.deps.Models, now.Add(-dashboardFailureWindow), dashboardFailureLimit)
+	if err != nil {
+		return nil, err
+	}
+	// [] not null: a day with nothing wrong in it is the common case, and the
+	// card renders its own empty state rather than the client guarding a null.
+	if failures == nil {
+		failures = []samples.Failure{}
+	}
+	out.Failures = failures
 
 	return out, nil
 }

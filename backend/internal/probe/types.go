@@ -168,7 +168,10 @@ type InferResult struct {
 	HTTPStatus   int
 	FinishReason string
 	ErrorClass   string
-	// ErrorDetail is operator-only and never served publicly.
+	// ErrorDetail is raw upstream text — on an HTTP error, the response body
+	// verbatim. Stored raw. The one public surface that quotes it is the
+	// dashboard's failures block, via samples.Failure, which redacts and clips
+	// it first; nothing else may serve it.
 	ErrorDetail string
 	// Content is kept in memory for the answer assertion only; it is never
 	// stored, so a provider response can never become part of the public API.

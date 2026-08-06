@@ -179,8 +179,16 @@ func TestNetworkSeriesIsSeparateFromModels(t *testing.T) {
 	}
 }
 
-// THE assertion: no public endpoint may ever emit error_detail. A provider
-// error body can echo request fragments, including credentials.
+// THE assertion: no public endpoint may ever emit an error_detail VALUE
+// unredacted. A provider error body can echo request fragments, including
+// credentials.
+//
+// The field NAME is now served, on the failures block alone and only after
+// redact.String and a clip to samples.MaxFailureDetail — so the old
+// "the string error_detail must not appear anywhere" check has been narrowed
+// to the samples and pulse projections, which still carry every run and still
+// must not select the column. The value check below is unchanged and
+// unconditional: it is the assertion that actually matters.
 func TestNoPublicEndpointEmitsErrorDetail(t *testing.T) {
 	h, store := newAPIServer(t)
 
@@ -220,10 +228,21 @@ func TestNoPublicEndpointEmitsErrorDetail(t *testing.T) {
 			if strings.Contains(body, secret) {
 				t.Errorf("endpoint leaked an error_detail VALUE: %s", body)
 			}
-			// No data endpoint should carry the field at all, so a future
-			// struct change that starts serializing it fails here.
-			if strings.Contains(body, "error_detail") {
-				t.Errorf("data endpoint exposes the error_detail field: %s", body)
+			// Everything EXCEPT the failures block must not carry the field at
+			// all, so a future struct change that starts serializing it on the
+			// samples or pulse projections — which carry every run rather than
+			// a bounded handful — fails here.
+			var whole map[string]json.RawMessage
+			if err := json.Unmarshal(rec.Body.Bytes(), &whole); err != nil {
+				t.Fatalf("decode: %v", err)
+			}
+			delete(whole, "failures")
+			rest, err := json.Marshal(whole)
+			if err != nil {
+				t.Fatalf("re-encode: %v", err)
+			}
+			if strings.Contains(string(rest), "error_detail") {
+				t.Errorf("a projection outside the failures block exposes error_detail: %s", rest)
 			}
 		})
 	}
