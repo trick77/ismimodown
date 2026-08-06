@@ -858,12 +858,28 @@ func (s *Store) RecentSamples(ctx context.Context, modelID, probeKind string, li
 // risk — it is an integer. It is what tells a 429 apart from a 503 when both
 // land as error_class "http_error". Null when the run never reached a status,
 // which is every transport failure.
+// Fault is the cycle's stored attribution, carried so the card can say whose
+// failure this was. Without it the block was the only public surface that
+// neither excluded unattributable cycles nor reported them: during our own
+// uplink outage it listed rows that Summarize and the charts' censored band
+// deliberately refuse to blame on MiMo, with nothing on the row saying so.
+//
+// Carried rather than filtered, and that is the whole point. Dropping those
+// rows would make the card print "Nothing failed in the last 24 hours" during
+// a real outage, which is worse than listing them unlabelled — the runs DID
+// fail, and a monitor that goes quiet when the network dies is the failure mode
+// this page exists to avoid. So they stay, labelled.
+//
+// Served raw, including the historical 'route' and the empty string a cycle
+// with no attribution row carries. Deciding what those mean is the client's
+// job, exactly as it is for RecentCycle.Fault — see ui/src/verdict.ts.
 type Failure struct {
 	At         time.Time `json:"at"`
 	ModelID    string    `json:"model_id"`
 	Probe      string    `json:"probe"`
 	ErrorClass *string   `json:"error_class"`
 	HTTPStatus *int64    `json:"http_status"`
+	Fault      string    `json:"fault"`
 }
 
 // MaxFailureLimit clamps how many failures any caller can ask for.
@@ -911,10 +927,15 @@ func (s *Store) RecentFailures(ctx context.Context, models []string, since time.
 	// error_detail is not selected, for the same reason no other public
 	// projection selects it: it is raw upstream text and this row is served
 	// publicly. See Failure.
+	// LEFT JOIN on cycle_fault, like RecentCycles: a cycle whose attribution row
+	// is missing must still produce its failure, and COALESCE turns that into
+	// the empty string the client already knows how to read as "unattributed".
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT c.started_at, i.model_id, i.probe, i.error_class, i.http_status
+		SELECT c.started_at, i.model_id, i.probe, i.error_class, i.http_status,
+		       COALESCE(f.fault, '')
 		FROM infer_probes i
 		JOIN cycles c ON c.id = i.cycle_id
+		LEFT JOIN cycle_fault f ON f.cycle_id = c.id
 		WHERE i.ok = 0
 		  AND i.model_id IN (`+placeholders(len(models))+`)
 		  AND c.started_at >= ?
@@ -931,7 +952,7 @@ func (s *Store) RecentFailures(ctx context.Context, models []string, since time.
 		var at string
 		var class sql.NullString
 		var status sql.NullInt64
-		if err := rows.Scan(&at, &f.ModelID, &f.Probe, &class, &status); err != nil {
+		if err := rows.Scan(&at, &f.ModelID, &f.Probe, &class, &status, &f.Fault); err != nil {
 			return nil, err
 		}
 		f.At, _ = time.Parse(time.RFC3339Nano, at)

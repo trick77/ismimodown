@@ -2,6 +2,7 @@ import { render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RecentErrors } from "./RecentErrors";
 import type { Failure } from "./api/types";
+import { FAULT_EDGE, FAULT_OK, FAULT_ROUTE, FAULT_UPLINK } from "./api/types";
 
 // Ages read as a distance from now, so the fixtures are stamped against a
 // pinned instant, as in SamplesTable's tests.
@@ -13,6 +14,7 @@ const failure = (over: Partial<Failure> = {}): Failure => ({
   probe: "short",
   error_class: "http_error",
   http_status: 503,
+  fault: FAULT_EDGE,
   ...over,
 });
 
@@ -83,6 +85,50 @@ describe("RecentErrors", () => {
       (th) => th.textContent,
     );
     expect(headers).toEqual(["When", "Model", "Probe", "Error", "Status"]);
+  });
+
+  // The availability arithmetic drops these rows because it is computing a
+  // claim about MiMo. This card is reporting what happened, so it keeps them —
+  // going quiet during a network outage would hide the incident.
+  it("lists a failure from an unattributable cycle rather than dropping it", () => {
+    render(
+      <RecentErrors
+        failures={[failure({ fault: FAULT_UPLINK, error_class: "timeout" })]}
+      />,
+    );
+
+    expect(screen.getByRole("table")).toBeInTheDocument();
+    expect(screen.getByText("timeout")).toBeInTheDocument();
+  });
+
+  // ...but it must never read as MiMo's failure.
+  it("labels an unattributable failure as ours", () => {
+    render(<RecentErrors failures={[failure({ fault: FAULT_UPLINK })]} />);
+
+    expect(screen.getByText(/not attributable to MiMo/i)).toBeInTheDocument();
+    // The gloss belongs to the error class and would claim the endpoint did
+    // something; the attribution replaces it.
+    expect(screen.queryByText(/a non-2xx response/)).not.toBeInTheDocument();
+  });
+
+  // route is no longer produced, but stored cycles carry it, and handling only
+  // uplink would silently misread them as MiMo's.
+  it("treats the historical route fault the same way", () => {
+    render(<RecentErrors failures={[failure({ fault: FAULT_ROUTE })]} />);
+
+    // Named as the layer it was attributed to: a route cycle is the path
+    // between here and Singapore, which is neither our uplink nor MiMo's.
+    expect(screen.getByText(/route to Singapore/i)).toBeInTheDocument();
+    expect(screen.getByText(/not attributable to MiMo/i)).toBeInTheDocument();
+  });
+
+  // The ordinary case: both probes answered, so the failure is the endpoint's
+  // and the row reads normally.
+  it("leaves an attributable failure unlabelled", () => {
+    render(<RecentErrors failures={[failure({ fault: FAULT_OK })]} />);
+
+    expect(screen.queryByText(/not attributable/i)).not.toBeInTheDocument();
+    expect(screen.getByText("a non-2xx response")).toBeInTheDocument();
   });
 
   // A card that vanishes when nothing failed is indistinguishable from a card
