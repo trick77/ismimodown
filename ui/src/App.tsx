@@ -12,6 +12,7 @@ import { PrefillPanel } from "./PrefillPanel";
 import { NetworkPanel } from "./NetworkPanel";
 import { AvailabilityStrip } from "./AvailabilityStrip";
 import { PulseStrip } from "./PulseStrip";
+import { RecentErrors } from "./RecentErrors";
 import { SamplesTable } from "./SamplesTable";
 import { CostPanel } from "./CostPanel";
 import { Footer } from "./Footer";
@@ -382,6 +383,11 @@ export default function App() {
               which is a fact about us rather than about MiMo — so it reads as a
               footnote to the page rather than as one of its findings. */}
             <CostPanel cost={data?.cost ?? null} />
+            {/* Directly above the raw table, because it is the same record
+              filtered: only what failed, and reaching back a fixed day rather
+              than the screenful the table holds. Reading the two in that order
+              is "what went wrong", then "everything that happened". */}
+            <RecentErrors failures={data?.failures ?? null} />
             <SamplesTable
               perGroup={data?.samples.map((g) => g.samples) ?? []}
             />

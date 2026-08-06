@@ -15,16 +15,17 @@ describe("Masthead", () => {
     expect(
       screen.getByRole("heading", { name: /is xiaomi mimo down\?/i }),
     ).toBeInTheDocument();
-    expect(screen.getByText(/europe → singapore/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/inference and network monitoring/i),
+    ).toBeInTheDocument();
   });
 
-  // Both ends of the measured path, in the two places that name them: the
-  // eyebrow says where we dial from, the subtitle says what answers and that it
-  // is an endpoint rather than where the model runs. A latency figure with only
-  // one end named is not interpretable, and the OG card's eyebrow (assets/og/
+  // The two layers, in the two places that name them: the eyebrow says which
+  // two things are watched, the subtitle says the endpoint is a place we dial
+  // rather than where the model runs. The OG card's eyebrow (assets/og/
   // card.html) has to keep saying the same thing — re-run gen-og.sh if this
   // changes.
-  it("names the vantage and the endpoint it measures", () => {
+  it("names both layers and the endpoint it measures", () => {
     // Given / When
     render(<Masthead />);
 

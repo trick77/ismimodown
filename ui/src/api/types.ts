@@ -122,6 +122,23 @@ export type Sample = {
   error_class: string | null;
 };
 
+// One failed inference call, as the errors block serves it.
+//
+// http_status is what this adds over the raw table: it tells a 429 apart from a
+// 503 when both arrive as error_class "http_error". Null on a transport
+// failure, which never got as far as a status — the card draws a dash for that
+// rather than a 0, which would read as a status code.
+//
+// Note what is absent, here as everywhere else: error_detail. The upstream's
+// own words can echo the request back, so they stay in the daemon's logs.
+export type Failure = {
+  at: string;
+  model_id: string;
+  probe: string;
+  error_class: string | null;
+  http_status: number | null;
+};
+
 export type SamplesResponse = {
   model_id: string;
   probe: string;
@@ -179,6 +196,10 @@ export type Dashboard = {
   cost: CostBreakdown;
   pulse: PulseResponse[];
   samples: SamplesResponse[];
+  // The last few failed calls over a FIXED day, whichever window is selected.
+  // The server pins that day deliberately: the current failures are a fact
+  // about the endpoint, not about the chart selector.
+  failures: Failure[];
 };
 
 export const TARGET_MIMO = "mimo_sgp";

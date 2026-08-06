@@ -168,7 +168,9 @@ type InferResult struct {
 	HTTPStatus   int
 	FinishReason string
 	ErrorClass   string
-	// ErrorDetail is operator-only and never served publicly.
+	// ErrorDetail is operator-only and never served publicly. The failures
+	// block serves the error CLASS and the HTTP status beside it; the raw text
+	// stays in the database and the daemon's logs.
 	ErrorDetail string
 	// Content is kept in memory for the answer assertion only; it is never
 	// stored, so a provider response can never become part of the public API.

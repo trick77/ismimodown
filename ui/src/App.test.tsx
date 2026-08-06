@@ -137,6 +137,9 @@ const dashboard = (overrides: Record<string, unknown> = {}) => ({
   samples:
     overrides.samples ??
     sampleGroups(overrides.sampleRows as Record<string, unknown[]>),
+  // Empty by default: nothing failing is the ordinary state, and the errors
+  // card renders its own sentence for it.
+  failures: overrides.failures ?? [],
 });
 
 function mockFetch(overrides: Record<string, unknown> = {}) {

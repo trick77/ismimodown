@@ -11,24 +11,48 @@
 // The scope shows itself — two model cards, one endpoint — so it is not also
 // spelled out in prose here.
 //
-// The eyebrow's arrow reads from → to, so it names both ends of the measured
-// path: we dial out of Europe, the endpoint answers in Singapore. It said only
-// "live" before, which spent the left side of the arrow on a word the "every
-// few minutes" beside it already implies. A latency number means nothing
-// without the vantage it was taken from, and this is the only place that says
-// it.
+// The eyebrow names the two layers the page measures: the inference itself, and
+// the network path the request takes to reach it. That is the page's whole
+// structure — it is the split the subtitle spells out one line down, and the
+// split the decomposition panel draws — so the first thing above the question
+// says which two things are being watched.
 //
-// The subtitle says "the API endpoint in Singapore", not just "Singapore": the
-// eyebrow above already names the place, but on its own it reads as if that is
-// where the model runs. Singapore is the address we dial, and the subtitle is
-// the one line with room to say so without a sentence of explanation.
+// Inference first, though the subtitle below runs the other way. The subtitle is
+// explaining a subtraction and takes the causal order: reach it, then wait on
+// it. The eyebrow is naming the subject, and the subject is the model — the
+// handshake is measured so it can be subtracted OUT of the inference figure. The
+// page is built in this order too: the model cards and all three latency panels
+// come before the network panel.
+//
+// It read "europe → singapore · every few minutes" before, and both halves went
+// deliberately. The cadence is a fact about our method rather than about what
+// the reader is looking at, and it had the shape of a freshness claim without
+// being one — the verdict banner below is what states whether the data is
+// current. It still gets said where it does work: per probe kind, beside the
+// price it drives (PROBE_HINTS in CostPanel.tsx). The vantage went with it,
+// because the subtitle names the endpoint's location and the network panel
+// names both ends of the path it draws.
+//
+// "inference and network", not "inference and API": the API being measured IS
+// an inference API, so naming both would be one thing said twice. What actually
+// separates is the model from the transport.
+//
+// The og card carries the same string (assets/og/card.html) and its width is
+// load-bearing there — WhatsApp crops to the middle 630px. Re-run
+// scripts/gen-og.sh and the measurement in that file's comment after any
+// reword.
+//
+// The subtitle says "the API endpoint in Singapore", not just "Singapore":
+// nothing above it names the place any more, so this is the first mention, and
+// on its own "Singapore" would read as where the model runs. It is the address
+// we dial, and this is the one line with room to say so.
 //
 // The bottom padding is deliberately smaller than the top. The verdict banner
 // directly below is a statement ABOUT the subtitle here, so it belongs nearer to
 // it than to the pulse strip beneath it; with even padding and the banner's own
 // margin below, it sat the other way round and read as a caption on the strip.
 // The only link off this page. It rides the eyebrow row rather than getting a
-// row of its own: that line already carries where and how often, and where the
+// row of its own: that line already says what is being watched, and where the
 // numbers come from belongs with it. Aligned right, so it never competes with
 // the h1 for the start of the page — and above the fold rather than in a
 // footer, because a reader who has just read a bad verdict wants it then, not
@@ -38,17 +62,19 @@ const CONSOLE_URL = "https://platform.xiaomimimo.com/console";
 export function Masthead() {
   return (
     <header className="pt-10 pb-6 sm:pt-16 sm:pb-7">
-      {/* Wraps rather than shrinks: below ~505px the strapline and the link do
-          not fit on one line, and squeezing them there clipped the link's
-          label. Wrapped, it drops to its own line under the strapline and the
-          title still starts the page.
+      {/* Wraps rather than shrinks: below a threshold the strapline and the
+          link do not fit on one line, and squeezing them there clipped the
+          link's label. Wrapped, it drops to its own line under the strapline
+          and the title still starts the page.
 
-          That threshold was ~410px while the strapline read "every 5 min";
-          spelling the cadence out cost it ~95px. Measured, not estimated — the
-          strapline is 344px and the pill 137px with a 24px gap. */}
+          That threshold moves with the strapline's width — it was ~410px at
+          "every 5 min" and ~505px once the cadence was spelled out. This string
+          is a shade shorter than the one it replaced, so the threshold sits
+          just under the old one. Measured, not estimated — the pill is 137px
+          with a 24px gap. */}
       <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
         <p className="num text-micro uppercase tracking-[0.22em] text-faint">
-          europe → singapore · every few minutes
+          inference and network monitoring
         </p>
         <a
           className="pill pill-link"

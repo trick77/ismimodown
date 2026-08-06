@@ -181,6 +181,10 @@ func TestNetworkSeriesIsSeparateFromModels(t *testing.T) {
 
 // THE assertion: no public endpoint may ever emit error_detail. A provider
 // error body can echo request fragments, including credentials.
+//
+// The failures block was the one shape that nearly crossed this line, and it
+// does not: it serves the error class and the HTTP status, both of which are
+// the daemon's own vocabulary, and leaves the upstream text where it was.
 func TestNoPublicEndpointEmitsErrorDetail(t *testing.T) {
 	h, store := newAPIServer(t)
 
@@ -237,6 +241,10 @@ const testUserAgent = "someagent/9.9.9 probe-fixture/1.0"
 //
 // Two things in particular: the client string the probe presents, and the id of
 // the rotating question. Both are recorded and both stay unserved.
+//
+// The failures block is why the second cycle below is a FAILED run: that block
+// is the newest surface to project a row publicly, and a payload it never
+// appeared in would pass this for the wrong reason.
 func TestRequestShapeIsNotServed(t *testing.T) {
 	h, store := newAPIServer(t)
 
@@ -249,6 +257,23 @@ func TestRequestShapeIsNotServed(t *testing.T) {
 		Infer: []probe.InferResult{{
 			ModelID: "mimo-v2.5", Probe: probe.ProbeShort, TTFTMs: 900,
 			OK: true, QuestionID: "capital-france",
+		}},
+	}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	// A FAILED run too, so the failures block is populated rather than empty —
+	// the assertions below used to run against a payload the new block never
+	// appeared in, which would have passed for the wrong reason.
+	if _, err := store.Save(context.Background(), samples.Cycle{
+		StartedAt: testNow.Add(-2 * time.Minute),
+		Net: []probe.NetResult{
+			{Target: probe.TargetMimoSGP, OK: true, ConnectMs: 170},
+			{Target: probe.TargetRefSGP, OK: true, ConnectMs: 265},
+		},
+		Infer: []probe.InferResult{{
+			ModelID: "mimo-v2.5", Probe: probe.ProbeShort,
+			OK: false, ErrorClass: probe.ErrClassHTTP, HTTPStatus: 500,
+			ErrorDetail: "upstream unavailable", QuestionID: "capital-france",
 		}},
 	}); err != nil {
 		t.Fatalf("Save: %v", err)

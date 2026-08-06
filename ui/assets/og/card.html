@@ -160,13 +160,15 @@
         height: 44px;
         flex: none;
       }
-      /* 0.16em here against Masthead.tsx's 0.22em, and the card is the one that
-         has to give. "every few minutes" spelled out ran the row x=279..920 at
-         0.22em, and WhatsApp's square keeps only the middle 630px (285..915) —
-         it shaved the mark's left border and the last letter, invisibly, on the
-         one client that crops. Tracking, not font-size: the row has to stay
-         optically level with the 44px mark beside it. Re-measure after any
-         change to this string:
+      /* 0.22em, matching Masthead.tsx again. It was cut to 0.16em when the row
+         read "europe → singapore · every few minutes": spelled out, that ran
+         x=279..920 at 0.22em, and WhatsApp's square keeps only the middle 630px
+         (285..915) — it shaved the mark's left border and the last letter,
+         invisibly, on the one client that crops. The current string is shorter
+         and fits at full tracking; the measured bounds are in the assertion
+         below. Tracking, not font-size: the row has to stay optically level
+         with the 44px mark beside it. Re-measure after any change to this
+         string:
 
            magick og.png -crop 960x60+120+85 +repage -alpha off \
              -colorspace gray -threshold 30% -trim -format '%w @ %X\n' info:
@@ -175,12 +177,12 @@
          285..915. */
       .eyebrow span {
         font-size: 19px;
-        letter-spacing: 0.16em;
+        letter-spacing: 0.22em;
         text-transform: uppercase;
         color: var(--color-faint);
         /* Uppercase tracking adds a trailing space the eye reads as a gap;
            pulling it back keeps the mark and the text optically even. */
-        margin-right: -0.16em;
+        margin-right: -0.22em;
       }
 
       /* 76px, down from the 116px a one-word wordmark could carry. The heading
@@ -275,7 +277,7 @@
             </g>
           </g>
         </svg>
-        <span>europe → singapore · every few minutes</span>
+        <span>inference and network monitoring</span>
       </div>
 
       <!-- The break is explicit, not left to the measure. Two reasons. It keeps
