@@ -243,6 +243,34 @@ Migrations are embedded and run at boot, each in its own transaction. A
 migration that fails rolls back and is not recorded, so a failed upgrade leaves
 the database untouched rather than half-applied.
 
+### One-time: check your reference hosts before upgrading to the Amsterdam build
+
+The release that added the Amsterdam probes also pinned the TCP handshake to
+IPv4, and with it made `validateRefHost` **reject a bare IPv6 literal**. That
+value was accepted before, and `.env.example` used to advertise it.
+
+This fails at BOOT, not at probe time — the container will not start:
+
+```
+BACKEND_PING_REF_SGP_HOST must be a bare hostname or IPv4 address without
+scheme or port (the TCP probe is IPv4-only, so an IPv6 literal can never
+be reached)
+```
+
+Before pulling, check:
+
+```sh
+grep -E '^BACKEND_PING_REF_(SGP|AMS)_HOST=' .env
+```
+
+If either carries an IPv6 literal, replace it with a hostname or an IPv4
+address. A hostname is the better answer — the probe resolves A records and
+walks the whole rotation.
+
+The hard failure is deliberate. Accepting a v6 literal after the IPv4 pin would
+mean a reference that can never be reached, which reads as a permanent outage of
+the instrument rather than as the misconfiguration it is.
+
 ### Moving a host off the old `mimostats` checkout
 
 A host that was deployed before the rename needs one manual cutover, because

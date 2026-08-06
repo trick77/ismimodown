@@ -63,6 +63,25 @@ export function NetworkPanel({ series }: { series: NetSeries | null }) {
 
   // Built unconditionally, like SeriesPanel does, so the header can say
   // whether the axis went logarithmic before the chart itself is rendered.
+  //
+  // This panel now sits on a LOG axis nearly always, and that is expected
+  // rather than a symptom. shouldUseLogScale trips at a 20x dynamic range
+  // across every series at once, and probing two regions from one European box
+  // clears that on ordinary data: Singapore lands around 170-270 ms and
+  // Amsterdam in the low tens, a ratio in the twenties or thirties before
+  // anything has gone wrong.
+  //
+  // Left on deliberately. Forcing linear is the tempting fix and it is the
+  // wrong one — a linear axis spanning 0 to 280 ms puts the two Amsterdam lines
+  // about four pixels apart, which deletes that pair's reading entirely, while
+  // log keeps both pairs legible (roughly 30 px and 20 px on a 240 px plot).
+  //
+  // What it does cost: LOG_SCALE_THRESHOLD was chosen to catch an ANOMALY — a
+  // normal reading going flat against a spike — so a permanently-lit chip says
+  // "unusual" about a chart whose spread is now structural. The chip is honest
+  // about the axis either way, which is the property that actually matters. If
+  // that reads as noise, the fix is a per-panel threshold or a split axis, not
+  // forceLinear.
   const option = buildLineOption({
     series: relabelled,
     order,
