@@ -104,7 +104,7 @@ func TestNoContestedSubjectsInTheBank(t *testing.T) {
 // Every question shape must be present, so a correctness dip cannot be an
 // artefact of one phrasing.
 func TestBankCoversEveryQuestionShape(t *testing.T) {
-	var capitalsN, citiesN, elementsN int
+	var capitalsN, citiesN, elementsN, symbolsN int
 	for _, q := range Bank {
 		switch {
 		case strings.HasPrefix(q.ID, "capital-"):
@@ -113,13 +113,45 @@ func TestBankCoversEveryQuestionShape(t *testing.T) {
 			citiesN++
 		case strings.HasPrefix(q.ID, "element-"):
 			elementsN++
+		case strings.HasPrefix(q.ID, "symbol-"):
+			symbolsN++
 		default:
 			t.Errorf("question %q has an unrecognised ID shape", q.ID)
 		}
 	}
-	if capitalsN < 50 || citiesN < 30 || elementsN < 50 {
-		t.Errorf("shapes are unbalanced: %d capitals, %d cities, %d elements",
-			capitalsN, citiesN, elementsN)
+	if capitalsN < 50 || citiesN < 30 || elementsN < 50 || symbolsN < 50 {
+		t.Errorf("shapes are unbalanced: %d capitals, %d cities, %d elements, %d symbols",
+			capitalsN, citiesN, elementsN, symbolsN)
+	}
+}
+
+// A symbol that is also an English word, or a single letter, matches prose that
+// says nothing about the element — the canary's silent direction. The name ->
+// symbol shape must skip them; the symbol -> name shape, where they appear in
+// the question rather than the answer, must keep them.
+func TestTheSymbolShapeSkipsSymbolsThatMatchProse(t *testing.T) {
+	for _, q := range Bank {
+		if !strings.HasPrefix(q.ID, "symbol-") {
+			continue
+		}
+		if len(q.Want) < 2 {
+			t.Errorf("question %q expects the one-letter symbol %q, which any stray capital matches",
+				q.ID, q.Want)
+		}
+		if unusableSymbols[q.Want] {
+			t.Errorf("question %q expects %q, an English word — prose alone would grade it correct",
+				q.ID, q.Want)
+		}
+	}
+	// The filtered symbols are not lost, only asked the other way round.
+	var asked int
+	for _, q := range Bank {
+		if q.ID == "element-nobelium" && strings.Contains(q.Ask, "No") {
+			asked++
+		}
+	}
+	if asked != 1 {
+		t.Error("a symbol unusable as an answer must still be asked as a question")
 	}
 }
 
