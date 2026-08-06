@@ -81,12 +81,21 @@ func TestQuestionIDsAreUnique(t *testing.T) {
 //
 // Every question is checked, not only the capital ones: an excluded subject is
 // excluded from the bank, whatever shape the question asking about it takes.
+//
+// Both halves of the question are checked, because the shapes put the subject
+// in different places: a capital question names the country in the Ask, a city
+// question names it in the Want. Checking only the Ask would let a city in an
+// excluded country in through the back door.
 func TestNoContestedSubjectsInTheBank(t *testing.T) {
-	for _, excluded := range capitalExclusions {
+	for _, excluded := range excludedSubjects {
 		for _, q := range Bank {
 			if strings.Contains(q.Ask, excluded) {
 				t.Errorf("question %q asks about %s, which has no single defensible answer",
 					q.ID, excluded)
+			}
+			if strings.Contains(q.Want, excluded) {
+				t.Errorf("question %q expects %q, which names %s, a subject with no single defensible answer",
+					q.ID, q.Want, excluded)
 			}
 		}
 	}
@@ -121,9 +130,11 @@ func TestBankCoversEveryQuestionShape(t *testing.T) {
 // the rule lives here rather than in a note on the data.
 func TestNoQuestionContainsItsOwnAnswer(t *testing.T) {
 	for _, q := range Bank {
-		if q.Assert(q.Ask) {
+		// Prompt rather than Ask: the shared suffix is sent to the model too, so
+		// an answer hiding in it would be just as dead a canary.
+		if q.Assert(q.Prompt()) {
 			t.Errorf("question %q contains its own expected answer %q — it can never fail: %q",
-				q.ID, q.Want, q.Ask)
+				q.ID, q.Want, q.Prompt())
 		}
 	}
 }

@@ -20,7 +20,7 @@ import (
 //     than no canary, because it fires without a fault. That rules out
 //     contested and dual capitals, countries whose name means more than one
 //     place, answers with two accepted spellings, and any subject where the
-//     answer itself is politically contested. capitalExclusions carries the
+//     answer itself is politically contested. excludedSubjects carries the
 //     list and the reason for each, and a test asserts none of them reappear.
 //
 // The shared suffix keeps the output length stable, which matters as much as
@@ -161,7 +161,7 @@ func Pick(n int64) Question {
 }
 
 // capitals holds country -> capital pairs. Contested and dual capitals are
-// excluded by construction; capitalExclusions documents which and why, and a
+// excluded by construction; excludedSubjects documents which and why, and a
 // test asserts none of them reappear.
 var capitals = [][2]string{
 	{"France", "Paris"}, {"Japan", "Tokyo"}, {"Canada", "Ottawa"},
@@ -197,7 +197,8 @@ var capitals = [][2]string{
 	{"Malta", "Valletta"}, {"Albania", "Tirana"}, {"Moldova", "Chisinau"},
 }
 
-// capitalExclusions are the subjects deliberately absent from `capitals`.
+// excludedSubjects are the subjects deliberately absent from the bank —
+// whatever shape a question about them would take, not only a capital one.
 //
 // For each one a model can answer "wrongly" while being entirely defensible,
 // which would fire the correctness canary with no fault behind it. A canary
@@ -208,7 +209,7 @@ var capitals = [][2]string{
 //
 // The reason recorded against each is the ambiguity, never a position on which
 // answer is right: this repo is public, and the bank has no business taking one.
-var capitalExclusions = []string{
+var excludedSubjects = []string{
 	// Contested, dual, or de-facto-split capitals.
 	"Bolivia",       // Sucre (constitutional) vs La Paz (seat of government)
 	"South Africa",  // Pretoria / Cape Town / Bloemfontein
@@ -244,6 +245,11 @@ var capitalExclusions = []string{
 	"Ukraine",    // Kyiv / Kiev
 	"Kazakhstan", // Astana / Nur-Sultan, renamed and renamed back
 
+	// A name that is no country's full name, so it can never be the Want:
+	// it matches inside both of the countries that carry it, and a model that
+	// named the wrong one would be graded correct.
+	"Korea", // North Korea / South Korea; bare "Korea" names neither
+
 	// A city-state answers its own question: Want would be the country name
 	// already in the Ask, so the assertion could never fail and the entry would
 	// be a dead canary that always passes. TestNoQuestionContainsItsOwnAnswer
@@ -262,6 +268,13 @@ var capitalExclusions = []string{
 // United Kingdom) are absent: "the US" or "England" would be a correct answer
 // scored wrong. So are countries that appear as an answer in `capitals`, so
 // that no question's expected answer can be matched by another's.
+//
+// Absent for the opposite reason: a country whose whole name sits inside the
+// name of a different place, where a wrong answer is graded right and the canary
+// fails silently. Ireland is the one that got as far as being written down —
+// "Cork is in Northern Ireland" would have scored correct. No test can catch
+// this class, because the name that swallows the answer need not be in the bank
+// at all, so it is a rule the next entry has to be read against.
 var cities = [][2]string{
 	{"Kyoto", "Japan"}, {"Osaka", "Japan"}, {"Hiroshima", "Japan"},
 	{"Marseille", "France"}, {"Lyon", "France"}, {"Bordeaux", "France"},
@@ -271,11 +284,11 @@ var cities = [][2]string{
 	{"Porto", "Portugal"}, {"Krakow", "Poland"}, {"Gdansk", "Poland"},
 	{"Salzburg", "Austria"}, {"Zurich", "Switzerland"}, {"Geneva", "Switzerland"},
 	{"Antwerp", "Belgium"}, {"Bergen", "Norway"}, {"Gothenburg", "Sweden"},
-	{"Tampere", "Finland"}, {"Aarhus", "Denmark"}, {"Cork", "Ireland"},
+	{"Tampere", "Finland"}, {"Aarhus", "Denmark"},
 	{"Thessaloniki", "Greece"}, {"Bursa", "Turkey"}, {"Isfahan", "Iran"},
 	{"Toronto", "Canada"}, {"Vancouver", "Canada"}, {"Montreal", "Canada"},
 	{"Melbourne", "Australia"}, {"Brisbane", "Australia"}, {"Auckland", "New Zealand"},
-	{"Busan", "Korea"}, {"Shanghai", "China"}, {"Guangzhou", "China"},
+	{"Shanghai", "China"}, {"Guangzhou", "China"},
 	{"Kolkata", "India"}, {"Bengaluru", "India"}, {"Lahore", "Pakistan"},
 	{"Alexandria", "Egypt"}, {"Casablanca", "Morocco"}, {"Marrakesh", "Morocco"},
 	{"Mombasa", "Kenya"}, {"Ibadan", "Nigeria"}, {"Rosario", "Argentina"},
