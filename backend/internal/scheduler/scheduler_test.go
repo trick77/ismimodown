@@ -778,19 +778,49 @@ func TestTheDispatchSlotIsGlobalNotKeyed(t *testing.T) {
 
 // The invariant this whole change exists for, asserted directly: no two
 // inference calls overlap, ever. Everything else in this file is a proxy for it.
+//
+// Driven by CONCURRENT cycles on purpose. RunCycle's loop is sequential in one
+// goroutine, so a single cycle cannot overlap anything and would pass this test
+// with the slot deleted outright — which is no test at all. The slot is there
+// for exactly the case below: more than one caller wanting the key at once,
+// which is how a fan-out inside RunCycle produced the 429s in the first place.
 func TestNoTwoInferenceCallsAreEverInFlightAtOnce(t *testing.T) {
-	prober := &overlapProber{delay: 5 * time.Millisecond}
-	s, _ := newTestScheduler(t, prober, &fakePinger{})
+	// Long enough that an unguarded dispatch would visibly overlap, short enough
+	// that six of them are still a fast test.
+	prober := &overlapProber{delay: 20 * time.Millisecond}
+	s, db := newTestScheduler(t, prober, &fakePinger{})
+	seedWideProbe(t, db, time.Now().UTC()) // two probes per cycle, not three
 
-	// No seeded wide, so this cycle carries one: three calls across two models,
-	// which is the widest a cycle gets and the case where an overlap would show.
-	s.RunCycle(context.Background())
+	var wg sync.WaitGroup
+	for range 3 {
+		wg.Add(1)
+		go func() { defer wg.Done(); s.RunCycle(context.Background()) }()
+	}
+	wg.Wait()
 
-	if prober.calls.Load() != 3 {
-		t.Fatalf("calls = %d, want 3 (a short per model plus one wide)", prober.calls.Load())
+	if got := prober.calls.Load(); got != 6 {
+		t.Fatalf("calls = %d, want 6 (a short per model across three cycles)", got)
 	}
 	if prober.overlapped.Load() {
 		t.Error("two inference calls were in flight at once; MiMo rate-limits the key, and the key is one")
+	}
+}
+
+// And the same invariant across the probe KINDS, which is the pair that actually
+// came back 429: one cycle, one model going wide, short and wide back to back.
+func TestTheWideAndShortOfOneModelNeverOverlap(t *testing.T) {
+	prober := &overlapProber{delay: 20 * time.Millisecond}
+	s, _ := newTestScheduler(t, prober, &fakePinger{})
+
+	// No seeded wide, so this cycle carries one: three calls, the widest a cycle
+	// gets.
+	s.RunCycle(context.Background())
+
+	if got := prober.calls.Load(); got != 3 {
+		t.Fatalf("calls = %d, want 3 (a short per model plus one wide)", got)
+	}
+	if prober.overlapped.Load() {
+		t.Error("a wide and a short were in flight at once against one model")
 	}
 }
 
