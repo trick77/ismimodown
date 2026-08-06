@@ -37,8 +37,8 @@ export const WIRE_COLOR = "#9c9a92";
 // glance.
 //
 // This WAS --color-online, the page's one green, accepted with the known
-// overlap that the pulse strip, the availability strip and FAULT_COLORS.ok all
-// use that value to mean "up". The chart going from two lines to four ended
+// overlap that the pulse strip and the availability strip both used that value
+// to mean "up". The chart going from two lines to four ended
 // that: with an edge per region the green would have had to be joined by a
 // second hue anyway, and spending the health colour on one of two peer lines
 // made the overlap harder to defend rather than easier. It is now a muted
@@ -124,13 +124,6 @@ export const REFERENCE_AMS_COLOR = "#8f8d85";
 // This is the page accent, which encodes emphasis rather than identity.
 // Against #1f1f1e, paired with WIRE_COLOR: CVD ΔE 10.8, normal-vision ΔE 15.3.
 export const SERVER_COLOR = "#c6613f";
-
-export const FAULT_COLORS: Record<string, string> = {
-  ok: "#5aa06a",
-  edge: "#c98500",
-  route: "#9085e9",
-  uplink: "#c14638",
-};
 
 export function colorForModel(modelID: string, models: string[]): string {
   const i = models.indexOf(modelID);

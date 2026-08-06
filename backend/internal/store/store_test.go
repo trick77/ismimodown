@@ -201,7 +201,8 @@ func TestMigrateIsIdempotent(t *testing.T) {
 func TestSchemaTablesExistAndAreStrict(t *testing.T) {
 	db := openTestDB(t)
 
-	want := []string{"cycles", "net_probes", "infer_probes", "cycle_fault", "skipped_runs"}
+	// skipped_runs was here until 0005 dropped it.
+	want := []string{"cycles", "net_probes", "infer_probes", "cycle_fault"}
 	for _, table := range want {
 		var name, sqlText string
 		err := db.QueryRow(

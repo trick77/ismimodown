@@ -88,9 +88,7 @@ function summary(over: Partial<Summary> = {}): Summary {
     cycles: 288,
     models: [model()],
     net: [],
-    faults: { ok: 288 },
     recent: recent(),
-    skipped_runs: 0,
     generated_at: GENERATED_AT,
     ...over,
   };
@@ -203,22 +201,18 @@ describe("buildVerdict", () => {
     const faults = Array<string>(24).fill(FAULT_OK);
     faults[18] = FAULT_EDGE;
     faults[19] = FAULT_EDGE;
-    const v = buildVerdict(
-      summary({ faults: { ok: 286, edge: 2 }, recent: recent(faults) }),
-      summary(),
-    );
+    const v = buildVerdict(summary({ recent: recent(faults) }), summary());
     expect(v.state).toBe("normal");
     expect(v.detail.join(" ")).toMatch(/last failed cycle was/i);
   });
 
-  // The window's fault counts must no longer be able to fire the banner at all.
-  it("ignores window fault counts when the recent cycles are clean", () => {
-    const v = buildVerdict(
-      summary({ faults: { ok: 200, edge: 40, route: 30, uplink: 18 } }),
-      summary(),
-    );
-    expect(v.state).toBe("normal");
-  });
+  // There was a third case here: "ignores window fault counts when the recent
+  // cycles are clean", guarding the other half of that bug — a banner fired
+  // from the window's aggregate rather than from the recent block. It is gone
+  // because the aggregate is gone. `summary.faults` was dropped from the
+  // payload once the attribution panel that read it was removed, so the
+  // regression it guarded can no longer be expressed: there is no window count
+  // left to pass in. The guarantee is now the type's, not the test's.
 
   // Precedence runs uplink -> route -> edge, because each layer makes the ones
   // beyond it unreadable.
@@ -331,8 +325,8 @@ describe("buildVerdict", () => {
   });
 
   // The index is a count of cycles, not a clock: a dropped slot leaves no cycle
-  // behind — the scheduler records those as skipped_runs — so multiplying the
-  // index out understates how long ago the failure was, in the flattering
+  // behind — the scheduler logs those rather than storing them — so multiplying
+  // the index out understates how long ago the failure was, in the flattering
   // direction.
   it("dates the last failure from the timestamps, not the cycle index", () => {
     // The three reds sit at indices 2-4, but everything from index 2 back is a

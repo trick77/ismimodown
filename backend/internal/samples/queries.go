@@ -192,12 +192,17 @@ type Summary struct {
 	Cycles int            `json:"cycles"`
 	Models []ModelSummary `json:"models"`
 	Net    []NetSummary   `json:"net"`
-	Faults map[string]int `json:"faults"`
 	// Recent is NOT window-scoped — see RecentCycle for why. It rides along in
 	// this response rather than in an endpoint of its own because the client
 	// needs it on exactly the requests it already makes.
+	//
+	// It is also the ONLY fault channel in this response. A `faults` map held
+	// the window's per-fault counts beside it, and a `skipped_runs` count rode
+	// along with it; both existed for the attribution panel, and both went when
+	// it did. The client never read either — it derives what it needs from
+	// Recent[].Fault, per cycle (ui/src/verdict.ts) — so serving them meant two
+	// SQL round trips per dashboard build for nothing.
 	Recent      []RecentCycle `json:"recent"`
-	Skipped     int           `json:"skipped_runs"`
 	GeneratedAt time.Time     `json:"generated_at"`
 }
 
@@ -273,37 +278,10 @@ func (s *Store) stats(ctx context.Context, column, modelID, probeKind string, si
 // Summarize builds the dashboard state for a window.
 func (s *Store) Summarize(ctx context.Context, w Window, models []string, probeKind string, now time.Time) (Summary, error) {
 	since := now.Add(-w.Duration)
-	out := Summary{
-		Window: w.Key,
-		Faults: map[string]int{}, GeneratedAt: now.UTC(),
-	}
+	out := Summary{Window: w.Key, GeneratedAt: now.UTC()}
 
 	if err := s.db.QueryRowContext(ctx,
 		`SELECT count(*) FROM cycles WHERE started_at >= ?`, rfc(since)).Scan(&out.Cycles); err != nil {
-		return Summary{}, err
-	}
-	if err := s.db.QueryRowContext(ctx,
-		`SELECT count(*) FROM skipped_runs WHERE occurred_at >= ?`, rfc(since)).Scan(&out.Skipped); err != nil {
-		return Summary{}, err
-	}
-
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT f.fault, count(*) FROM cycle_fault f
-		JOIN cycles c ON c.id = f.cycle_id
-		WHERE c.started_at >= ? GROUP BY f.fault`, rfc(since))
-	if err != nil {
-		return Summary{}, err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var fault string
-		var n int
-		if err := rows.Scan(&fault, &n); err != nil {
-			return Summary{}, err
-		}
-		out.Faults[fault] = n
-	}
-	if err := rows.Err(); err != nil {
 		return Summary{}, err
 	}
 
@@ -745,8 +723,9 @@ type Sample struct {
 //
 // Attempts, not successes: a failed wide probe still cost the endpoint the
 // request, and retrying it every five minutes until one succeeds is exactly the
-// behaviour this exists to prevent. `skipped_runs` carries overruns, which were
-// never sent, so they are correctly absent here.
+// behaviour this exists to prevent. Overruns are correctly absent either way:
+// the probe was never sent, so there is no attempt to find. They used to have a
+// `skipped_runs` row of their own and are now only logged; neither is read here.
 func (s *Store) LastProbeAtByModel(ctx context.Context, probeKind string) (map[string]time.Time, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT i.model_id, MAX(c.started_at)

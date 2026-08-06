@@ -170,17 +170,14 @@ func insertInfer(ctx context.Context, tx *sql.Tx, cycleID int64, in probe.InferR
 	return nil
 }
 
-// RecordSkip increments the overrun counter.
+// RecordSkip is gone, and with it the skipped_runs table (see migration 0005).
 //
-// Surfaced rather than swallowed: a silently skipped run makes the availability
-// strip lie by omission — the cycle simply is not there, which reads as "no
-// data" rather than "we were still busy".
-func (s *Store) RecordSkip(ctx context.Context, at time.Time, modelID, probeKind string) error {
-	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO skipped_runs (occurred_at, model_id, probe) VALUES (?, ?, ?)`,
-		at.UTC().Format(time.RFC3339Nano), modelID, probeKind)
-	return err
-}
+// It surfaced overruns so the availability strip would not lie by omission —
+// a dropped cycle simply is not there, which reads as "no data" rather than
+// "we were still busy". That strip is gone, and nothing else ever read the
+// rows. The signal itself did NOT go with them: the scheduler already logs
+// every dropped slot with its count and span, which is what anyone diagnosing
+// an overrun actually reads. See logMissedTicks in internal/scheduler.
 
 // CountCycles reports how many cycles exist, for tests and /healthz.
 func (s *Store) CountCycles(ctx context.Context) (int, error) {
@@ -202,12 +199,9 @@ func (s *Store) Sweep(ctx context.Context, olderThan time.Time) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	// skipped_runs hangs off no cycle, so it needs its own sweep or it grows
-	// without bound.
-	if _, err := s.db.ExecContext(ctx,
-		`DELETE FROM skipped_runs WHERE occurred_at < ?`, cutoff); err != nil {
-		return cycles, err
-	}
+	// One delete is again enough. skipped_runs hung off no cycle and needed a
+	// sweep of its own or it grew without bound; the table is gone (migration
+	// 0005), so the cascade covers everything that remains.
 	return cycles, nil
 }
 

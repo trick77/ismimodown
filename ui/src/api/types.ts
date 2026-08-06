@@ -64,11 +64,10 @@ export type Summary = {
   cycles: number;
   models: ModelSummary[];
   net: NetSummary[];
-  faults: Record<string, number>;
-  // NOT window-scoped. faults counts what happened over the window; this is
-  // what is happening now, and the two answer different questions.
+  // NOT window-scoped, unlike everything above it: `cycles` and the model and
+  // net blocks count what happened over the window, while this is what is
+  // happening now, and the two answer different questions.
   recent: RecentCycle[];
-  skipped_runs: number;
   generated_at: string;
 };
 

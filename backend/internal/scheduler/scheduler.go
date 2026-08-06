@@ -73,21 +73,23 @@ const WideInterval = time.Hour
 // use up the available room.
 const WideSlack = CycleInterval / 2
 
-// MaxRecordedMisses bounds how many dropped slots ONE overrun may claim.
+// OverrunSlotLimit is where a run of dropped slots stops being an overrun and
+// starts being the wall clock moving.
 //
 // A cycle's length is bounded by the probe ladder: a wide cycle costs at most
 // short+wide per model with the models concurrent, which is minutes, not hours.
-// A catch-up longer than that is not an overrun at all — it is the wall clock
-// moving, from an NTP step, a suspended host or a restored VM snapshot. Left
-// uncapped, a three-hour jump would insert one skipped_runs row per model per
-// five-minute slot and put "72 skipped" beside the availability strip, under a
-// tooltip saying the previous cycle was still running. That is exactly the
-// misread this counter exists to prevent, in a new form.
+// A catch-up longer than that is not an overrun at all — it is an NTP step, a
+// suspended host or a restored VM snapshot, and calling it "the previous cycle
+// was still running" is simply wrong.
 //
-// The anchor still catches all the way up in nextDelay — only the CLAIM about
-// the skipped slots is capped, and the excess is logged so a real clock jump is
-// still visible to whoever reads the logs.
-const MaxRecordedMisses = 6
+// It no longer caps anything. This used to bound how many skipped_runs rows one
+// overrun could insert, because a three-hour jump would otherwise put "72
+// skipped" beside the availability strip under a tooltip blaming the previous
+// cycle. That table and that panel are both gone; all that survives is the
+// distinction itself, which still decides which of the two log lines is true.
+//
+// The anchor still catches all the way up in nextDelay, as it always did.
+const OverrunSlotLimit = 6
 
 // Prober is the inference client seam. *probe.Client satisfies it.
 type Prober interface {
@@ -170,9 +172,9 @@ type Scheduler struct {
 	// It is a BACKSTOP, not the thing that counts overruns. Run drives one cycle
 	// at a time and each model's two probes share a goroutine, so no key is ever
 	// held when it is asked for again and this guard cannot fire as the code
-	// stands. Reading skipped_runs as "the guard fired" was wrong for exactly
-	// that reason; overruns are counted where they actually happen, against the
-	// scheduled slots a long cycle ran through. See recordMissedTicks. Keep the
+	// stands. Reading its skipped_runs rows as "the guard fired" was wrong for
+	// exactly that reason; overruns are counted where they happen, against the
+	// scheduled slots a long cycle ran through. See logMissedTicks. Keep the
 	// guard: it is what makes dispatching cycles without waiting safe later.
 	mu       sync.Mutex
 	inFlight map[string]bool
@@ -211,7 +213,7 @@ func (s *Scheduler) Run(ctx context.Context) {
 		s.RunCycle(ctx)
 
 		d, missed := s.nextDelay()
-		s.recordMissedTicks(ctx, missed)
+		s.logMissedTicks(missed)
 
 		if !sched.Sleep(ctx, d) {
 			slog.Info("scheduler stopping")
@@ -220,63 +222,35 @@ func (s *Scheduler) Run(ctx context.Context) {
 	}
 }
 
-// recordMissedTicks writes one skipped run per model for every scheduled slot a
-// long cycle ran straight through.
+// logMissedTicks reports every scheduled slot a long cycle ran straight through.
 //
 // Without this the drop is INVISIBLE. The catch-up in nextDelay silently
 // advances the anchor past the missed slots, so the cycles simply are not
 // there — and a missing cycle reads as "no data", which is indistinguishable
-// from a daemon that was not deployed yet. The overrun counter beside the
-// availability strip meanwhile reported zero, because the only thing that ever
-// wrote to it was the in-flight guard in runProbe, and that guard cannot fire:
-// cycles run one at a time, so a run is never still in flight when the next one
-// starts. The counter was structurally incapable of being non-zero.
+// from a daemon that was not deployed yet.
 //
-// Recorded per MODEL and against `short`: every cycle runs the short probe for
-// every model, so those runs really were lost. `wide` is conditional and is not
-// claimed — a slot that would not have carried it did not lose it.
+// This used to ALSO write one skipped_runs row per model per slot, to drive a
+// counter beside the availability strip. Both are gone (see migration 0005),
+// and nothing is lost by it: the row carried no information this line does not,
+// and it carried it somewhere nobody looked. The log is where an overrun is
+// actually diagnosed.
 //
-// A failed write is logged and dropped rather than retried. This is a counter
-// for a human reading a dashboard, and losing a tick from it must never be able
-// to stall the probe loop it is counting.
-//
-// More than MaxRecordedMisses slots is a clock jump rather than an overrun, and
-// only the most recent MaxRecordedMisses are claimed. See that constant.
-func (s *Scheduler) recordMissedTicks(ctx context.Context, missed []time.Time) {
+// Past OverrunSlotLimit slots the cause is the wall clock rather than a long
+// cycle, and the message says so instead of blaming the previous cycle.
+func (s *Scheduler) logMissedTicks(missed []time.Time) {
 	if len(missed) == 0 {
 		return
 	}
-	unclaimed := 0
-	if len(missed) > MaxRecordedMisses {
-		unclaimed = len(missed) - MaxRecordedMisses
-		missed = missed[len(missed)-MaxRecordedMisses:]
-	}
 	// Two different events, so two different messages: relabelling a clock jump
-	// as an overrun in the logs is the same misattribution the cap removes from
-	// the strip, only moved somewhere a reader trusts more.
+	// as an overrun is a misattribution, and this line is now the only place the
+	// distinction is recorded at all.
 	msg := "cycle overran its slot; scheduled ticks dropped"
-	if unclaimed > 0 {
-		msg = "wall clock moved past many slots; recording only the most recent"
+	if len(missed) > OverrunSlotLimit {
+		msg = "wall clock moved past many slots; not an overrun"
 	}
 	slog.Warn(msg,
-		"ticks", len(missed), "unclaimed", unclaimed, "models", len(s.deps.Models),
+		"ticks", len(missed), "models", len(s.deps.Models),
 		"first", missed[0], "last", missed[len(missed)-1])
-
-	for _, tick := range missed {
-		for _, model := range s.deps.Models {
-			if err := s.deps.Store.RecordSkip(ctx, tick, model, probe.ProbeShort); err != nil {
-				// Shutdown cancels the context mid-write; that is not a fault,
-				// and the rest of the batch has nowhere to go either.
-				if errors.Is(err, context.Canceled) {
-					return
-				}
-				// One lost counter tick, not the rest of the batch: a single
-				// failed INSERT says nothing about the next one, and abandoning
-				// them understates the drop in the direction that flatters.
-				slog.Error("record missed tick failed", "err", err, "tick", tick)
-			}
-		}
-	}
 }
 
 // nextDelay returns how long to wait for the next cycle, anchored to the wall
@@ -299,7 +273,7 @@ func (s *Scheduler) recordMissedTicks(ctx context.Context, missed []time.Time) {
 // counted rather than merely absorbed. Removing the drift is not the same as
 // removing the loss: an overrunning cycle still samples less often exactly when
 // the endpoint is struggling, and the caller records that. See
-// recordMissedTicks.
+// logMissedTicks.
 //
 // The FIRST call never reports a miss, and correctly so: it is the call that
 // establishes the anchor, and the slots before it belong to a time when the
@@ -329,7 +303,7 @@ func (s *Scheduler) nextDelay() (time.Duration, []time.Time) {
 	// the schedule permanently behind the wall clock.
 	//
 	// Every iteration here is a slot that came and went while the cycle was
-	// still running. Collected, not just skipped — see recordMissedTicks.
+	// still running. Collected, not just skipped — see logMissedTicks.
 	var missed []time.Time
 	for !s.nextTick.After(now) {
 		missed = append(missed, s.nextTick)
@@ -552,7 +526,7 @@ func (s *Scheduler) RunCycle(ctx context.Context) {
 	// A wide cycle costs short+wide for the ONE model carrying wide and short
 	// alone for the rest, so it is bounded by the slower of those two rather than
 	// by short+wide across the board. It can still run through its slot at the
-	// per-model latencies that motivated this; recordMissedTicks makes that
+	// per-model latencies that motivated this; logMissedTicks makes that
 	// visible rather than silent, which is the honest outcome, and serialising
 	// less than this would cost the isolation above.
 	var (
@@ -628,10 +602,10 @@ func (s *Scheduler) runProbe(
 		// The previous run is still in flight. Skip rather than pile up: two
 		// concurrent runs against one model would contend for the same upstream
 		// node and each would measure the other's queueing.
+		// The log line is the whole record now. This also wrote a skipped_runs
+		// row; that table is gone (migration 0005), and it never added anything
+		// this line does not already say.
 		slog.Warn("probe overrun; skipping", "model", model, "probe", kind, "cycle", n)
-		if err := s.deps.Store.RecordSkip(ctx, started, model, kind); err != nil {
-			slog.Error("record skip failed", "err", err)
-		}
 		return probe.InferResult{}, false
 	}
 	defer s.release(key)

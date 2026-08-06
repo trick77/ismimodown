@@ -10,7 +10,6 @@ import { Decomposition } from "./Decomposition";
 import { SeriesPanel } from "./SeriesPanel";
 import { PrefillPanel } from "./PrefillPanel";
 import { NetworkPanel } from "./NetworkPanel";
-import { AvailabilityStrip } from "./AvailabilityStrip";
 import { PulseStrip } from "./PulseStrip";
 import { RecentErrors } from "./RecentErrors";
 import { SamplesTable } from "./SamplesTable";
@@ -377,7 +376,6 @@ export default function App() {
               panels below then show the working for.) */}
             <NetworkPanel series={data?.series.network ?? null} />
             <Decomposition summary={data?.summary ?? null} edgeMs={mimoEdge} />
-            <AvailabilityStrip summary={data?.summary ?? null} />
             {/* Last of the panels, above the raw cycles. Everything over it
               measures the endpoint; this one measures what measuring it costs,
               which is a fact about us rather than about MiMo — so it reads as a

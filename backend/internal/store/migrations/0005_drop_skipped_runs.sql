@@ -1,0 +1,26 @@
+-- Drop the overrun counter's table.
+--
+-- skipped_runs existed for one reader: the "N skipped" badge on the attribution
+-- panel ("What broke, and whose fault it was"). That panel is gone — in normal
+-- operation it drew a single-segment bar reading "fine 100%", and the finding it
+-- existed for is already stated in prose by the verdict banner — and with it went
+-- the `skipped_runs` field on the dashboard response. Nothing else ever read a
+-- row: not the API, not /healthz, not an operator query.
+--
+-- Deleting the table rather than leaving it to fill: a write-only table is a
+-- standing cost — an INSERT per model per dropped slot, its own retention sweep
+-- in Sweep because it hangs off no cycle and cascades from nothing, and a
+-- schema object the next reader has to work out is dead. 0002 dropped `origin`
+-- on the same reasoning.
+--
+-- The SIGNAL is not lost, which is the only reason this is safe. Every dropped
+-- slot is logged by the scheduler with its count, its span and the model count
+-- (logMissedTicks), and the in-flight guard logs its own skip. That line is
+-- where an overrun is actually diagnosed; the row carried nothing it does not,
+-- and it carried it somewhere nobody looked.
+--
+-- Rows are discarded, not migrated. They are a bounded-retention diagnostic
+-- counter, not a measurement — nothing on the site was ever derived from them,
+-- and the retention sweep was already deleting them on a rolling window.
+
+DROP TABLE skipped_runs;

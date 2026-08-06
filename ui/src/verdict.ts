@@ -91,7 +91,8 @@ export function worst(...states: State[]): State {
 // How far back "right now" reaches. Twelve cycles is one hour at the 5-minute
 // cadence: long enough that a flapping endpoint cannot hide between two clean
 // checks, short enough that a fault which stopped an hour ago stops being news.
-// The banner is allowed to forget. The availability strip below it does not.
+// The banner is allowed to forget. The pulse strip and the errors card below it
+// do not.
 export const RECENT_CYCLES = 12;
 
 // One red cycle is an anecdote; two in a row is a state. A single failed
@@ -168,10 +169,10 @@ export type Track = {
   // How long ago the newest red actually was, in minutes, read off the stored
   // timestamps rather than multiplied out of the index above.
   //
-  // The two disagree exactly when a slot was dropped — which the scheduler now
-  // records as skipped_runs rather than pretending it did not happen — so an
-  // index-derived "20 minutes ago" can describe a failure from an hour back,
-  // understating it in the direction that flatters.
+  // The two disagree exactly when a slot was dropped — which the scheduler logs
+  // rather than pretending it did not happen — so an index-derived "20 minutes
+  // ago" can describe a failure from an hour back, understating it in the
+  // direction that flatters.
   lastRedMinutes: number | null;
 };
 
@@ -296,9 +297,9 @@ export function buildVerdict(
   summary: Summary | null,
   baseline: Summary | null,
 ): Verdict {
-  // `?? []` for the same reason `faults` carried one: a payload that predates
-  // the field must read as "nothing to say", never crash the page it is the
-  // headline of.
+  // `?? []` because a payload that predates the field must read as "nothing to
+  // say", never crash the page it is the headline of. (`faults` carried one for
+  // the same reason, until the panel that read it was removed.)
   const recent = summary?.recent ?? [];
   // Deliberately NOT `summary.cycles === 0`. cycles counts the fixed window;
   // recent does not. A daemon dead for longer than that window has cycles = 0
@@ -446,8 +447,8 @@ function faultVerdict(state: State, recent: RecentCycle[], t: Track): Verdict {
   // "MiMo's edge is unreachable" reads as the banner contradicting itself, and
   // "the route to the endpoint is degraded — not MiMo" fights its own
   // disclaimer. The far end is the whole far side of the path, which is what
-  // these two classes are actually about. AvailabilityStrip and RecentErrors
-  // carry the same pair of words.
+  // these two classes are actually about. RecentErrors carries the same pair
+  // of words.
   if (fault === FAULT_UPLINK || fault === FAULT_ROUTE) {
     const headline =
       fault === FAULT_UPLINK

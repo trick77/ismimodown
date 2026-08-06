@@ -668,6 +668,7 @@ func TestBothModelsGetTheSameQuestionInACycle(t *testing.T) {
 func TestOverrunSkipsAndCountsExactlyOnce(t *testing.T) {
 	prober := &fakeProber{block: make(chan struct{}), blockModel: "mimo-v2.5"}
 	s, db := newTestScheduler(t, prober, &fakePinger{})
+	logs := captureLogs(t)
 
 	// A wide probe ran a moment ago, so no cycle here is due one. Without this
 	// the first cycle carries wide for the blocked model too, and since the
@@ -697,12 +698,11 @@ func TestOverrunSkipsAndCountsExactlyOnce(t *testing.T) {
 	close(prober.block)
 	<-done
 
-	var skipped int
-	if err := db.QueryRow(`SELECT count(*) FROM skipped_runs`).Scan(&skipped); err != nil {
-		t.Fatalf("query: %v", err)
-	}
-	if skipped == 0 {
-		t.Fatal("an overrun must be recorded; silent skipping makes availability lie by omission")
+	// The guard's record is its log line — it also wrote a skipped_runs row
+	// until 0005 dropped that table, and the row never said anything this does
+	// not. Silent skipping is still the thing being prevented.
+	if got := logs.String(); !strings.Contains(got, "probe overrun; skipping") {
+		t.Fatalf("log = %q, want the overrun recorded; silent skipping makes availability lie by omission", got)
 	}
 
 	// And the skip must not have produced a phantom sample.
@@ -839,9 +839,9 @@ func TestOverrunningCycleLandsOnTheNextSlotWithoutDrifting(t *testing.T) {
 	d, missed := s.nextDelay()
 	fired := now.Add(d)
 
-	// The eaten slot must be REPORTED, not merely absorbed. See
-	// recordMissedTicks: absorbing it silently is what made the overrun counter
-	// read zero while the series thinned out.
+	// The eaten slot must be REPORTED, not merely absorbed. See logMissedTicks:
+	// absorbing it silently is what made the overrun counter read zero while
+	// the series thinned out.
 	if len(missed) != 1 {
 		t.Fatalf("missed = %v, want exactly the 06:10 slot the cycle ran through", missed)
 	}
@@ -884,32 +884,42 @@ func TestNextDelayReportsEverySlotAnOverrunAteNotJustTheLastOne(t *testing.T) {
 	}
 }
 
-// The overrun counter beside the availability strip used to be structurally
-// incapable of being non-zero: its only writer was the in-flight guard, which
-// cannot fire while cycles run one at a time. A dropped slot has to reach it.
-func TestMissedTicksAreRecordedPerModel(t *testing.T) {
-	s, db := newTestScheduler(t, &fakeProber{}, &fakePinger{})
+// A dropped slot has to be reported. This used to assert one skipped_runs row
+// per model per slot; the rows are gone, and the line that replaced them has to
+// carry the same two facts — that it happened, and how many slots it ate.
+func TestMissedTicksAreLoggedWithTheirSpan(t *testing.T) {
+	s, _ := newTestScheduler(t, &fakeProber{}, &fakePinger{})
+	logs := captureLogs(t)
 
 	ticks := []time.Time{
 		time.Date(2026, 8, 4, 6, 10, 0, 0, time.UTC),
 		time.Date(2026, 8, 4, 6, 15, 0, 0, time.UTC),
 	}
-	s.recordMissedTicks(context.Background(), ticks)
+	s.logMissedTicks(ticks)
 
-	var n int
-	if err := db.QueryRow(`SELECT count(*) FROM skipped_runs`).Scan(&n); err != nil {
-		t.Fatalf("query: %v", err)
+	got := logs.String()
+	if !strings.Contains(got, "cycle overran its slot") {
+		t.Errorf("log = %q, want the overrun message", got)
 	}
-	// Two slots, two models, one infer run each.
-	if want := len(ticks) * 2; n != want {
-		t.Errorf("skipped_runs = %d, want %d (one per model per dropped slot)", n, want)
+	if !strings.Contains(got, `"ticks":2`) {
+		t.Errorf("log = %q, want ticks=2 — the count is the point", got)
 	}
+	// The span, so a reader can tell which slots went without reading the clock.
+	if !strings.Contains(got, "06:10:00") || !strings.Contains(got, "06:15:00") {
+		t.Errorf("log = %q, want the first and last dropped slot", got)
+	}
+}
 
-	// `wide` is conditional, so a dropped slot must not claim to have lost one.
-	var wide int
-	db.QueryRow(`SELECT count(*) FROM skipped_runs WHERE probe = ?`, probe.ProbeWide).Scan(&wide)
-	if wide != 0 {
-		t.Errorf("skipped_runs carrying wide = %d, want 0", wide)
+// Nothing to say when nothing was missed: a warning per cycle would train the
+// reader to ignore the one that matters.
+func TestNoTicksMissedLogsNothing(t *testing.T) {
+	s, _ := newTestScheduler(t, &fakeProber{}, &fakePinger{})
+	logs := captureLogs(t)
+
+	s.logMissedTicks(nil)
+
+	if got := logs.String(); got != "" {
+		t.Errorf("log = %q, want nothing", got)
 	}
 }
 
@@ -954,32 +964,28 @@ func TestASlowModelDoesNotHoldUpTheOtherModelsProbe(t *testing.T) {
 // dozens of "skipped" against a tooltip saying the previous cycle was still
 // running, which is the deploy-gap misread this counter exists to prevent.
 func TestAClockJumpIsNotClaimedAsAnOverrun(t *testing.T) {
-	s, db := newTestScheduler(t, &fakeProber{}, &fakePinger{})
+	s, _ := newTestScheduler(t, &fakeProber{}, &fakePinger{})
+	logs := captureLogs(t)
 
 	var ticks []time.Time
 	base := time.Date(2026, 8, 4, 6, 10, 0, 0, time.UTC)
 	for i := 0; i < 36; i++ { // three hours of five-minute slots
 		ticks = append(ticks, base.Add(time.Duration(i)*CycleInterval))
 	}
-	s.recordMissedTicks(context.Background(), ticks)
+	s.logMissedTicks(ticks)
 
-	var n int
-	if err := db.QueryRow(`SELECT count(*) FROM skipped_runs`).Scan(&n); err != nil {
-		t.Fatalf("query: %v", err)
+	got := logs.String()
+	if !strings.Contains(got, "wall clock moved past many slots") {
+		t.Errorf("log = %q, want the clock-jump message", got)
 	}
-	if want := MaxRecordedMisses * 2; n != want {
-		t.Errorf("skipped_runs = %d, want %d — a clock jump must not be claimed slot by slot", n, want)
+	// Specifically NOT the overrun wording: that is the misattribution the
+	// OverrunSlotLimit distinction exists to prevent, and the log line is now
+	// the only place it is drawn.
+	if strings.Contains(got, "cycle overran its slot") {
+		t.Errorf("log = %q, a three-hour gap must not be blamed on a long cycle", got)
 	}
-
-	// The ones kept are the most recent: those are the slots adjacent to the
-	// cycle that actually ran, and the only ones a reader could act on.
-	var first string
-	if err := db.QueryRow(`SELECT min(occurred_at) FROM skipped_runs`).Scan(&first); err != nil {
-		t.Fatalf("query: %v", err)
-	}
-	want := ticks[len(ticks)-MaxRecordedMisses].Format(time.RFC3339Nano)
-	if first != want {
-		t.Errorf("earliest recorded tick = %s, want %s", first, want)
+	if !strings.Contains(got, `"ticks":36`) {
+		t.Errorf("log = %q, want the full span reported, not a truncated claim", got)
 	}
 }
 

@@ -438,10 +438,6 @@ func TestSummarizeReportsFaultsAndSkips(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
-	if err := s.RecordSkip(ctx, now.Add(-90*time.Second), "mimo-v2.5-pro", probe.ProbeShort); err != nil {
-		t.Fatalf("RecordSkip: %v", err)
-	}
-
 	w, _ := LookupWindow("24h")
 	sum, err := s.Summarize(ctx, w, []string{"mimo-v2.5"}, probe.ProbeShort, now)
 	if err != nil {
@@ -451,13 +447,16 @@ func TestSummarizeReportsFaultsAndSkips(t *testing.T) {
 	if sum.Cycles != 2 {
 		t.Errorf("cycles = %d, want 2", sum.Cycles)
 	}
-	if sum.Faults[probe.FaultOK] != 1 || sum.Faults[probe.FaultEdge] != 1 {
-		t.Errorf("faults = %v, want one ok and one edge", sum.Faults)
+	// Attribution is asserted through Recent, which is the only fault channel
+	// this response has. It carried a `Faults` map of per-window counts too,
+	// until the panel that read it went; the client always derived what it
+	// needed from the per-cycle field, so that is what has to keep working.
+	faults := map[string]int{}
+	for _, c := range sum.Recent {
+		faults[c.Fault]++
 	}
-	// Surfaced rather than swallowed: silent skipping makes availability lie by
-	// omission.
-	if sum.Skipped != 1 {
-		t.Errorf("skipped_runs = %d, want 1", sum.Skipped)
+	if faults[probe.FaultOK] != 1 || faults[probe.FaultEdge] != 1 {
+		t.Errorf("recent faults = %v, want one ok and one edge", faults)
 	}
 	// The network layer is summarised per target, so the attribution is
 	// readable rather than inferred.
@@ -564,11 +563,18 @@ func TestUplinkCyclesAreExcludedFromModelAvailability(t *testing.T) {
 	if ms.Available != 100 {
 		t.Errorf("availability = %v%%, want 100%% — MiMo answered every cycle we could actually reach it", ms.Available)
 	}
-	// The cycles are still VISIBLE, just not charged to MiMo: the strip renders
-	// them, and hiding them would be its own dishonesty.
-	if sum.Faults[probe.FaultUplink] != 10 {
-		t.Errorf("uplink faults = %d, want 10 — excluded from availability, not from the record",
-			sum.Faults[probe.FaultUplink])
+	// The cycles are still VISIBLE, just not charged to MiMo: hiding them would
+	// be its own dishonesty. Counted off Recent, which is where the client reads
+	// attribution from — the per-window Faults map this used to assert on served
+	// only the attribution panel and went with it.
+	uplink := 0
+	for _, c := range sum.Recent {
+		if c.Fault == probe.FaultUplink {
+			uplink++
+		}
+	}
+	if uplink != 10 {
+		t.Errorf("uplink faults = %d, want 10 — excluded from availability, not from the record", uplink)
 	}
 }
 
