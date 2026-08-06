@@ -21,8 +21,9 @@ import (
 func main() {
 	// The real config.Load, not a hand-built one. This used to restate the base
 	// URL, the user agent and all six timeouts as literals, which made the smoke
-	// check drift from the daemon it is meant to smoke — and MimoHost is now
-	// derived inside Load and cannot be restated at all.
+	// check drift from the daemon it is meant to smoke — and the four ping
+	// targets now come from Load, so restating them here would let the smoke
+	// check pass against hosts the daemon never probes.
 	cfg, err := config.Load()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -43,8 +44,10 @@ func main() {
 
 	pinger := probe.NewPinger(cfg.PingTimeout)
 	for _, target := range []struct{ name, host string }{
-		{probe.TargetMimoSGP, cfg.MimoHost},
+		{probe.TargetMimoSGP, cfg.MimoSGPHost},
 		{probe.TargetRefSGP, cfg.RefSGPHost},
+		{probe.TargetMimoAMS, cfg.MimoAMSHost},
+		{probe.TargetRefAMS, cfg.RefAMSHost},
 	} {
 		r := pinger.Ping(context.Background(), target.name, target.host)
 		fmt.Printf("ping  %-10s %-38s ok=%-5v dns=%6.1fms connect=%7.1fms %s\n",

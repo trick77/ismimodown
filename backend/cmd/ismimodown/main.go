@@ -168,10 +168,12 @@ func run() error {
 			IdleTimeout:   cfg.IdleTimeout,
 			Timeout:       cfg.ProbeTimeout,
 		}),
-		Pinger:     probe.NewPinger(cfg.PingTimeout),
-		Models:     cfg.Models,
-		MimoHost:   cfg.MimoHost,
-		RefSGPHost: cfg.RefSGPHost,
+		Pinger:      probe.NewPinger(cfg.PingTimeout),
+		Models:      cfg.Models,
+		MimoSGPHost: cfg.MimoSGPHost,
+		RefSGPHost:  cfg.RefSGPHost,
+		MimoAMSHost: cfg.MimoAMSHost,
+		RefAMSHost:  cfg.RefAMSHost,
 		OnCycle: func(cycleID int64) {
 			// Drop the cached responses first, THEN notify: a client that reacts
 			// to the event by refetching must not be served the pre-cycle
