@@ -116,6 +116,9 @@ describe("RecentErrors", () => {
   it("treats the historical route fault the same way", () => {
     render(<RecentErrors failures={[failure({ fault: FAULT_ROUTE })]} />);
 
+    // Named as the layer it was attributed to: a route cycle is the path
+    // between here and Singapore, which is neither our uplink nor MiMo's.
+    expect(screen.getByText(/route to Singapore/i)).toBeInTheDocument();
     expect(screen.getByText(/not attributable to MiMo/i)).toBeInTheDocument();
   });
 

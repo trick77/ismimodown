@@ -129,11 +129,20 @@ export const ELEVATED_WRONG_RECENT = 2;
 // severity inversion this constant exists to avoid.
 export const STALE_AFTER_MS = 3 * 5 * 60 * 1000;
 
+// A fault nobody could pin on MiMo. Both classes travel together everywhere in
+// this codebase: route is no longer produced, but stored cycles carry it, and
+// handling only uplink would silently misread them. Exported so every surface
+// that has to make this call shares the ONE predicate rather than a comment
+// asking two copies to stay in step — see RecentErrors.tsx.
+export function unattributableFault(fault: string): boolean {
+  return fault === FAULT_UPLINK || fault === FAULT_ROUTE;
+}
+
 // A cycle nobody could attribute. Both classes travel together everywhere in
 // this codebase: route is no longer produced, but stored cycles carry it, and
 // handling only uplink would silently misread them.
 function unattributable(cycle: RecentCycle): boolean {
-  return cycle.fault === FAULT_UPLINK || cycle.fault === FAULT_ROUTE;
+  return unattributableFault(cycle.fault);
 }
 
 // A cycle that failed at the network layer. The empty string is what a cycle
