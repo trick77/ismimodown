@@ -97,10 +97,11 @@ type ModelPrice struct {
 // third party editing a number should not silently change a figure this
 // dashboard publishes as its own cost. Edit this table when the rates move.
 //
-// These are LIST rates for these models, not an invoice. The probe runs against
-// a token plan, which consumes credits rather than dollars, so the panel reads
-// "at list" and never claims to be a bill. It is the right order of magnitude
-// and the wrong document to argue with an accountant about.
+// These are MiMo's published per-token rates, and what the panel reports is the
+// tokens this dashboard actually spent priced against them. It is the right
+// order of magnitude and the wrong document to argue with an accountant about:
+// nothing here sees a real invoice, so a rate that has moved since the date
+// above is wrong everywhere at once and silently.
 //
 // Every model in DefaultModels MUST have an entry here. Nothing downstream
 // tolerates a missing one any more: /api/cost prices every row it finds, so a
@@ -111,12 +112,13 @@ var DefaultPrices = map[string]ModelPrice{
 	"mimo-v2.5-pro": {In: 1.00, Out: 3.00, Cached: 0.20},
 }
 
-// OffPeakCoefficient is MiMo's reduced-rate multiplier, applied to credits
-// consumed between OffPeakStartUTCHour and midnight UTC.
+// OffPeakCoefficient is MiMo's reduced-rate multiplier, applied to tokens spent
+// between OffPeakStartUTCHour and midnight UTC.
 //
-// It multiplies the CREDITS, not the dollars: price the tokens at list, apply
-// this to the off-peak share, then convert. The other order rounds in the wrong
-// place.
+// Applied per phase and never to a window total: price each phase's tokens at
+// the full rate, discount the off-peak share, then add. Discounting a total
+// that already mixes both phases charges the reduction against runs that never
+// earned it.
 const OffPeakCoefficient = 0.8
 
 // OffPeakStartUTCHour opens the reduced-rate window. It closes at 24:00 UTC.

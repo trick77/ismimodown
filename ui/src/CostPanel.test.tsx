@@ -67,9 +67,9 @@ describe("CostPanel", () => {
     render(<CostPanel cost={cost()} />);
 
     expect(screen.getByText("$0.18")).toBeInTheDocument();
-    // "At list", never "billed": the plan bills in credits and this converts
-    // them at a published rate, which is an estimate and says so.
-    expect(screen.getByText("At list, 24h")).toBeInTheDocument();
+    // The window, named: this is the total over the last 24h and not a rate
+    // per 24h, and it follows whichever window the page is showing.
+    expect(screen.getByText("Last 24h")).toBeInTheDocument();
     // Per probe, not one mean over both: a wide run costs many short ones, and
     // the average of the two describes no run that is ever sent.
     expect(screen.getByText("Per short run")).toBeInTheDocument();
@@ -92,7 +92,7 @@ describe("CostPanel", () => {
     render(<CostPanel cost={cost()} />);
 
     expect(screen.getByText(/00:00–08:00 in Beijing/)).toBeInTheDocument();
-    expect(screen.getByText(/20% fewer credits/)).toBeInTheDocument();
+    expect(screen.getByText(/20% off the per-token rate/)).toBeInTheDocument();
   });
 
   // A shaded rectangle with no caption is not a signal. Past 48h the band is

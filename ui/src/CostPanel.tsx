@@ -72,7 +72,7 @@ export function CostPanel({ cost }: { cost: CostBreakdown | null }) {
     >
       <div className="mb-5 grid grid-cols-2 gap-5 border-b border-border-soft pb-5 sm:grid-cols-4">
         <Money
-          label={`At list, ${cost.window}`}
+          label={`Last ${cost.window}`}
           value={formatUSD(cost.total.usd)}
           hint={`${formatInt(cost.total.runs)} runs · ${formatInt(
             cost.total.tokens.prompt + cost.total.tokens.output,
@@ -114,7 +114,8 @@ export function CostPanel({ cost }: { cost: CostBreakdown | null }) {
           <span>
             Off-peak: MiMo bills these hours — 00:00–08:00 in Beijing — at{" "}
             {cost.offpeak_coefficient}×, or{" "}
-            {Math.round((1 - cost.offpeak_coefficient) * 100)}% fewer credits.
+            {Math.round((1 - cost.offpeak_coefficient) * 100)}% off the
+            per-token rate.
           </span>
         </p>
       )}
