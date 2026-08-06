@@ -78,33 +78,75 @@ func TestQuestionIDsAreUnique(t *testing.T) {
 
 // A wrong-but-defensible answer is worse than no canary: it fires without a
 // fault, and a canary that cries wolf gets ignored.
-func TestNoContestedCapitalsInTheBank(t *testing.T) {
+//
+// Every question is checked, not only the capital ones: an excluded subject is
+// excluded from the bank, whatever shape the question asking about it takes.
+func TestNoContestedSubjectsInTheBank(t *testing.T) {
 	for _, excluded := range capitalExclusions {
 		for _, q := range Bank {
 			if strings.Contains(q.Ask, excluded) {
-				t.Errorf("question %q asks about %s, whose capital is contested or dual",
+				t.Errorf("question %q asks about %s, which has no single defensible answer",
 					q.ID, excluded)
 			}
 		}
 	}
 }
 
-// Both question shapes must be present, so a correctness dip cannot be an
+// Every question shape must be present, so a correctness dip cannot be an
 // artefact of one phrasing.
-func TestBankCoversBothQuestionShapes(t *testing.T) {
-	var capitalsN, elementsN int
+func TestBankCoversEveryQuestionShape(t *testing.T) {
+	var capitalsN, citiesN, elementsN int
 	for _, q := range Bank {
 		switch {
 		case strings.HasPrefix(q.ID, "capital-"):
 			capitalsN++
+		case strings.HasPrefix(q.ID, "city-"):
+			citiesN++
 		case strings.HasPrefix(q.ID, "element-"):
 			elementsN++
 		default:
 			t.Errorf("question %q has an unrecognised ID shape", q.ID)
 		}
 	}
-	if capitalsN < 50 || elementsN < 50 {
-		t.Errorf("shapes are unbalanced: %d capitals, %d elements", capitalsN, elementsN)
+	if capitalsN < 50 || citiesN < 30 || elementsN < 50 {
+		t.Errorf("shapes are unbalanced: %d capitals, %d cities, %d elements",
+			capitalsN, citiesN, elementsN)
+	}
+}
+
+// A question that contains its own answer is a dead canary: the assertion can
+// never fail, so the entry passes whatever the model has become — including a
+// reply that only echoes the question back. City-states are how this gets in
+// ("What is the capital city of Singapore?" wants "Singapore"), which is why
+// the rule lives here rather than in a note on the data.
+func TestNoQuestionContainsItsOwnAnswer(t *testing.T) {
+	for _, q := range Bank {
+		if q.Assert(q.Ask) {
+			t.Errorf("question %q contains its own expected answer %q — it can never fail: %q",
+				q.ID, q.Want, q.Ask)
+		}
+	}
+}
+
+// The silent half of the correctness canary: a question whose answer also
+// matches a *different* question's answer cannot tell the two apart, so a model
+// that has genuinely stopped knowing one of them is scored correct.
+//
+// This is what the word-boundary rule in Assert buys — a bare substring match
+// grades "platinum" as tin, "ytterbium" as erbium and "protactinium" as
+// actinium, and this test is what would catch the boundary rule regressing.
+func TestNoAnswerMatchesAnotherQuestionsAnswer(t *testing.T) {
+	for _, q := range Bank {
+		for _, other := range Bank {
+			if q.ID == other.ID || strings.EqualFold(q.Want, other.Want) {
+				continue
+			}
+			if q.Assert(other.Want) {
+				t.Errorf("question %q (wants %q) also accepts %q, the answer to %q — "+
+					"a wrong answer would be graded right",
+					q.ID, q.Want, other.Want, other.ID)
+			}
+		}
 	}
 }
 
@@ -140,5 +182,38 @@ func TestAssertIsCaseInsensitiveSubstring(t *testing.T) {
 	}
 	if q.Assert("The capital of France is Lyon.") {
 		t.Error("Assert must reject a wrong answer — that is the whole canary")
+	}
+}
+
+// The match must sit on word boundaries, or a wrong answer that happens to
+// contain the right one is graded correct — the canary failing silently, which
+// is worse than it crying wolf.
+func TestAssertDoesNotMatchInsideAnotherWord(t *testing.T) {
+	tin := Question{ID: "element-tin", Ask: "a", Want: "tin"}
+	for _, content := range []string{
+		"The symbol Sn belongs to platinum.",
+		"Sn is a metal with a low melting point.",
+		"That element is interesting.",
+	} {
+		if tin.Assert(content) {
+			t.Errorf("Assert(%q) = true, want false — %q appears only inside another word",
+				content, tin.Want)
+		}
+	}
+	// ...but the looseness that matters is kept: punctuation, markdown emphasis
+	// and a possessive are all boundaries, not word characters.
+	for _, content := range []string{
+		"Sn is tin.",
+		"The answer is **tin**",
+		"tin's symbol is Sn",
+		"(tin)",
+	} {
+		if !tin.Assert(content) {
+			t.Errorf("Assert(%q) = false, want true — a correct answer must still match", content)
+		}
+	}
+	// An earlier mid-word hit must not hide a later real one.
+	if !tin.Assert("Platinum is not it; the answer is tin.") {
+		t.Error("Assert must keep scanning past an occurrence that sits inside another word")
 	}
 }
