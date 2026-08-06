@@ -127,6 +127,42 @@ func TestSecurityHeadersAreOnEveryResponse(t *testing.T) {
 		if strings.Contains(csp, "script-src 'self' 'unsafe-inline'") || strings.Contains(csp, "'unsafe-eval'") {
 			t.Errorf("%s: CSP must not allow inline or eval'd script: %q", path, csp)
 		}
+		// Clarity's tag is the ONE third-party origin the policy admits, and it
+		// is admitted by name. A second one arriving unremarked is the way a
+		// policy like this rots, so pin the whole directive rather than probe
+		// it for substrings.
+		if !strings.Contains(csp, "script-src 'self' https://www.clarity.ms;") {
+			t.Errorf("%s: script-src = %q, want 'self' plus clarity.ms and nothing else", path, csp)
+		}
+	}
+}
+
+// Clarity loads its tag from www.clarity.ms and beacons to whichever *.clarity.ms
+// shard it is load-balanced onto, plus c.bing.com. Both halves are needed: with
+// script-src alone the tag runs and every upload is blocked, which looks like a
+// working install and produces an empty dashboard.
+func TestClarityOriginsAreAllowed(t *testing.T) {
+	db := openTestDB(t)
+	h := NewServer(Deps{Version: "test", DB: db, Samples: samples.New(db)})
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	csp := rec.Header().Get("Content-Security-Policy")
+
+	for _, want := range []string{
+		"script-src 'self' https://www.clarity.ms",
+		"connect-src 'self' https://*.clarity.ms https://c.bing.com",
+	} {
+		if !strings.Contains(csp, want) {
+			t.Errorf("CSP = %q, want it to contain %q", csp, want)
+		}
+	}
+
+	// default-src stays 'self'. Clarity's own documentation suggests widening
+	// that instead, but every directive this policy cares about is set
+	// explicitly, so a wildcard there would only loosen the ones nobody listed.
+	if !strings.Contains(csp, "default-src 'self';") {
+		t.Errorf("CSP = %q, want default-src left at 'self'", csp)
 	}
 }
 
