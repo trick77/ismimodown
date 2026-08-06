@@ -86,14 +86,19 @@ func TestQuestionIDsAreUnique(t *testing.T) {
 // in different places: a capital question names the country in the Ask, a city
 // question names it in the Want. Checking only the Ask would let a city in an
 // excluded country in through the back door.
+// Compared folded, not raw: the bank spells its data in ASCII (Bogota,
+// Chisinau, Asuncion, Medellin), so a raw match against "Côte d'Ivoire" could
+// never fire and the guard for it would be dead — a later {"Cote d'Ivoire", …}
+// entry would sail past the very test written to stop it.
 func TestNoContestedSubjectsInTheBank(t *testing.T) {
-	for _, excluded := range excludedSubjects {
+	for _, raw := range excludedSubjects {
+		excluded := fold(raw)
 		for _, q := range Bank {
-			if strings.Contains(q.Ask, excluded) {
+			if strings.Contains(fold(q.Ask), excluded) {
 				t.Errorf("question %q asks about %s, which has no single defensible answer",
 					q.ID, excluded)
 			}
-			if strings.Contains(q.Want, excluded) {
+			if strings.Contains(fold(q.Want), excluded) {
 				t.Errorf("question %q expects %q, which names %s, a subject with no single defensible answer",
 					q.ID, q.Want, excluded)
 			}
@@ -152,6 +157,33 @@ func TestTheSymbolShapeSkipsSymbolsThatMatchProse(t *testing.T) {
 	}
 	if asked != 1 {
 		t.Error("a symbol unusable as an answer must still be asked as a question")
+	}
+}
+
+// The same rule pointed the other way: an element name that is an everyday
+// English word matches a sentence that names no element, so the symbol -> name
+// shape must skip it — and, as with the symbols, must still ask the pair in the
+// direction where the answer is unambiguous.
+func TestTheElementShapeSkipsNamesThatMatchProse(t *testing.T) {
+	for _, q := range Bank {
+		if strings.HasPrefix(q.ID, "element-") && unusableNames[q.Want] {
+			t.Errorf("question %q expects %q, an everyday word — prose alone would grade it correct",
+				q.ID, q.Want)
+		}
+	}
+	// The concrete hole this closes: hedging prose that names no element.
+	lead := Question{ID: "element-lead", Ask: "a", Want: "lead"}
+	if !lead.Assert("Guesses like that lead to errors; the element is tin.") {
+		t.Fatal("the premise of the skip has changed — this sentence no longer grades correct")
+	}
+	var symbolAsked bool
+	for _, q := range Bank {
+		if q.ID == "symbol-lead" {
+			symbolAsked = true
+		}
+	}
+	if !symbolAsked {
+		t.Error("a name unusable as an answer must still be asked as a question")
 	}
 }
 

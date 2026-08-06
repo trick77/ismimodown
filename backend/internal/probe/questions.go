@@ -285,7 +285,11 @@ var cities = [][2]string{
 	{"Salzburg", "Austria"}, {"Zurich", "Switzerland"}, {"Geneva", "Switzerland"},
 	{"Antwerp", "Belgium"}, {"Bergen", "Norway"}, {"Gothenburg", "Sweden"},
 	{"Tampere", "Finland"}, {"Aarhus", "Denmark"},
-	{"Thessaloniki", "Greece"}, {"Bursa", "Turkey"}, {"Isfahan", "Iran"},
+	// No Turkish city: the country is named Turkey by some and Türkiye by
+	// others, which is exactly the varying-common-name class this block
+	// excludes — Want is a single string, so the other name scores a correct
+	// answer wrong.
+	{"Thessaloniki", "Greece"}, {"Isfahan", "Iran"},
 	{"Toronto", "Canada"}, {"Vancouver", "Canada"}, {"Montreal", "Canada"},
 	{"Melbourne", "Australia"}, {"Brisbane", "Australia"}, {"Auckland", "New Zealand"},
 	{"Shanghai", "China"}, {"Guangzhou", "China"},
@@ -342,6 +346,23 @@ var unusableSymbols = map[string]bool{
 	"Am": true, "Re": true, "La": true, "Es": true, "Er": true, "Pa": true,
 }
 
+// unusableNames is the same rule pointed the other way: an element name that is
+// also an everyday English word cannot serve as an expected answer, so the
+// symbol -> name shape skips it.
+//
+// "lead" is the whole list, and it is a real hole rather than a theoretical
+// one: the verb turns up in the kind of hedging sentence a model writes when it
+// is no longer sure — "guesses like that lead to errors" grades correct for
+// element-lead while naming no element at all. tin, iron, gold and silver are
+// nouns a reply about metals may reuse, but only ever about the metal itself,
+// so they stay.
+//
+// The pair is not lost, only asked one way round: "What is the chemical symbol
+// for lead?" wants "Pb", which no prose matches by accident.
+var unusableNames = map[string]bool{
+	"lead": true,
+}
+
 // buildBank assembles the rotation from the four question shapes.
 //
 // Generated rather than hand-written so the length constraint holds by
@@ -365,6 +386,9 @@ func buildBank() []Question {
 		})
 	}
 	for _, e := range elements {
+		if unusableNames[e[1]] {
+			continue
+		}
 		bank = append(bank, Question{
 			ID:   "element-" + slug(e[1]),
 			Ask:  fmt.Sprintf("Which chemical element has the symbol %s?", e[0]),
