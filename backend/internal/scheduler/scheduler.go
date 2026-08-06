@@ -109,8 +109,10 @@ type Deps struct {
 
 	Models []string
 
-	MimoHost   string
-	RefSGPHost string
+	MimoSGPHost string
+	RefSGPHost  string
+	MimoAMSHost string
+	RefAMSHost  string
 
 	// OnCycle is called after each cycle is persisted, for the SSE fan-out in
 	// phase 4. Optional.
@@ -228,7 +230,7 @@ func (s *Scheduler) Run(ctx context.Context) {
 // from a daemon that was not deployed yet.
 //
 // This used to ALSO write one skipped_runs row per model per slot, to drive a
-// counter beside the availability strip. Both are gone (see migration 0004),
+// counter beside the availability strip. Both are gone (see migration 0005),
 // and nothing is lost by it: the row carried no information this line does not,
 // and it carried it somewhere nobody looked. The log is where an overrun is
 // actually diagnosed.
@@ -463,12 +465,20 @@ func (s *Scheduler) RunCycle(ctx context.Context) {
 	// The network layer first, and always — it is free, it is fast, and every
 	// inference reading in this cycle is subtracted against it.
 	//
-	// Sequential, not concurrent: three simultaneous handshakes share one
-	// uplink and would contend for it, and the whole point is to measure that
-	// uplink rather than our own scheduling.
+	// Sequential, not concurrent: simultaneous handshakes share one uplink and
+	// would contend for it, and the whole point is to measure that uplink rather
+	// than our own scheduling. Four of them now rather than two, so the network
+	// layer costs at most 4 x PingTimeout (20 s) — still small against the cycle
+	// interval, and the reason to keep it sequential is unchanged.
+	//
+	// The Singapore pair is MANDATORY: samples.Save rejects a cycle without it,
+	// because fault attribution reads those two and nothing else. Adding a
+	// region here is safe; removing Singapore is not.
 	for _, t := range []struct{ target, host string }{
-		{probe.TargetMimoSGP, s.deps.MimoHost},
+		{probe.TargetMimoSGP, s.deps.MimoSGPHost},
 		{probe.TargetRefSGP, s.deps.RefSGPHost},
+		{probe.TargetMimoAMS, s.deps.MimoAMSHost},
+		{probe.TargetRefAMS, s.deps.RefAMSHost},
 	} {
 		cycle.Net = append(cycle.Net, s.deps.Pinger.Ping(ctx, t.target, t.host))
 	}
@@ -593,7 +603,7 @@ func (s *Scheduler) runProbe(
 		// concurrent runs against one model would contend for the same upstream
 		// node and each would measure the other's queueing.
 		// The log line is the whole record now. This also wrote a skipped_runs
-		// row; that table is gone (migration 0004), and it never added anything
+		// row; that table is gone (migration 0005), and it never added anything
 		// this line does not already say.
 		slog.Warn("probe overrun; skipping", "model", model, "probe", kind, "cycle", n)
 		return probe.InferResult{}, false

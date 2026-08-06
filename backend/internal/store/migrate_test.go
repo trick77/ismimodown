@@ -195,10 +195,10 @@ func TestRenameMigrationRewritesExistingRows(t *testing.T) {
 		t.Fatalf("commit bulk: %v", err)
 	}
 
-	// Up to 0004, not all the way: 0003 is what this test is about, and 0004
+	// Up to 0005, not all the way: 0003 is what this test is about, and 0005
 	// drops skipped_runs — which this test still has to inspect to prove 0003
 	// rebuilt it without losing rows. The drop gets its own assertion below.
-	migrateUpTo(t, db, "0004")
+	migrateUpTo(t, db, "0005")
 
 	// Nothing was left behind and nothing was lost: the named short row, the
 	// wide one, and every bulk row.
@@ -267,12 +267,12 @@ func TestRenameMigrationRewritesExistingRows(t *testing.T) {
 		t.Errorf("inserting the current probe name failed: %v", err)
 	}
 
-	// Then 0004 takes the table away entirely, ON A DATABASE THAT HAS ROWS IN
+	// Then 0005 takes the table away entirely, ON A DATABASE THAT HAS ROWS IN
 	// IT. A DROP is trivially correct against an empty table and is exactly the
 	// statement a production database would meet with three months of history,
 	// so it is applied here rather than only from a fresh schema.
 	if err := Migrate(db); err != nil {
-		t.Fatalf("Migrate to 0004: %v", err)
+		t.Fatalf("Migrate to 0005: %v", err)
 	}
 	var n int
 	if err := db.QueryRow(
@@ -281,13 +281,13 @@ func TestRenameMigrationRewritesExistingRows(t *testing.T) {
 		t.Fatalf("read sqlite_master: %v", err)
 	}
 	if n != 0 {
-		t.Error("skipped_runs survived 0004")
+		t.Error("skipped_runs survived 0005")
 	}
-	// The cycles it never hung off are untouched: 0004 must not cascade.
+	// The cycles it never hung off are untouched: 0005 must not cascade.
 	if err := db.QueryRow(`SELECT count(*) FROM cycles`).Scan(&n); err != nil {
 		t.Fatalf("count cycles: %v", err)
 	}
 	if n != 1 {
-		t.Errorf("cycles = %d, want 1 — 0004 must only drop its own table", n)
+		t.Errorf("cycles = %d, want 1 — 0005 must only drop its own table", n)
 	}
 }

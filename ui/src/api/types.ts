@@ -208,8 +208,16 @@ export type Dashboard = {
   failures: Failure[];
 };
 
+// Two regions, each an edge paired with an independent reference.
+//
+// TARGET_MIMO keeps its unqualified name: it is the edge the site actually
+// infers against, and every verdict on the page is about that one. The
+// Amsterdam pair appears only in "The wire itself" — it is charted, never
+// summarised, and never reaches a fault. See probe.AttributeFault for why.
 export const TARGET_MIMO = "mimo_sgp";
 export const TARGET_REF_SGP = "ref_sgp";
+export const TARGET_MIMO_AMS = "mimo_ams";
+export const TARGET_REF_AMS = "ref_ams";
 
 export const FAULT_OK = "ok";
 export const FAULT_EDGE = "edge";

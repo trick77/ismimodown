@@ -21,18 +21,18 @@ describe("Masthead", () => {
   });
 
   // The two layers, in the two places that name them: the eyebrow says which
-  // two things are watched, the subtitle says the endpoint is a place we dial
-  // rather than where the model runs. The OG card's eyebrow (assets/og/
-  // card.html) has to keep saying the same thing — re-run gen-og.sh if this
+  // two things are watched, the subtitle says what is measured — and no longer
+  // where it sits, which was said four times over across this header, the
+  // availability strip and the verdict banner. The OG card's eyebrow (assets/
+  // og/card.html) has to keep saying the same thing — re-run gen-og.sh if this
   // changes.
   it("names both layers and the endpoint it measures", () => {
     // Given / When
     render(<Masthead />);
 
     // Then
-    expect(
-      screen.getByText(/the API endpoint in Singapore/i),
-    ).toBeInTheDocument();
+    expect(screen.getByText(/the API endpoint/i)).toBeInTheDocument();
+    expect(screen.queryByText(/singapore/i)).not.toBeInTheDocument();
   });
 
   // The one link off this page, and the one place a reader can go do something

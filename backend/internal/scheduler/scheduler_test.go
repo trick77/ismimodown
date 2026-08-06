@@ -370,15 +370,27 @@ func TestRunCycleProbesEveryTargetAndModel(t *testing.T) {
 
 	s.RunCycle(context.Background())
 
-	// Both network targets, every cycle — the subtraction needs them.
-	if len(pinger.calls) != 2 {
-		t.Errorf("pinged %d targets, want 2: %v", len(pinger.calls), pinger.calls)
+	// All four network targets, every cycle. The Singapore pair because the
+	// subtraction and the fault verdict need them; the Amsterdam pair because a
+	// gap in its series is indistinguishable from an outage in it.
+	wantTargets := []string{
+		probe.TargetMimoSGP, probe.TargetRefSGP,
+		probe.TargetMimoAMS, probe.TargetRefAMS,
+	}
+	if len(pinger.calls) != len(wantTargets) {
+		t.Errorf("pinged %d targets, want %d: %v",
+			len(pinger.calls), len(wantTargets), pinger.calls)
+	}
+	for _, want := range wantTargets {
+		if !slices.Contains(pinger.calls, want) {
+			t.Errorf("target %q was never pinged: %v", want, pinger.calls)
+		}
 	}
 	var nNet, nInfer int
 	db.QueryRow(`SELECT count(*) FROM net_probes`).Scan(&nNet)
 	db.QueryRow(`SELECT count(*) FROM infer_probes`).Scan(&nInfer)
-	if nNet != 2 {
-		t.Errorf("net_probes = %d, want 2", nNet)
+	if nNet != len(wantTargets) {
+		t.Errorf("net_probes = %d, want %d", nNet, len(wantTargets))
 	}
 	// The first cycle carries wide because no wide sample exists yet — a fresh
 	// deploy should not show an empty prefill panel for an hour. One model at a
@@ -687,7 +699,7 @@ func TestOverrunSkipsAndCountsExactlyOnce(t *testing.T) {
 	<-done
 
 	// The guard's record is its log line — it also wrote a skipped_runs row
-	// until 0004 dropped that table, and the row never said anything this does
+	// until 0005 dropped that table, and the row never said anything this does
 	// not. Silent skipping is still the thing being prevented.
 	if got := logs.String(); !strings.Contains(got, "probe overrun; skipping") {
 		t.Fatalf("log = %q, want the overrun recorded; silent skipping makes availability lie by omission", got)

@@ -34,11 +34,13 @@ services:
       BACKEND_MIMO_BASE_URL: "${BACKEND_MIMO_BASE_URL:-https://token-plan-sgp.xiaomimimo.com/v1}"
       BACKEND_MIMO_API_KEY: "${BACKEND_MIMO_API_KEY:?BACKEND_MIMO_API_KEY is required}"
 
-      # The Europe->Singapore reference host, and the only probe target that is
-      # configurable — see the DefaultRefSGPHost comment in
-      # backend/internal/config/config.go. MiMo's own ping target is derived
-      # from BACKEND_MIMO_BASE_URL above and has no setting.
+      # The two reference hosts, one per probed region, and the only probe
+      # targets that are configurable — see the DefaultRefSGPHost and
+      # DefaultRefAMSHost comments in backend/internal/config/config.go. Both of
+      # MiMo's own ping targets are both constants and follow nothing here —
+      # not even BACKEND_MIMO_BASE_URL above.
       BACKEND_PING_REF_SGP_HOST: "${BACKEND_PING_REF_SGP_HOST:-sgp.proof.ovh.net}"
+      BACKEND_PING_REF_AMS_HOST: "${BACKEND_PING_REF_AMS_HOST:-speedtest.amsterdam.linode.com}"
 
       # Must stay inside the mounted volume below, or the history is written to
       # the read-only rootfs and lost on every restart. Empty fallback rather

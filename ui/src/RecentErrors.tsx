@@ -72,7 +72,7 @@ const CLASS_GLOSS: Record<string, string> = {
 // listed and the row says who it belongs to.
 //
 // ...and it says it in the vocabulary that layer already has on this page. The
-// two classes are not the same sentence: uplink is "nothing in Singapore
+// two classes are not the same sentence: uplink is "nothing at the far end
 // answered", route is the path between here and there, which is neither ours
 // nor MiMo's. Naming a route cycle "our uplink" would claim a different outage
 // than the one the attribution recorded, and it would draw it in the uplink
@@ -85,7 +85,7 @@ function attributionNote(fault: string): { text: string; cls: string } | null {
   if (!unattributableFault(fault)) return null;
   return fault === FAULT_ROUTE
     ? {
-        text: "the route to Singapore — not attributable to MiMo",
+        text: "the route to the far end — not attributable to MiMo",
         cls: "text-fault-route",
       }
     : {
@@ -113,7 +113,7 @@ export function RecentErrors({ failures }: { failures: Failure[] | null }) {
   return (
     <Card
       title="Most recent errors"
-      subtitle="Only the failed calls, from the last 24 hours whichever range is selected above — each with the status code the endpoint answered with, where it got that far. A run that failed while nothing in Singapore was reachable — or with no route to it — says so: it is listed, but it is not MiMo's."
+      subtitle="Only the failed calls, from the last 24 hours whichever range is selected above — each with the status code the endpoint answered with, where it got that far. A run that failed while nothing at the far end was reachable — or with no route to it — says so: it is listed, but it is not MiMo's."
     >
       {failures === null ? (
         // Nothing has answered yet. Neutral wording, matching the raw table
@@ -152,7 +152,7 @@ export function RecentErrors({ failures }: { failures: Failure[] | null }) {
                     <td className="num py-2 pr-4">{f.model_id}</td>
                     <td className="num py-2 pr-4">{f.probe}</td>
                     <td className="py-2 pr-4">
-                      {/* Not red when nothing in Singapore answered. The colour
+                      {/* Not red when nothing at the far end answered. The colour
                         on this column means "MiMo failed", and during our own
                         outage that is the one thing the row cannot claim — the
                         run genuinely failed, but the evidence stops at our

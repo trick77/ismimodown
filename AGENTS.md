@@ -65,6 +65,13 @@ those two columns are near-identical when healthy (role and first content chunk 
 batch, ~0.008 ms).
 
 **Ping is TCP-only, never ICMP.** ICMP is dropped as routine policy and needs `CAP_NET_RAW`.
+**IPv4-only too**, at resolve and dial: the four targets are compared against each other, and a
+v6 route timed against a v4 one publishes the difference as edge latency.
+
+**Amsterdam is charted, never attributed.** `mimo_ams`/`ref_ams` stay out of `AttributeFault`
+and `Summary.Net`. Adding them restores route-vs-uplink but MOVES published availability —
+`netSummary` excludes uplink/route cycles from `mimo_sgp`'s denominator. Own change, own
+reasoning. `Save` requires the SGP pair so a cycle can never be attributed without it.
 
 **The network/inference subtraction JOINs on `cycle_id`**, never a nearest-timestamp guess.
 
@@ -74,10 +81,11 @@ batch, ~0.008 ms).
 routing, `Deps` struct DI, `slog` with `err` as the error key, `config.Load()` from `BACKEND_*`
 env only. SQLite via pure-Go `ncruces/go-sqlite3`, WAL, `CGO_ENABLED=0`, `STRICT` tables.
 
-Seven env vars, and that is the whole surface: API key, addr, log level, DB path, base URL,
-SGP reference host, probe user agent. Probe shape — models, prices, system prompt, retention,
-timeout ladder — is constants in `config.go`. Do NOT add an env var for any of them; they say what the page
-measures, not where it runs.
+Eight env vars, and that is the whole surface: API key, addr, log level, DB path, base URL,
+SGP reference host, AMS reference host, probe user agent. Probe shape — models, prices, system
+prompt, retention, timeout ladder — is constants in `config.go`. Do NOT add an env var for any
+of them; they say what the page measures, not where it runs. The two REFERENCE hosts are the
+exception and stay settable; both MiMo edges are fixed.
 
 Do NOT add a dependabot ignore for `ncruces/go-sqlite3` — peeq pins it for sqlite-vec, this
 repo has none.
@@ -109,8 +117,8 @@ Container is distroless — no shell, no curl. Healthcheck is the binary probing
 `compose.yaml`: external traefik network, `read_only`, `cap_drop: ALL`, non-root, resource
 limits. Keep all of them.
 
-See `DEPLOY.md`. Confirm both reference ping hosts FROM the probe box before trusting
-attribution — a dead europe reference kills the route-vs-uplink distinction silently.
+See `DEPLOY.md`. Confirm all four ping targets FROM the probe box before trusting attribution —
+a dead SGP reference kills the edge-vs-uplink distinction silently.
 
 ## Reference repos (read, never modify)
 

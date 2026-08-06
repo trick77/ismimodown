@@ -224,7 +224,7 @@ describe("buildVerdict", () => {
       }),
       summary(),
     );
-    expect(v.headline).toMatch(/nothing in singapore was reachable/i);
+    expect(v.headline).toMatch(/nothing at the far end was reachable/i);
     // It may NAME MiMo, but only to disclaim it. Blaming the provider for our
     // own outage is the credibility-ending failure this whole layer prevents.
     expect(v.headline).toMatch(/says? nothing about MiMo/i);
@@ -241,8 +241,8 @@ describe("buildVerdict", () => {
       summary(),
     );
     expect(v.state).toBe("degraded");
-    expect(v.headline).toMatch(/nothing in singapore was reachable/i);
-    expect(v.detail.join(" ")).toMatch(/1 of them did reach a second/i);
+    expect(v.headline).toMatch(/nothing at the far end was reachable/i);
+    expect(v.detail.join(" ")).toMatch(/1 of them did reach the reference/i);
   });
 
   it("names the unattributable cycles inside an edge run", () => {
@@ -261,7 +261,10 @@ describe("buildVerdict", () => {
       summary({ recent: recent([FAULT_ROUTE, FAULT_ROUTE]) }),
       summary(),
     );
-    expect(v.headline).toMatch(/route to singapore/i);
+    expect(v.headline).toMatch(/route to the far end/i);
+    // Never "the endpoint": that noun is MiMo's API everywhere else on the
+    // page, and a route fault is explicitly not MiMo's.
+    expect(v.headline).not.toMatch(/route to the endpoint/i);
   });
 
   // A daemon that died mid-incident leaves its last red cycles on record. Every
@@ -306,7 +309,7 @@ describe("buildVerdict", () => {
       }),
       summary(),
     );
-    expect(v.headline).toMatch(/nothing in singapore was reachable/i);
+    expect(v.headline).toMatch(/nothing at the far end was reachable/i);
   });
 
   // The headline follows the severity here for the same reason it does in the
@@ -425,7 +428,7 @@ describe("buildVerdict", () => {
     );
     const v = buildVerdict(summary({ recent: cycles }), summary());
     // The uplink verdict speaks, and it speaks about the uplink.
-    expect(v.headline).toMatch(/nothing in singapore was reachable/i);
+    expect(v.headline).toMatch(/nothing at the far end was reachable/i);
     expect(v.detail.join(" ")).not.toMatch(/mimo-v2\.5 failed/i);
   });
 

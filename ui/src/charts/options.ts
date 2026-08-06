@@ -36,12 +36,23 @@ export const WIRE_COLOR = "#9c9a92";
 // two greys separated only by lightness is the hardest pair to tell apart at a
 // glance.
 //
-// This is --color-online, the page's one green, and the overlap is known: the
-// pulse strip also uses it to mean "up". Accepted because nothing in this chart
-// encodes health — both series are handshake milliseconds, and the panel has a
-// legend naming each line. Do NOT extend the green to anything that could be
-// read as a verdict.
-export const MIMO_EDGE_COLOR = "#5aa06a";
+// This WAS --color-online, the page's one green, accepted with the known
+// overlap that the pulse strip and the availability strip both used that value
+// to mean "up". The chart going from two lines to four ended
+// that: with an edge per region the green would have had to be joined by a
+// second hue anyway, and spending the health colour on one of two peer lines
+// made the overlap harder to defend rather than easier. It is now a muted
+// violet, and the health green is no longer used here at all.
+//
+// Deliberately NOT a SERIES_COLORS value: those two are model identities, and
+// this chart draws no model. Deliberately not the warm accent family either —
+// #d97757, #c98500 and #c6613f all collapse against #d95926 (mimo-v2.5-pro)
+// under deuteranopia, ΔE00 2.8 to 5.3, so a warm edge line would be
+// indistinguishable from the pro model's hue for a red-green colourblind
+// reader moving between the two charts.
+//
+// 4.64:1 against #1f1f1e. See MIMO_EDGE_AMS_COLOR for the full matrix.
+export const MIMO_EDGE_COLOR = "#8f7ad4";
 // The Singapore reference host, one step darker than the neutral above. It is
 // the control, not the measurement — the line the reader checks against rather
 // than reads — so it recedes behind MiMo's own edge. Its own constant rather
@@ -56,6 +67,55 @@ export const MIMO_EDGE_COLOR = "#5aa06a";
 // a styling one. Measured against the panel, not the page: .card is a gradient
 // from #1f1f1e, and the lighter end is the one to check.
 export const REFERENCE_COLOR = "#6b6963";
+
+// The Amsterdam pair, added when "The wire itself" went from two lines to four.
+//
+// The chart encodes two facts about every line, on two separate channels, so
+// neither has to be read off the legend:
+//
+//   ROLE   — an EDGE carries a hue, a REFERENCE is neutral grey. This is the
+//            rule the chart already had when it was one pair, kept intact: the
+//            reference is the control the reader checks against rather than
+//            reads, and ink is what makes it recede.
+//   REGION — which hue, and which grey. Violet and its darker grey are
+//            Singapore; teal and its lighter grey are Amsterdam.
+//
+// The two greys separate on lightness alone, which is the weaker channel, and
+// they only have room to because they go in OPPOSITE directions from the
+// panel: REFERENCE_COLOR is as dark as 3:1 permits, so Amsterdam's had to be
+// the lighter one.
+//
+// Measured against #1f1f1e, the lighter end of the .card gradient. Worst case
+// across the chart is the two EDGES against each other under deuteranopia,
+// ΔE00 11.7 — above the 10.2 the green/grey pair shipped with before this
+// change, which is the bar anything here has to clear.
+//
+//   #8f7ad4 vs #4f93a8 (the two edges)       ΔE00 21.6  deut 11.7
+//   #6b6963 vs #8f8d85 (the two references)  ΔE00 14.1  deut 14.0  prot 14.1
+//   #4f93a8 vs #8f8d85 (own pair)            ΔE00 20.1  deut 28.3
+//   #8f7ad4 vs #6b6963 (sgp pair)            ΔE00 31.6  deut 27.2  prot 28.7
+//   #4f93a8 vs #3987e5 (mimo-v2.5)           ΔE00 15.8  deut 10.5
+//   #8f7ad4 vs #d95926 (mimo-v2.5-pro)       ΔE00 42.6  deut 55.3
+//
+// Both edge hues are muted rather than saturated, which is what keeps them
+// inside the warm-editorial palette's voice while staying clear of the two
+// model identities — see MIMO_EDGE_COLOR for why the accent family could not
+// be used for this.
+export const MIMO_EDGE_AMS_COLOR = "#4f93a8";
+
+// Amsterdam's reference: neutral, like Singapore's, and LIGHTER rather than
+// darker.
+//
+// The instinct is to mirror REFERENCE_COLOR by going darker still, and there is
+// nowhere to go — that value sits at 3.005:1, the floor for a chart line. So
+// the second grey moves the other way, to 4.96:1, and the pair reads as two
+// distinct neutrals rather than one grey and one smudge.
+//
+// ΔE00 4.3 from WIRE_COLOR (#9c9a92), which is close. Accepted because
+// WIRE_COLOR never appears on this chart: it is the decomposition's neutral,
+// and the two are never on screen in the same axes. Do not narrow that gap
+// further without checking that constraint still holds.
+export const REFERENCE_AMS_COLOR = "#8f8d85";
 
 // The server-side remainder in the decomposition. Deliberately NOT
 // SERIES_COLORS[0]: that hue is mimo-v2.5's identity, and the decomposition

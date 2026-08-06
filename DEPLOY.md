@@ -154,16 +154,20 @@ means `.env` was not filled in; compose fails before the container starts, by
 design, because a container running without a key would record an unbroken wall
 of auth failures that renders on the dashboard as a MiMo outage.
 
-## Confirming the reference host from this box
+## Confirming the reference hosts from this box
 
-The reference ping target is what stops a route problem, or an outage of our
-own, from being published as a MiMo outage — so it has to be reachable **from
-the probe host**, not from wherever it was last checked.
+The reference ping targets are what stop a route problem, or an outage of our
+own, from being published as a MiMo outage — so they have to be reachable **from
+the probe host**, not from wherever they were last checked.
+
+Four targets, in two pairs: an edge and its independent reference per region.
+The script forces `AF_INET` because the probe itself is IPv4-only.
 
 ```sh
 python3 - <<'PY'
 import socket, statistics, time
-for h in ["token-plan-sgp.xiaomimimo.com", "sgp.proof.ovh.net"]:
+for h in ["token-plan-sgp.xiaomimimo.com", "sgp.proof.ovh.net",
+          "token-plan-ams.xiaomimimo.com", "speedtest.amsterdam.linode.com"]:
     try:
         ip = socket.getaddrinfo(h, 443, socket.AF_INET, socket.SOCK_STREAM)[0][4][0]
     except Exception as e:
@@ -181,25 +185,56 @@ for h in ["token-plan-sgp.xiaomimimo.com", "sgp.proof.ovh.net"]:
 PY
 ```
 
-Both must answer. If the Singapore reference does not, override it — a dead
-reference does not create a false outage (attribution only consults it once
-MiMo is already unreachable), but it costs the edge-vs-everything-else
-distinction exactly when that distinction matters, and every unreachable cycle
-then lands in the excluded bucket instead of being attributed:
+All four must answer. The two that matter differently:
+
+**Singapore** is the region every verdict on the page is about. If its reference
+does not answer, override it — a dead reference does not create a false outage
+(attribution only consults it once MiMo is already unreachable), but it costs
+the edge-vs-everything-else distinction exactly when that distinction matters,
+and every unreachable cycle then lands in the excluded bucket instead of being
+attributed:
 
 ```sh
 echo 'BACKEND_PING_REF_SGP_HOST=<a real Singapore host>' >> .env && docker compose up -d
 ```
 
-This is the only probe target with a setting. MiMo's own ping host is derived
-from `BACKEND_MIMO_BASE_URL` and cannot be pointed elsewhere on its own.
+**Amsterdam** feeds no verdict at all. It is charted in "The wire itself" and
+never summarised, never attributed — so a dead Amsterdam reference costs a chart
+line and nothing else. It is still the likelier of the two to need overriding,
+because `speedtest.amsterdam.linode.com` resolves to a SINGLE address rather
+than a rotation, so one host down takes the whole series with it:
 
-The default is `sgp.proof.ovh.net`, OVH's Singapore speedtest node — same
+```sh
+echo 'BACKEND_PING_REF_AMS_HOST=ams.speedtest.clouvider.net' >> .env && docker compose up -d
+```
+
+That fallback is tested: `194.127.172.176`, answering on 443 from Amsterdam.
+
+These two are the only probe targets with a setting. Both of MiMo's own ping
+hosts are constants — `token-plan-sgp.xiaomimimo.com` and
+`token-plan-ams.xiaomimimo.com` (a CNAME to `mimo-pri-azams.alb.xiaomi.com`) —
+and neither can be pointed elsewhere.
+
+The Singapore edge used to be derived from `BACKEND_MIMO_BASE_URL`'s hostname.
+It is not any more: with two regions that made one edge target follow an
+operator setting while the other could not, so pointing the base URL at
+Amsterdam produced two identical lines labelled as a cross-region comparison.
+The consequence to know about is that **repointing `BACKEND_MIMO_BASE_URL` no
+longer moves the ping targets** — inference and the wire chart would then be
+measuring different hosts. If you repoint it, the ping constants in
+`backend/internal/config/config.go` need changing to match.
+
+Both references must be a hostname or an **IPv4** address. The probe resolves
+and dials A records only, so that all four numbers measure the same kind of
+path; an IPv6 literal is refused at boot rather than becoming a ping that fails
+forever.
+
+The Singapore default is `sgp.proof.ovh.net`, OVH's Singapore speedtest node — same
 carrier as the probe box, which is what makes "the route is fine" a claim about
 MiMo's own transit rather than about some other network's. Replace it if you
 deploy somewhere OVH is not the relevant path, or if it stops answering.
 
-Pick a genuine Singapore endpoint, and verify it with the script above rather
+Pick a genuine endpoint in the region you are replacing, and verify it with the script above rather
 than by name: several plausible-looking hostnames answer from anycast PoPs in
 Europe, which would put a European host in the Singapore slot — the precise
 failure this reference exists to detect. `sgp.ovh` is exactly this trap; it is
@@ -216,6 +251,34 @@ docker compose pull && docker compose up -d
 Migrations are embedded and run at boot, each in its own transaction. A
 migration that fails rolls back and is not recorded, so a failed upgrade leaves
 the database untouched rather than half-applied.
+
+### One-time: check your reference hosts before upgrading to the Amsterdam build
+
+The release that added the Amsterdam probes also pinned the TCP handshake to
+IPv4, and with it made `validateRefHost` **reject a bare IPv6 literal**. That
+value was accepted before, and `.env.example` used to advertise it.
+
+This fails at BOOT, not at probe time — the container will not start:
+
+```
+BACKEND_PING_REF_SGP_HOST must be a bare hostname or IPv4 address without
+scheme or port (the TCP probe is IPv4-only, so an IPv6 literal can never
+be reached)
+```
+
+Before pulling, check:
+
+```sh
+grep -E '^BACKEND_PING_REF_(SGP|AMS)_HOST=' .env
+```
+
+If either carries an IPv6 literal, replace it with a hostname or an IPv4
+address. A hostname is the better answer — the probe resolves A records and
+walks the whole rotation.
+
+The hard failure is deliberate. Accepting a v6 literal after the IPv4 pin would
+mean a reference that can never be reached, which reads as a permanent outage of
+the instrument rather than as the misconfiguration it is.
 
 ### Moving a host off the old `mimostats` checkout
 

@@ -6,7 +6,6 @@ package config
 
 import (
 	"fmt"
-	"net"
 	"net/url"
 	"os"
 	"strings"
@@ -40,6 +39,53 @@ const (
 	// why this one host stays configurable while the rest of the probe shape
 	// does not.
 	DefaultRefSGPHost = "sgp.proof.ovh.net"
+
+	// DefaultMimoSGPHost is the Singapore edge, the one the inference base URL
+	// points at.
+	//
+	// A CONSTANT, and no longer BaseURL's hostname. It was derived, on the
+	// reasoning that pinging one host while inferring against another would
+	// report a path nobody is using — true, and it stopped being the whole
+	// picture once a second region was probed. Derivation made one of the two
+	// edge targets follow an operator setting while the other could not, so
+	// pointing BACKEND_MIMO_BASE_URL at Amsterdam silently produced two
+	// identical series labelled as a cross-region comparison.
+	//
+	// The tradeoff is explicit: a deployment that repoints the base URL now
+	// keeps probing these two hosts, so the ping layer and the inference layer
+	// can disagree about where MiMo is. That is the better failure — it is
+	// visible in this file, where both targets are named, rather than emergent
+	// from a URL three settings away. Both edges say where Xiaomi is; neither
+	// says where we run.
+	DefaultMimoSGPHost = "token-plan-sgp.xiaomimimo.com"
+
+	// DefaultMimoAMSHost is Xiaomi's other front for the same service.
+	//
+	// Not configurable, for the same reason the Singapore edge above is not: it
+	// says where Xiaomi is, not where we run. It resolves to
+	// mimo-pri-azams.alb.xiaomi.com — `azams`, Azure Amsterdam — which is what
+	// makes it a genuinely different edge rather than the Singapore one under
+	// another name. Two A records, no AAAA, same as the Singapore edge.
+	//
+	// Nothing infers against it. It is charted beside Singapore so a reader can
+	// see whether a slowdown is Xiaomi-wide or specific to one region, and it
+	// never feeds a verdict — see probe.AttributeFault.
+	DefaultMimoAMSHost = "token-plan-ams.xiaomimimo.com"
+
+	// DefaultRefAMSHost answers "is *any* Europe->Amsterdam path healthy", the
+	// Amsterdam counterpart to DefaultRefSGPHost.
+	//
+	// Akamai/Linode's Amsterdam speedtest node, a CNAME to
+	// speedtest-1.ams2.nl.prod.linode.com. Not OVH this time: OVH publishes no
+	// proof.ovh.net node in Amsterdam (`nl.proof.ovh.net` does not resolve), so
+	// the same-carrier argument that picked the Singapore reference has nothing
+	// to select here, and a different carrier is the honest second choice.
+	//
+	// Its one weakness, and the reason it stays configurable: a SINGLE A record,
+	// against the Singapore reference's rotation. One host down reads as an
+	// Amsterdam route problem. `ams.speedtest.clouvider.net` (194.127.172.176)
+	// is the documented fallback; DEPLOY.md tells an operator how to switch.
+	DefaultRefAMSHost = "speedtest.amsterdam.linode.com"
 )
 
 // DefaultUserAgent impersonates opencode, because MiMo's token-plan endpoint is
@@ -97,10 +143,11 @@ type ModelPrice struct {
 // third party editing a number should not silently change a figure this
 // dashboard publishes as its own cost. Edit this table when the rates move.
 //
-// These are LIST rates for these models, not an invoice. The probe runs against
-// a token plan, which consumes credits rather than dollars, so the panel reads
-// "at list" and never claims to be a bill. It is the right order of magnitude
-// and the wrong document to argue with an accountant about.
+// These are MiMo's published per-token rates, and what the panel reports is the
+// tokens this dashboard actually spent priced against them. It is the right
+// order of magnitude and the wrong document to argue with an accountant about:
+// nothing here sees a real invoice, so a rate that has moved since the date
+// above is wrong everywhere at once and silently.
 //
 // Every model in DefaultModels MUST have an entry here. Nothing downstream
 // tolerates a missing one any more: /api/cost prices every row it finds, so a
@@ -111,12 +158,13 @@ var DefaultPrices = map[string]ModelPrice{
 	"mimo-v2.5-pro": {In: 1.00, Out: 3.00, Cached: 0.20},
 }
 
-// OffPeakCoefficient is MiMo's reduced-rate multiplier, applied to credits
-// consumed between OffPeakStartUTCHour and midnight UTC.
+// OffPeakCoefficient is MiMo's reduced-rate multiplier, applied to tokens spent
+// between OffPeakStartUTCHour and midnight UTC.
 //
-// It multiplies the CREDITS, not the dollars: price the tokens at list, apply
-// this to the off-peak share, then convert. The other order rounds in the wrong
-// place.
+// Applied per phase and never to a window total: price each phase's tokens at
+// the full rate, discount the off-peak share, then add. Discounting a total
+// that already mixes both phases charges the reduction against runs that never
+// earned it.
 const OffPeakCoefficient = 0.8
 
 // OffPeakStartUTCHour opens the reduced-rate window. It closes at 24:00 UTC.
@@ -188,12 +236,20 @@ type Config struct {
 
 	// Probe targets for the TCP ping layer.
 	//
-	// MimoHost is DERIVED from BaseURL's hostname and never configured on its
-	// own: pinging one host while inferring against another would report a path
-	// nobody is using. RefSGPHost is the independent Europe->Singapore
-	// reference, and is the one host a deployment can point elsewhere.
-	MimoHost   string
-	RefSGPHost string
+	// Two regions, each an edge paired with an independent reference.
+	//
+	// Both EDGES are constants and neither is configurable: where Xiaomi puts
+	// its front doors is not a deployment's choice, and making one of them
+	// follow an operator setting is what let the two collapse onto the same
+	// host. See DefaultMimoSGPHost for the derivation this replaced.
+	//
+	// The two REFERENCES are the hosts a deployment can point elsewhere, because
+	// they are third-party speedtest nodes and the more renumber-prone half of
+	// each pair.
+	MimoSGPHost string
+	RefSGPHost  string
+	MimoAMSHost string
+	RefAMSHost  string
 
 	// ProbeUserAgent and ProbeSystemPrompt shape the outgoing inference request.
 	ProbeUserAgent    string
@@ -225,7 +281,7 @@ func env(key, def string) string {
 
 // Load reads configuration from the environment, applying defaults.
 //
-// Six variables reach this function. Everything else about how ismimodown probes
+// Eight variables reach this function. Everything else about how ismimodown probes
 // — the model pair, the price table, the system prompt, the retention window,
 // the whole timeout ladder — is a constant above, because it describes what the
 // dashboard measures rather than where it runs. A deployment that could change
@@ -243,6 +299,9 @@ func Load() (Config, error) {
 		BaseURL:           env("BACKEND_MIMO_BASE_URL", DefaultBaseURL),
 		APIKey:            env("BACKEND_MIMO_API_KEY", ""),
 		RefSGPHost:        env("BACKEND_PING_REF_SGP_HOST", DefaultRefSGPHost),
+		MimoSGPHost:       DefaultMimoSGPHost,
+		MimoAMSHost:       DefaultMimoAMSHost,
+		RefAMSHost:        env("BACKEND_PING_REF_AMS_HOST", DefaultRefAMSHost),
 		ProbeUserAgent:    env("BACKEND_PROBE_USER_AGENT", DefaultUserAgent),
 		ProbeSystemPrompt: DefaultSystemPrompt,
 		Models:            append([]string(nil), DefaultModels...),
@@ -260,41 +319,55 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("BACKEND_MIMO_API_KEY is required")
 	}
 
-	// The ping target for MiMo's edge is the inference host, derived rather than
-	// configured: pinging one host while inferring against another would put a
-	// latency figure on the page for a path no request takes.
+	// Validated for its own sake, not for a hostname any more.
 	//
-	// This also subsumes the bare-hostname validation the old
-	// BACKEND_PING_MIMO_HOST needed. url.Hostname() on a URL that has already
-	// passed validateBaseURL cannot carry a scheme, a port, userinfo or a query
-	// — the port is stripped and the rest is rejected outright — so there is
-	// nothing left for a colon-and-slash check to catch.
-	host, err := validateBaseURL(cfg.BaseURL)
-	if err != nil {
+	// The returned host used to become the Singapore ping target; both edges are
+	// constants now (see DefaultMimoSGPHost). Everything else this check does is
+	// still load-bearing and has nothing to do with pinging: it refuses a URL
+	// carrying userinfo or a query string, either of which would carry a live
+	// tp- key wherever BaseURL travels, and it refuses a non-http scheme or a
+	// missing host outright.
+	if _, err := validateBaseURL(cfg.BaseURL); err != nil {
 		return Config{}, err
 	}
-	cfg.MimoHost = host
 
-	if cfg.RefSGPHost == "" {
-		return Config{}, fmt.Errorf("BACKEND_PING_REF_SGP_HOST must not be empty")
+	if err := validateRefHost(cfg.RefSGPHost, "BACKEND_PING_REF_SGP_HOST"); err != nil {
+		return Config{}, err
 	}
-	// A host:port here would be dialled as "host:port:443". Catch it at boot
-	// rather than as a permanently-failing ping that reads as an outage.
-	//
-	// A bare IPv6 literal is exempted from the colon test, which would otherwise
-	// reject every one of them — the error says "hostname or IP" and
-	// .env.example documents IPs, so an operator pointing the reference at
-	// 2606:4700:4700::1111 would be refused at boot by a guard aimed at
-	// "example.com:443". net.ParseIP tells the two apart exactly: it accepts the
-	// literal and rejects host:port. Safe downstream because probe.Pinger
-	// resolves via net.Resolver.LookupHost and dials through net.JoinHostPort,
-	// both of which bracket a v6 address correctly.
-	if strings.Contains(cfg.RefSGPHost, "/") ||
-		(strings.Contains(cfg.RefSGPHost, ":") && net.ParseIP(cfg.RefSGPHost) == nil) {
-		return Config{}, fmt.Errorf("BACKEND_PING_REF_SGP_HOST must be a bare hostname or IP without scheme or port")
+	if err := validateRefHost(cfg.RefAMSHost, "BACKEND_PING_REF_AMS_HOST"); err != nil {
+		return Config{}, err
 	}
 
 	return cfg, nil
+}
+
+// validateRefHost checks one configurable reference ping target.
+//
+// Shared by both regions rather than written twice: the two variables are the
+// same kind of value, and a guard that drifted between them would leave one
+// region accepting a host the other rejects.
+//
+// A host:port here would be dialled as "host:port:443". Catch it at boot rather
+// than as a permanently-failing ping that reads as an outage.
+//
+// A bare IPv6 literal is REJECTED, and this is a change: it used to be exempted
+// from the colon test on the grounds that net.ParseIP tells "2606:4700:4700::1111"
+// apart from "example.com:443" exactly, which it does. What changed is
+// downstream — probe.Pinger now resolves and dials IPv4 only, so a v6 literal
+// can never be probed at all. Accepting it would hand the operator precisely the
+// permanently-failing ping this guard exists to prevent, and the colon test
+// catches it for free. A v4 literal is still fine and still documented.
+func validateRefHost(host, envName string) error {
+	if host == "" {
+		return fmt.Errorf("%s must not be empty", envName)
+	}
+	if strings.Contains(host, "/") || strings.Contains(host, ":") {
+		return fmt.Errorf(
+			"%s must be a bare hostname or IPv4 address without scheme or port "+
+				"(the TCP probe is IPv4-only, so an IPv6 literal can never be reached)",
+			envName)
+	}
+	return nil
 }
 
 // defaultPrices copies DefaultPrices, so a caller holding a Config cannot reach

@@ -271,6 +271,123 @@ func TestCycleFaultIsStoredFromTheNetworkReadings(t *testing.T) {
 	}
 }
 
+// The Amsterdam readings are stored and charted, and reach no verdict.
+//
+// Asserted on the STORED fault rather than by calling AttributeFault: that
+// function is exhaustive over its two booleans, so no call to it can distinguish
+// a correct four-target wiring from a wrong one. Only the path from Save's
+// switch to cycle_fault can.
+func TestAmsterdamReadingsNeverChangeTheFault(t *testing.T) {
+	cases := []struct {
+		name                             string
+		mimoSGP, refSGP, mimoAMS, refAMS bool
+		want                             string
+	}{
+		// Amsterdam collapsing entirely while Singapore is fine is not a MiMo
+		// fault: nothing infers against Amsterdam, and the page's verdict is
+		// about the endpoint the probes actually use.
+		{"amsterdam down, singapore fine", true, true, false, false, probe.FaultOK},
+		// The inverse, and the one that breaks first if someone folds the
+		// Amsterdam edge into attribution: a healthy Amsterdam must not soften
+		// a Singapore edge failure into something milder.
+		{"singapore edge down, amsterdam fine", false, true, true, true, probe.FaultEdge},
+		// Nor may a healthy Amsterdam prove the uplink alive and turn this into
+		// a route fault. That distinction is genuinely restorable from these
+		// readings and is deliberately NOT taken — see probe.AttributeFault.
+		{"singapore unreachable, amsterdam fine", false, false, true, true, probe.FaultUplink},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			db := openTestDB(t)
+			s := New(db)
+
+			id, err := s.Save(context.Background(), Cycle{
+				StartedAt: time.Now(),
+				Net: []probe.NetResult{
+					{Target: probe.TargetMimoSGP, OK: tc.mimoSGP},
+					{Target: probe.TargetRefSGP, OK: tc.refSGP},
+					{Target: probe.TargetMimoAMS, OK: tc.mimoAMS},
+					{Target: probe.TargetRefAMS, OK: tc.refAMS},
+				},
+			})
+			if err != nil {
+				t.Fatalf("Save: %v", err)
+			}
+
+			var fault string
+			if err := db.QueryRow(
+				`SELECT fault FROM cycle_fault WHERE cycle_id = ?`, id).Scan(&fault); err != nil {
+				t.Fatalf("query: %v", err)
+			}
+			if fault != tc.want {
+				t.Errorf("fault = %q, want %q", fault, tc.want)
+			}
+
+			// Stored all the same. Display-only means unattributed, not undropped.
+			var n int
+			if err := db.QueryRow(
+				`SELECT count(*) FROM net_probes WHERE cycle_id = ? AND target IN (?, ?)`,
+				id, probe.TargetMimoAMS, probe.TargetRefAMS).Scan(&n); err != nil {
+				t.Fatalf("query: %v", err)
+			}
+			if n != 2 {
+				t.Errorf("amsterdam net_probes = %d, want 2", n)
+			}
+		})
+	}
+}
+
+// A cycle without the Singapore pair is REFUSED, not attributed.
+//
+// len(Net) != 0 was a sufficient guard while Singapore was the only region.
+// With Amsterdam added it is not: a cycle carrying only the Amsterdam rows
+// passes it, both attribution flags stay false, and the cycle is recorded as an
+// uplink outage that was never measured. The scheduler always sends all four, so
+// this is the guard that makes correctness a property of Save rather than of one
+// caller.
+func TestSaveRefusesACycleMissingTheSingaporePair(t *testing.T) {
+	cases := []struct {
+		name string
+		net  []probe.NetResult
+	}{
+		{"amsterdam only", []probe.NetResult{
+			{Target: probe.TargetMimoAMS, OK: true},
+			{Target: probe.TargetRefAMS, OK: true},
+		}},
+		{"missing the singapore reference", []probe.NetResult{
+			{Target: probe.TargetMimoSGP, OK: true},
+			{Target: probe.TargetMimoAMS, OK: true},
+		}},
+		{"missing the singapore edge", []probe.NetResult{
+			{Target: probe.TargetRefSGP, OK: true},
+			{Target: probe.TargetRefAMS, OK: true},
+		}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			db := openTestDB(t)
+			s := New(db)
+
+			if _, err := s.Save(context.Background(), Cycle{
+				StartedAt: time.Now(), Net: tc.net,
+			}); err == nil {
+				t.Fatal("Save accepted a cycle it cannot attribute")
+			}
+
+			// Refused means nothing landed, not "landed without a verdict".
+			var n int
+			if err := db.QueryRow(`SELECT count(*) FROM cycles`).Scan(&n); err != nil {
+				t.Fatalf("query: %v", err)
+			}
+			if n != 0 {
+				t.Errorf("cycles = %d after a refused Save; the rollback did not hold", n)
+			}
+		})
+	}
+}
+
 // A partially-written cycle would produce inference rows whose server-side time
 // has no network reading to subtract — an unfounded number rather than a
 // visibly missing one.
@@ -302,7 +419,7 @@ func TestSaveIsAtomic(t *testing.T) {
 }
 
 // TestRecordSkip is gone with RecordSkip and the skipped_runs table it wrote to
-// (migration 0004). The overrun it recorded is now only logged; the scheduler
+// (migration 0005). The overrun it recorded is now only logged; the scheduler
 // tests cover that it still detects one.
 
 // Retention: a sample older than the window goes, one inside it survives, and
@@ -353,5 +470,5 @@ func TestSweepDeletesOnlyBeyondTheWindow(t *testing.T) {
 	}
 	// skipped_runs used to be checked here too: it hung off no cycle, so the
 	// cascade missed it and Sweep deleted it separately. The table is gone
-	// (migration 0004) and the cascade now covers everything that remains.
+	// (migration 0005) and the cascade now covers everything that remains.
 }

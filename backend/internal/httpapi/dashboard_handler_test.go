@@ -100,10 +100,19 @@ func TestDashboardServesOneLoad(t *testing.T) {
 			t.Errorf("series.%s is absent; a panel would render empty", name)
 		}
 	}
-	// Both reference hosts, or the subtraction the whole site exists for
-	// cannot be drawn.
-	if len(got.Series.Network.Targets) != 2 {
-		t.Errorf("network targets = %d, want 2", len(got.Series.Network.Targets))
+	// Every edge and every reference. The Singapore pair or the subtraction the
+	// whole site exists for cannot be drawn; the Amsterdam pair or "The wire
+	// itself" silently loses half its lines.
+	for _, target := range []string{
+		probe.TargetMimoSGP, probe.TargetRefSGP,
+		probe.TargetMimoAMS, probe.TargetRefAMS,
+	} {
+		if _, ok := got.Series.Network.Targets[target]; !ok {
+			t.Errorf("network target %q is absent from the series", target)
+		}
+	}
+	if len(got.Series.Network.Targets) != 4 {
+		t.Errorf("network targets = %d, want 4", len(got.Series.Network.Targets))
 	}
 
 	if len(got.Pulse) != 2 {

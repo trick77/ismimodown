@@ -292,14 +292,22 @@ func (s *server) buildModelSeries(ctx context.Context, metric, probeKind string,
 	}, nil
 }
 
-// buildNetSeries is the connect time to each reference host.
+// buildNetSeries is the connect time to each ping target.
 //
 // Per-target, not per-model, and so its own shape rather than a metric on a
 // model — the network is not a model, and pretending otherwise is how it ends
 // up drawn in a model's colour.
+//
+// All FOUR targets, unlike Summarize's net loop, which stays at the Singapore
+// pair. The difference is deliberate: this feeds a chart the reader interprets,
+// that feeds published availability figures. A second provider edge in the
+// summary would sit beside mimo_sgp computed under a different exclusion rule.
 func (s *server) buildNetSeries(ctx context.Context, window samples.Window, now time.Time) (any, error) {
 	out := map[string][]samples.Point{}
-	for _, target := range []string{probe.TargetMimoSGP, probe.TargetRefSGP} {
+	for _, target := range []string{
+		probe.TargetMimoSGP, probe.TargetRefSGP,
+		probe.TargetMimoAMS, probe.TargetRefAMS,
+	} {
 		pts, err := s.deps.Samples.NetSeries(ctx, target, window, now)
 		if err != nil {
 			return nil, err
