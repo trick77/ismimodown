@@ -16,10 +16,12 @@ import (
 //     question is within ±10% of the median token length.
 //  2. An assertable answer. "Contains Paris" is a canary; "seems reasonable"
 //     is not.
-//  3. No contested or dual capitals (Bolivia, South Africa, Israel, the
-//     Netherlands, Myanmar, Côte d'Ivoire, Eswatini, Sri Lanka, Benin,
-//     Tanzania). A wrong-but-defensible answer is worse than no canary,
-//     because it fires without a fault.
+//  3. Exactly one defensible answer. A wrong-but-defensible answer is worse
+//     than no canary, because it fires without a fault. That rules out
+//     contested and dual capitals, countries whose name means more than one
+//     place, answers with two accepted spellings, and any subject where the
+//     answer itself is politically contested. excludedSubjects carries the
+//     list and the reason for each, and a test asserts none of them reappear.
 //
 // The shared suffix keeps the output length stable, which matters as much as
 // the input length: ITL p50 is computed over the inter-token gaps of this
@@ -48,6 +50,14 @@ func (q Question) Prompt() string { return q.Ask + questionSuffix }
 // differently. A stricter match would fire on prose changes and get ignored,
 // which is worse than no canary at all.
 //
+// Loose in the phrasing, but not to the point of matching inside another word:
+// the occurrence must sit on word boundaries. A bare substring test grades
+// "platinum" as a correct answer for tin, "ytterbium" for erbium, and
+// "protactinium" for actinium — the canary's silent failure mode, where a model
+// that has genuinely stopped knowing the answer is scored correct. Boundaries
+// cost nothing in looseness: punctuation, markdown emphasis and possessives all
+// still match, because none of them are letters or digits.
+//
 // Diacritics are folded on BOTH sides, which is not cosmetic. `capitals` spells
 // the answers in ASCII, but a model writes Brasília, Bogotá, Asunción, San
 // José, Reykjavík, Chișinău — so a plain substring match would score six
@@ -55,7 +65,45 @@ func (q Question) Prompt() string { return q.Ask + questionSuffix }
 // the bank is built to avoid, and the reason folding lives here rather than in
 // the data: the next accented capital added would otherwise reintroduce it.
 func (q Question) Assert(content string) bool {
-	return strings.Contains(fold(content), fold(q.Want))
+	return containsWord(fold(content), fold(q.Want))
+}
+
+// containsWord reports whether want occurs in content delimited by something
+// other than a letter or a digit on both sides. Both arguments are already
+// folded.
+func containsWord(content, want string) bool {
+	if want == "" {
+		return false
+	}
+	for off := 0; ; {
+		i := strings.Index(content[off:], want)
+		if i < 0 {
+			return false
+		}
+		start := off + i
+		end := start + len(want)
+		if !isWordByte(content, start-1) && !isWordByte(content, end) {
+			return true
+		}
+		// Overlapping occurrences matter: the first hit being mid-word says
+		// nothing about the next one.
+		off = start + 1
+	}
+}
+
+// isWordByte reports whether the byte at i is a letter or a digit, treating an
+// index outside the string — the start and end of the content — as a boundary.
+//
+// Byte-wise rather than rune-wise because fold has already reduced the answers
+// to ASCII; a multi-byte rune left in the content is not a letter or digit here
+// and so reads as a boundary, which is the right answer for the punctuation and
+// emphasis a model actually writes around a name.
+func isWordByte(s string, i int) bool {
+	if i < 0 || i >= len(s) {
+		return false
+	}
+	c := s[i]
+	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9'
 }
 
 // fold lowercases and strips diacritics from the Latin letters that appear in
@@ -113,7 +161,7 @@ func Pick(n int64) Question {
 }
 
 // capitals holds country -> capital pairs. Contested and dual capitals are
-// excluded by construction; capitalExclusions documents which and why, and a
+// excluded by construction; excludedSubjects documents which and why, and a
 // test asserts none of them reappear.
 var capitals = [][2]string{
 	{"France", "Paris"}, {"Japan", "Tokyo"}, {"Canada", "Ottawa"},
@@ -124,16 +172,16 @@ var capitals = [][2]string{
 	{"Iceland", "Reykjavik"}, {"Romania", "Bucharest"}, {"Bulgaria", "Sofia"},
 	{"Croatia", "Zagreb"}, {"Serbia", "Belgrade"}, {"Slovakia", "Bratislava"},
 	{"Slovenia", "Ljubljana"}, {"Estonia", "Tallinn"}, {"Latvia", "Riga"},
-	{"Lithuania", "Vilnius"}, {"Ukraine", "Kyiv"}, {"Belarus", "Minsk"},
-	{"Georgia", "Tbilisi"}, {"Armenia", "Yerevan"}, {"Mongolia", "Ulaanbaatar"},
+	{"Lithuania", "Vilnius"}, {"Belarus", "Minsk"},
+	{"Armenia", "Yerevan"}, {"Mongolia", "Ulaanbaatar"},
 	{"Nepal", "Kathmandu"}, {"Thailand", "Bangkok"}, {"Vietnam", "Hanoi"},
-	{"Cambodia", "Phnom Penh"}, {"Laos", "Vientiane"}, {"Indonesia", "Jakarta"},
-	{"Philippines", "Manila"}, {"Malaysia", "Kuala Lumpur"}, {"Singapore", "Singapore"},
+	{"Cambodia", "Phnom Penh"}, {"Laos", "Vientiane"},
+	{"Philippines", "Manila"},
 	{"Bangladesh", "Dhaka"}, {"Pakistan", "Islamabad"}, {"Afghanistan", "Kabul"},
 	{"Iran", "Tehran"}, {"Iraq", "Baghdad"}, {"Jordan", "Amman"},
 	{"Lebanon", "Beirut"}, {"Syria", "Damascus"}, {"Turkey", "Ankara"},
 	{"Egypt", "Cairo"}, {"Morocco", "Rabat"}, {"Algeria", "Algiers"},
-	{"Tunisia", "Tunis"}, {"Libya", "Tripoli"}, {"Sudan", "Khartoum"},
+	{"Tunisia", "Tunis"},
 	{"Ethiopia", "Addis Ababa"}, {"Kenya", "Nairobi"}, {"Uganda", "Kampala"},
 	{"Rwanda", "Kigali"}, {"Zambia", "Lusaka"}, {"Zimbabwe", "Harare"},
 	{"Angola", "Luanda"}, {"Mozambique", "Maputo"}, {"Namibia", "Windhoek"},
@@ -143,24 +191,28 @@ var capitals = [][2]string{
 	{"Honduras", "Tegucigalpa"}, {"Nicaragua", "Managua"}, {"Costa Rica", "San Jose"},
 	{"Panama", "Panama City"}, {"Colombia", "Bogota"}, {"Venezuela", "Caracas"},
 	{"Ecuador", "Quito"}, {"Peru", "Lima"}, {"Paraguay", "Asuncion"},
-	{"Uruguay", "Montevideo"}, {"Argentina", "Buenos Aires"}, {"Kazakhstan", "Astana"},
+	{"Uruguay", "Montevideo"}, {"Argentina", "Buenos Aires"},
 	{"Uzbekistan", "Tashkent"}, {"Azerbaijan", "Baku"}, {"Qatar", "Doha"},
-	{"Kuwait", "Kuwait City"}, {"Oman", "Muscat"}, {"Cyprus", "Nicosia"},
+	{"Kuwait", "Kuwait City"}, {"Oman", "Muscat"},
 	{"Malta", "Valletta"}, {"Albania", "Tirana"}, {"Moldova", "Chisinau"},
 }
 
-// capitalExclusions are the countries deliberately absent from `capitals`.
+// excludedSubjects are the subjects deliberately absent from the bank —
+// whatever shape a question about them would take, not only a capital one.
 //
-// Each has a contested, dual, or de-facto-split capital, so a model can answer
-// "wrongly" while being entirely defensible — which would fire the correctness
-// canary with no fault behind it. A canary that cries wolf gets ignored, and an
-// ignored canary is worse than none.
+// For each one a model can answer "wrongly" while being entirely defensible,
+// which would fire the correctness canary with no fault behind it. A canary
+// that cries wolf gets ignored, and an ignored canary is worse than none.
 //
-// A test asserts none of these appear in the bank.
-var capitalExclusions = []string{
+// A test asserts none of these appear in the bank — in any question, not only a
+// capital one, so a later question shape cannot smuggle one back in.
+//
+// The reason recorded against each is the ambiguity, never a position on which
+// answer is right: this repo is public, and the bank has no business taking one.
+var excludedSubjects = []string{
+	// Contested, dual, or de-facto-split capitals.
 	"Bolivia",       // Sucre (constitutional) vs La Paz (seat of government)
 	"South Africa",  // Pretoria / Cape Town / Bloemfontein
-	"Israel",        // internationally contested
 	"Netherlands",   // Amsterdam (capital) vs The Hague (seat of government)
 	"Myanmar",       // Naypyidaw, but Yangon is widely given
 	"Côte d'Ivoire", // Yamoussoukro (official) vs Abidjan (de facto)
@@ -168,6 +220,79 @@ var capitalExclusions = []string{
 	"Sri Lanka",     // Sri Jayawardenepura Kotte vs Colombo
 	"Benin",         // Porto-Novo (official) vs Cotonou (de facto)
 	"Tanzania",      // Dodoma (official) vs Dar es Salaam (de facto)
+	"Malaysia",      // Kuala Lumpur (official) vs Putrajaya (administrative)
+	"Indonesia",     // Jakarta vs Nusantara, mid-relocation
+	"Libya",         // rival governments, so the seat depends on who is asked
+	"Sudan",         // Khartoum (official) vs the wartime de-facto seat
+
+	// Politically contested subjects. Whatever a model answers, the answer is
+	// disputed by somebody, so it can never be scored — and a monitoring probe
+	// that runs 288 times a day is the wrong place to hold the argument.
+	"Israel",
+	"Palestine",
+	"Taiwan",
+	"Kosovo",
+	"Western Sahara",
+	"Cyprus", // de-facto divided since 1974, capital included
+
+	// One name, more than one place. Confirmed in production: a model answered
+	// "Atlanta" for Georgia and was graded wrong, which is exactly the
+	// cries-wolf failure the bank is built to avoid.
+	"Georgia",
+
+	// One place, more than one accepted answer. Want is a single string, so a
+	// model writing the other spelling scores wrong while being correct.
+	"Ukraine",    // Kyiv / Kiev
+	"Kazakhstan", // Astana / Nur-Sultan, renamed and renamed back
+
+	// A name that is no country's full name, so it can never be the Want:
+	// it matches inside both of the countries that carry it, and a model that
+	// named the wrong one would be graded correct.
+	"Korea", // North Korea / South Korea; bare "Korea" names neither
+
+	// A city-state answers its own question: Want would be the country name
+	// already in the Ask, so the assertion could never fail and the entry would
+	// be a dead canary that always passes. TestNoQuestionContainsItsOwnAnswer
+	// enforces this by construction, so the next one cannot slip in.
+	"Singapore",
+}
+
+// cities holds city -> country pairs, giving the bank a third question shape
+// and one that is not a capital, so the rotation does not lean on the single
+// subject where the "one defensible answer" rule is hardest to hold.
+//
+// Every entry is a single-word city — a two-word name pushes the prompt outside
+// the ±10% length band the bank is policed by — that is well known, that is not
+// its country's capital, and whose country is named the same way by everyone.
+// Countries whose common name a model may shorten (the United States, the
+// United Kingdom) are absent: "the US" or "England" would be a correct answer
+// scored wrong. So are countries that appear as an answer in `capitals`, so
+// that no question's expected answer can be matched by another's.
+//
+// Absent for the opposite reason: a country whose whole name sits inside the
+// name of a different place, where a wrong answer is graded right and the canary
+// fails silently. Ireland is the one that got as far as being written down —
+// "Cork is in Northern Ireland" would have scored correct. No test can catch
+// this class, because the name that swallows the answer need not be in the bank
+// at all, so it is a rule the next entry has to be read against.
+var cities = [][2]string{
+	{"Kyoto", "Japan"}, {"Osaka", "Japan"}, {"Hiroshima", "Japan"},
+	{"Marseille", "France"}, {"Lyon", "France"}, {"Bordeaux", "France"},
+	{"Hamburg", "Germany"}, {"Munich", "Germany"}, {"Cologne", "Germany"},
+	{"Milan", "Italy"}, {"Naples", "Italy"}, {"Turin", "Italy"},
+	{"Seville", "Spain"}, {"Zaragoza", "Spain"},
+	{"Porto", "Portugal"}, {"Krakow", "Poland"}, {"Gdansk", "Poland"},
+	{"Salzburg", "Austria"}, {"Zurich", "Switzerland"}, {"Geneva", "Switzerland"},
+	{"Antwerp", "Belgium"}, {"Bergen", "Norway"}, {"Gothenburg", "Sweden"},
+	{"Tampere", "Finland"}, {"Aarhus", "Denmark"},
+	{"Thessaloniki", "Greece"}, {"Bursa", "Turkey"}, {"Isfahan", "Iran"},
+	{"Toronto", "Canada"}, {"Vancouver", "Canada"}, {"Montreal", "Canada"},
+	{"Melbourne", "Australia"}, {"Brisbane", "Australia"}, {"Auckland", "New Zealand"},
+	{"Shanghai", "China"}, {"Guangzhou", "China"},
+	{"Kolkata", "India"}, {"Bengaluru", "India"}, {"Lahore", "Pakistan"},
+	{"Alexandria", "Egypt"}, {"Casablanca", "Morocco"}, {"Marrakesh", "Morocco"},
+	{"Mombasa", "Kenya"}, {"Ibadan", "Nigeria"}, {"Rosario", "Argentina"},
+	{"Cusco", "Peru"}, {"Medellin", "Colombia"}, {"Valparaiso", "Chile"},
 }
 
 // elements holds symbol -> name pairs, giving the bank a second question shape
@@ -198,18 +323,25 @@ var elements = [][2]string{
 	{"Db", "dubnium"}, {"Sg", "seaborgium"},
 }
 
-// buildBank assembles the rotation from the two question shapes.
+// buildBank assembles the rotation from the three question shapes.
 //
 // Generated rather than hand-written so the length constraint holds by
 // construction: every entry differs only in a country or element name, which
 // keeps them all within a token or two of each other. Hand-writing 185
 // individually-phrased questions is how length variance gets in.
 func buildBank() []Question {
-	bank := make([]Question, 0, len(capitals)+len(elements))
+	bank := make([]Question, 0, len(capitals)+len(cities)+len(elements))
 	for _, c := range capitals {
 		bank = append(bank, Question{
 			ID:   "capital-" + slug(c[0]),
 			Ask:  fmt.Sprintf("What is the capital city of %s?", c[0]),
+			Want: c[1],
+		})
+	}
+	for _, c := range cities {
+		bank = append(bank, Question{
+			ID:   "city-" + slug(c[0]),
+			Ask:  fmt.Sprintf("Which country is the city of %s in?", c[0]),
 			Want: c[1],
 		})
 	}
