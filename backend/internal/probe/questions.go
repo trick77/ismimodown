@@ -285,7 +285,11 @@ var cities = [][2]string{
 	{"Salzburg", "Austria"}, {"Zurich", "Switzerland"}, {"Geneva", "Switzerland"},
 	{"Antwerp", "Belgium"}, {"Bergen", "Norway"}, {"Gothenburg", "Sweden"},
 	{"Tampere", "Finland"}, {"Aarhus", "Denmark"},
-	{"Thessaloniki", "Greece"}, {"Bursa", "Turkey"}, {"Isfahan", "Iran"},
+	// No Turkish city: the country is named Turkey by some and Türkiye by
+	// others, which is exactly the varying-common-name class this block
+	// excludes — Want is a single string, so the other name scores a correct
+	// answer wrong.
+	{"Thessaloniki", "Greece"}, {"Isfahan", "Iran"},
 	{"Toronto", "Canada"}, {"Vancouver", "Canada"}, {"Montreal", "Canada"},
 	{"Melbourne", "Australia"}, {"Brisbane", "Australia"}, {"Auckland", "New Zealand"},
 	{"Shanghai", "China"}, {"Guangzhou", "China"},
@@ -323,14 +327,50 @@ var elements = [][2]string{
 	{"Db", "dubnium"}, {"Sg", "seaborgium"},
 }
 
-// buildBank assembles the rotation from the three question shapes.
+// unusableSymbols are the element symbols that cannot serve as an expected
+// answer, and so are skipped by the name -> symbol shape. Both kinds fail the
+// same way: a wrong answer is graded right, silently.
+//
+//   - A symbol that is also an English word. "No" for nobelium matches the "no"
+//     in any sentence; so do in, as, at, be, he, am, re, la, es, er and pa.
+//   - A one-letter symbol. Too small to carry a boundary: a stray "U" or "K" in
+//     prose, a bullet, a unit, an initial, all match.
+//
+// The symbol -> name shape keeps every one of these — "Which chemical element
+// has the symbol No?" is a perfectly good question, because there the symbol is
+// the prompt and the unambiguous element name is the answer. Only the reverse
+// direction is affected, which is why this filters the shape rather than the
+// data.
+var unusableSymbols = map[string]bool{
+	"No": true, "In": true, "As": true, "At": true, "Be": true, "He": true,
+	"Am": true, "Re": true, "La": true, "Es": true, "Er": true, "Pa": true,
+}
+
+// unusableNames is the same rule pointed the other way: an element name that is
+// also an everyday English word cannot serve as an expected answer, so the
+// symbol -> name shape skips it.
+//
+// "lead" is the whole list, and it is a real hole rather than a theoretical
+// one: the verb turns up in the kind of hedging sentence a model writes when it
+// is no longer sure — "guesses like that lead to errors" grades correct for
+// element-lead while naming no element at all. tin, iron, gold and silver are
+// nouns a reply about metals may reuse, but only ever about the metal itself,
+// so they stay.
+//
+// The pair is not lost, only asked one way round: "What is the chemical symbol
+// for lead?" wants "Pb", which no prose matches by accident.
+var unusableNames = map[string]bool{
+	"lead": true,
+}
+
+// buildBank assembles the rotation from the four question shapes.
 //
 // Generated rather than hand-written so the length constraint holds by
 // construction: every entry differs only in a country or element name, which
 // keeps them all within a token or two of each other. Hand-writing 185
 // individually-phrased questions is how length variance gets in.
 func buildBank() []Question {
-	bank := make([]Question, 0, len(capitals)+len(cities)+len(elements))
+	bank := make([]Question, 0, len(capitals)+len(cities)+2*len(elements))
 	for _, c := range capitals {
 		bank = append(bank, Question{
 			ID:   "capital-" + slug(c[0]),
@@ -346,10 +386,27 @@ func buildBank() []Question {
 		})
 	}
 	for _, e := range elements {
+		if unusableNames[e[1]] {
+			continue
+		}
 		bank = append(bank, Question{
 			ID:   "element-" + slug(e[1]),
 			Ask:  fmt.Sprintf("Which chemical element has the symbol %s?", e[0]),
 			Want: e[1],
+		})
+	}
+	// The same pairs asked backwards. A model that has been quantised or
+	// swapped can lose one direction of a fact while keeping the other, so
+	// asking symbol -> name and name -> symbol is not the same question twice.
+	// It also costs nothing to vet: the pairs are already in the bank.
+	for _, e := range elements {
+		if len(e[0]) < 2 || unusableSymbols[e[0]] {
+			continue
+		}
+		bank = append(bank, Question{
+			ID:   "symbol-" + slug(e[1]),
+			Ask:  fmt.Sprintf("What is the chemical symbol for %s?", e[1]),
+			Want: e[0],
 		})
 	}
 	return bank
