@@ -172,6 +172,19 @@ describe("PulseStrip", () => {
     );
   });
 
+  // Two clock times alone are only a window while they share a day. The strip
+  // is the last 288 CYCLES, so a stretch with the daemon down reaches back past
+  // midnight, and "08:00 to 09:55" then states a two-hour window where the
+  // truth is twenty-six — a worse claim than the "24 hours" this label exists
+  // to stop making.
+  it("dates the window when it reaches back past midnight", () => {
+    render(<PulseStrip perModel={[run("2026-08-04T06:00:00Z", 53, 30)]} />);
+    expect(screen.getByTestId("pulse-strip")).toHaveAttribute(
+      "aria-label",
+      expect.stringContaining("04 Aug, 08:00 to 05 Aug, 10:00"),
+    );
+  });
+
   // Both sets of labels are in the DOM at once — one shown per breakpoint — so
   // an axis that was not hidden would read every hour to a screen reader twice,
   // inside a role="img" whose own label already carries the window.
@@ -274,12 +287,37 @@ describe("hourTicks", () => {
     expect(ticks.map((t) => t.label)).toEqual(["09:00", "15:00"]);
   });
 
-  // A label is centred on its bar, so one sitting on the first bar of the strip
-  // hangs half of itself outside the frame.
+  // A label is centred on its bar, so one sitting against the left end of the
+  // strip hangs half of itself outside the frame.
   it("gives up a label that would hang off the edge", () => {
-    // Opens exactly on 09:00 local, which would otherwise be tick number one.
-    const ticks = hourTicks(run("2026-08-04T07:00:00Z", 40), 3);
-    expect(ticks.map((t) => t.label)).toEqual(["12:00"]);
+    // Opens at 08:58 local, so 09:00 falls on bar 1 of 288 — half a per cent
+    // across, which is inside the guard band.
+    const ticks = hourTicks(run("2026-08-04T06:58:00Z", 288), 3);
+    expect(ticks.map((t) => t.label)).not.toContain("09:00");
+    expect(ticks[0]!.label).toBe("12:00");
+  });
+
+  // The strip's first bar is not the first bar of its hour, only the first one
+  // that survived the window. A tick reading "09:00" over a 09:47 bar is off by
+  // three quarters of an hour, and it is the bar a reader anchors the whole
+  // strip on.
+  it("says nothing about an hour the window opens in the middle of", () => {
+    // 09:47 local onwards, few enough bars that the edge guard does not cover
+    // for this — a daemon that has only just started recording.
+    const ticks = hourTicks(run("2026-08-04T07:47:00Z", 20), 3);
+    expect(ticks).toEqual([]);
+  });
+
+  // An hour compared by its number alone reads the far side of a day-long gap
+  // as a continuation of the near side, and prints no tick at all — on exactly
+  // the window whose length makes the axis worth having.
+  it("marks an hour that resumes at the same clock time a day later", () => {
+    const cycles = [
+      ...run("2026-08-04T06:00:00Z", 10), // 08:00–08:45 local
+      ...run("2026-08-05T07:05:00Z", 40), // 09:05 local the NEXT day onwards
+    ];
+    const ticks = hourTicks(cycles, 3);
+    expect(ticks.map((t) => t.label)).toContain("09:00");
   });
 
   // The strip is the last 288 CYCLES, not a fixed 24 hours, so any day the

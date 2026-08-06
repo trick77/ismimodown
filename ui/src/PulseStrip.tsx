@@ -1,5 +1,11 @@
 import type { Cycle } from "./api/types";
-import { formatMs, formatTime, plural, shouldUseLogScale } from "./format";
+import {
+  formatDateTime,
+  formatMs,
+  formatTime,
+  plural,
+  shouldUseLogScale,
+} from "./format";
 
 // One bar per cycle: colour by health, height by latency, both taken from the
 // WORSE of the models probed in that cycle.
@@ -122,7 +128,7 @@ const NARROW_STEP_HOURS = 6;
 // from the bar, text from the hour.
 export function hourTicks(ordered: Cycle[], step: number): Tick[] {
   const out: Tick[] = [];
-  let previousHour: number | null = null;
+  let previousBucket: number | null = null;
   ordered.forEach((c, i) => {
     const at = new Date(c.at);
     if (Number.isNaN(at.getTime())) return;
@@ -130,8 +136,21 @@ export function hourTicks(ordered: Cycle[], step: number): Tick[] {
     // unset so it follows the reader, and an axis in UTC beside a table in
     // Zurich would be two clocks on one screen.
     const hour = at.getHours();
-    const first = hour !== previousHour;
-    previousHour = hour;
+    // Which hour of which day, not merely which hour of the clock. The strip
+    // is the last 288 CYCLES, so a stretch with the daemon down can put the
+    // same local hour on both sides of the gap — and an hour compared by its
+    // number alone reads the far side as a continuation of the near one and
+    // prints no tick at all, on exactly the window that most needs the label.
+    const bucket = Math.floor(
+      (at.getTime() - at.getTimezoneOffset() * 60_000) / 3_600_000,
+    );
+    // The strip's FIRST bar is never the first bar of its hour, only the first
+    // one that survived the window: a window opening at 09:47 would otherwise
+    // get a tick reading "09:00" sitting on top of the 09:47 bar. An hour whose
+    // opening the window cut off is an hour the axis has nothing honest to say
+    // about, so it says nothing.
+    const first = previousBucket !== null && bucket !== previousBucket;
+    previousBucket = bucket;
     // Not "the bar at :00" — cycles do not land on the hour. The first bar of
     // the hour is the one that does exist, and after a gap that swallows a
     // whole hour it is simply the first bar of the next one.
@@ -178,6 +197,26 @@ function Axis({ ticks }: { ticks: Tick[] }) {
       </div>
     </div>
   );
+}
+
+// The two ends of the window, as a screen reader should hear them.
+//
+// Time alone while both ends fall on one local day, which is every ordinary
+// day. When they do not, the DATE goes in as well: the strip is the last 288
+// cycles rather than a fixed 24 hours, so any stretch with the daemon down
+// reaches back past midnight — and "08:00 to 09:55" then reads as a two-hour
+// window when it is a twenty-six-hour one, which is a worse claim than the
+// "24 hours" this label was written to stop making.
+function windowStamps(from: string, to: string): [string, string] {
+  const a = new Date(from);
+  const b = new Date(to);
+  const sameDay =
+    !Number.isNaN(a.getTime()) &&
+    !Number.isNaN(b.getTime()) &&
+    a.toDateString() === b.toDateString();
+  return sameDay
+    ? [formatTime(a), formatTime(b)]
+    : [formatDateTime(a), formatDateTime(b)];
 }
 
 function TickMark({ tick }: { tick: Tick }) {
@@ -255,6 +294,11 @@ export function PulseStrip({
   // window has no range to spread, and dividing by it would render NaN%.
   const span = floor > 0 && peak > floor ? Math.log(peak / floor) : 0;
 
+  const [from, to] =
+    ordered.length > 0
+      ? windowStamps(ordered[0]!.at, ordered[ordered.length - 1]!.at)
+      : ["", ""];
+
   return (
     <div>
       <div
@@ -282,11 +326,9 @@ export function PulseStrip({
             : `Last ${ordered.length} ${plural(
                 ordered.length,
                 "cycle",
-              )}, ${formatTime(ordered[0]!.at)} to ${formatTime(
-                ordered[ordered.length - 1]!.at,
-              )}: ${ordered.filter((s) => s.ok).length} succeeded, ${
-                ordered.filter((s) => !s.ok).length
-              } failed`
+              )}, ${from} to ${to}: ${
+                ordered.filter((s) => s.ok).length
+              } succeeded, ${ordered.filter((s) => !s.ok).length} failed`
         }
         data-testid="pulse-strip"
       >
