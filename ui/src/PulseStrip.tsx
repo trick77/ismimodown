@@ -1,5 +1,11 @@
 import type { Cycle } from "./api/types";
-import { formatMs, formatTime, plural, shouldUseLogScale } from "./format";
+import {
+  formatDateTime,
+  formatMs,
+  formatTime,
+  plural,
+  shouldUseLogScale,
+} from "./format";
 
 // One bar per cycle: colour by health, height by latency, both taken from the
 // WORSE of the models probed in that cycle.
@@ -76,6 +82,160 @@ function maxOrNull(a: number | null, b: number | null): number | null {
   return Math.max(a, b);
 }
 
+// A tick on the strip's hour axis: which bar it points at, and what it says.
+export type Tick = {
+  // Percentage across the strip, at the CENTRE of the bar it marks.
+  left: number;
+  label: string;
+  // The whole hour it stands for, which is what the narrow set thins by.
+  hour: number;
+  // The bar it points at. Its identity, because the label is not one: the strip
+  // is the last 288 CYCLES rather than a fixed 24 hours, so a window that
+  // reaches back further than a day — any day the daemon was down for a while —
+  // labels the same hour twice.
+  index: number;
+};
+
+// How close to an edge a centred label may sit before half of it hangs outside
+// the strip. A window that happens to start on the hour puts its first tick at
+// the very first bar, which is the case this catches.
+const EDGE_GUARD = 2;
+
+// One label per three hours on a desktop, per six on a phone. 288 bars over
+// ~1116 px is ~46 px of strip per hour, which a 11 px "18:00" cannot be printed
+// under hourly; a 320 px column has room for four labels and no more.
+const WIDE_STEP_HOURS = 3;
+const NARROW_STEP_HOURS = 6;
+
+// hourTicks picks the bars that get a label, one per whole hour divisible by
+// `step`.
+//
+// Anchored on the clock rather than on the window start: ticks at 00, 03, 06 …
+// are the same landmarks from one visit to the next, where "every 3 hours from
+// wherever this window happens to begin" moves them on every render.
+//
+// Positioned by INDEX, because the bars are: they are laid out with flex-1, so
+// a cycle the daemon never recorded does not leave a hole, it packs the rest
+// closer. An axis drawn on even hourly spacing would then point at the wrong
+// bars — which is exactly the day a reader most needs it to be right. Position
+// comes from the bar, so the labels come out slightly uneven on a day with
+// gaps, and that unevenness is the truth.
+//
+// The label, on the other hand, is the WHOLE hour and not the bar's own stamp.
+// Cycles land wherever the daemon's cadence puts them — 09:02 today, 09:47
+// after a restart — and a row reading "09:02 · 12:02 · 15:02" invites a reader
+// to find meaning in a phase that is an artefact of the last deploy. Position
+// from the bar, text from the hour.
+export function hourTicks(ordered: Cycle[], step: number): Tick[] {
+  const out: Tick[] = [];
+  let previousBucket: number | null = null;
+  ordered.forEach((c, i) => {
+    const at = new Date(c.at);
+    if (Number.isNaN(at.getTime())) return;
+    // Local, like every other time on this page: formatTime leaves the zone
+    // unset so it follows the reader, and an axis in UTC beside a table in
+    // Zurich would be two clocks on one screen.
+    const hour = at.getHours();
+    // Which hour of which day, not merely which hour of the clock. The strip
+    // is the last 288 CYCLES, so a stretch with the daemon down can put the
+    // same local hour on both sides of the gap — and an hour compared by its
+    // number alone reads the far side as a continuation of the near one and
+    // prints no tick at all, on exactly the window that most needs the label.
+    const bucket = Math.floor(
+      (at.getTime() - at.getTimezoneOffset() * 60_000) / 3_600_000,
+    );
+    // The strip's FIRST bar is never the first bar of its hour, only the first
+    // one that survived the window: a window opening at 09:47 would otherwise
+    // get a tick reading "09:00" sitting on top of the 09:47 bar. An hour whose
+    // opening the window cut off is an hour the axis has nothing honest to say
+    // about, so it says nothing.
+    const first = previousBucket !== null && bucket !== previousBucket;
+    previousBucket = bucket;
+    // Not "the bar at :00" — cycles do not land on the hour. The first bar of
+    // the hour is the one that does exist, and after a gap that swallows a
+    // whole hour it is simply the first bar of the next one.
+    if (!first || hour % step !== 0) return;
+    const left = ((i + 0.5) / ordered.length) * 100;
+    if (left < EDGE_GUARD || left > 100 - EDGE_GUARD) return;
+    at.setMinutes(0, 0, 0);
+    out.push({ left, label: formatTime(at), hour, index: i });
+  });
+  return out;
+}
+
+// The axis, as a layer of absolutely-positioned labels over a fixed height.
+//
+// Two sets rather than a resize listener: ~46 px of strip per hour on a desktop
+// is comfortable for a label every 3 hours and impossible for one every hour,
+// and a 320 px phone has room for four. The 6-hour set is a subset of the
+// 3-hour one, so one rule produces both.
+function Axis({ ticks }: { ticks: Tick[] }) {
+  return (
+    <div
+      className="relative mt-1 h-4"
+      // Decorative: both sets of labels are in the DOM at once — one shown per
+      // breakpoint — so without this a screen reader reads every hour twice,
+      // beside a strip whose own aria-label already carries the window.
+      aria-hidden="true"
+      data-testid="pulse-axis"
+    >
+      <div className="max-[720px]:hidden">
+        {ticks.map((t) => (
+          <TickMark key={`w-${t.index}`} tick={t} />
+        ))}
+      </div>
+      <div className="hidden max-[720px]:block">
+        {ticks
+          // Thinned by the CLOCK, not by index: every other tick of a list that
+          // happens to open at 03:00 would label 03, 09, 15 — six hours apart,
+          // but no longer the landmarks the wide set uses, and one dropped
+          // edge tick would flip them all.
+          .filter((t) => t.hour % NARROW_STEP_HOURS === 0)
+          .map((t) => (
+            <TickMark key={`n-${t.index}`} tick={t} />
+          ))}
+      </div>
+    </div>
+  );
+}
+
+// The two ends of the window, as a screen reader should hear them.
+//
+// Time alone while both ends fall on one local day, which is every ordinary
+// day. When they do not, the DATE goes in as well: the strip is the last 288
+// cycles rather than a fixed 24 hours, so any stretch with the daemon down
+// reaches back past midnight — and "08:00 to 09:55" then reads as a two-hour
+// window when it is a twenty-six-hour one, which is a worse claim than the
+// "24 hours" this label was written to stop making.
+function windowStamps(from: string, to: string): [string, string] {
+  const a = new Date(from);
+  const b = new Date(to);
+  const sameDay =
+    !Number.isNaN(a.getTime()) &&
+    !Number.isNaN(b.getTime()) &&
+    a.toDateString() === b.toDateString();
+  return sameDay
+    ? [formatTime(a), formatTime(b)]
+    : [formatDateTime(a), formatDateTime(b)];
+}
+
+function TickMark({ tick }: { tick: Tick }) {
+  return (
+    <>
+      <span
+        className="absolute -top-1 h-1 w-px bg-ghost"
+        style={{ left: `${tick.left}%` }}
+      />
+      <span
+        className="absolute top-0 -translate-x-1/2 text-micro text-faint"
+        style={{ left: `${tick.left}%` }}
+      >
+        {tick.label}
+      </span>
+    </>
+  );
+}
+
 export function PulseStrip({
   perModel,
   pending = false,
@@ -134,6 +294,11 @@ export function PulseStrip({
   // window has no range to spread, and dividing by it would render NaN%.
   const span = floor > 0 && peak > floor ? Math.log(peak / floor) : 0;
 
+  const [from, to] =
+    ordered.length > 0
+      ? windowStamps(ordered[0]!.at, ordered[ordered.length - 1]!.at)
+      : ["", ""];
+
   return (
     <div>
       <div
@@ -150,15 +315,20 @@ export function PulseStrip({
         // frame has not read anything yet. A screen reader gets the honest
         // version of the same distinction a sighted reader gets from a strip
         // with no bars in it.
+        // The window is stated as its two endpoints rather than as a duration.
+        // A sighted reader now has an axis for it, and the honest form of the
+        // same fact is the pair of times: the backend asks for the last 288
+        // cycles, not for a time range, so after any stretch where the daemon
+        // was not running the strip reaches back further than a day.
         aria-label={
           ordered.length === 0
             ? "Cycle history, still loading"
             : `Last ${ordered.length} ${plural(
                 ordered.length,
                 "cycle",
-              )}: ${ordered.filter((s) => s.ok).length} succeeded, ${
-                ordered.filter((s) => !s.ok).length
-              } failed`
+              )}, ${from} to ${to}: ${
+                ordered.filter((s) => s.ok).length
+              } succeeded, ${ordered.filter((s) => !s.ok).length} failed`
         }
         data-testid="pulse-strip"
       >
@@ -207,6 +377,12 @@ export function PulseStrip({
           );
         })}
       </div>
+      {/* Rendered while the strip is still empty too, so the frame it holds is
+          the frame the bars will arrive into. Reserving only the bars' 48 px
+          would put the axis's 20 px back into the layout at the moment the
+          fetch lands, which is most of the shift the empty frame exists to
+          avoid. */}
+      <Axis ticks={hourTicks(ordered, WIDE_STEP_HOURS)} />
       {/* Three things a reader cannot otherwise discover: what the height is,
           that it is a whole day regardless of the window pill, and what the two
           other colours mean. The colours especially — ui.tsx opens by saying
