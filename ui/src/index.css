@@ -59,11 +59,14 @@
   --color-server: #c6613f;
 
   /* Fault colours. Distinct from the series palette so a failure can never be
-     mistaken for a measurement. --color-fault-edge is the elevated state chip
-     (ui.tsx); --color-fault-uplink is held for the danger-adjacent fault it
-     names. --color-fault-route went with the attribution table: the fault it
-     coloured is no longer produced (see FAULT_ROUTE in api/types.ts). */
+     mistaken for a measurement. All three are consumed: --color-fault-edge is
+     the elevated state chip (ui.tsx), and --color-fault-route and
+     --color-fault-uplink are the two attribution notes in RecentErrors.tsx.
+     Route survives the attribution table's removal because stored cycles still
+     carry FAULT_ROUTE even though nothing produces it any more, and drawing one
+     in the uplink colour would claim a different outage than was recorded. */
   --color-fault-edge: #c98500;
+  --color-fault-route: #9085e9;
   --color-fault-uplink: #c14638;
 
   --font-sans:

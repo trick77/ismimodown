@@ -91,7 +91,8 @@ export function worst(...states: State[]): State {
 // How far back "right now" reaches. Twelve cycles is one hour at the 5-minute
 // cadence: long enough that a flapping endpoint cannot hide between two clean
 // checks, short enough that a fault which stopped an hour ago stops being news.
-// The banner is allowed to forget. The availability strip below it does not.
+// The banner is allowed to forget. The pulse strip and the errors card below it
+// do not.
 export const RECENT_CYCLES = 12;
 
 // One red cycle is an anecdote; two in a row is a state. A single failed
@@ -168,10 +169,10 @@ export type Track = {
   // How long ago the newest red actually was, in minutes, read off the stored
   // timestamps rather than multiplied out of the index above.
   //
-  // The two disagree exactly when a slot was dropped — which the scheduler
-  // logs rather than pretending it did not happen — so an
-  // index-derived "20 minutes ago" can describe a failure from an hour back,
-  // understating it in the direction that flatters.
+  // The two disagree exactly when a slot was dropped — which the scheduler logs
+  // rather than pretending it did not happen — so an index-derived "20 minutes
+  // ago" can describe a failure from an hour back, understating it in the
+  // direction that flatters.
   lastRedMinutes: number | null;
 };
 

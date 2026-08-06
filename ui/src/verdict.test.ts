@@ -322,8 +322,8 @@ describe("buildVerdict", () => {
   });
 
   // The index is a count of cycles, not a clock: a dropped slot leaves no cycle
-  // behind — the scheduler records those as skipped_runs — so multiplying the
-  // index out understates how long ago the failure was, in the flattering
+  // behind — the scheduler logs those rather than storing them — so multiplying
+  // the index out understates how long ago the failure was, in the flattering
   // direction.
   it("dates the last failure from the timestamps, not the cycle index", () => {
     // The three reds sit at indices 2-4, but everything from index 2 back is a

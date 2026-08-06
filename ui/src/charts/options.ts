@@ -38,9 +38,9 @@ export const WIRE_COLOR = "#9c9a92";
 //
 // This is --color-online, the page's one green, and the overlap is known: the
 // pulse strip also uses it to mean "up". Accepted because nothing in this chart
-// encodes health — both series are
-// handshake milliseconds, and the panel has a legend naming each line. Do NOT
-// extend the green to anything that could be read as a verdict.
+// encodes health — both series are handshake milliseconds, and the panel has a
+// legend naming each line. Do NOT extend the green to anything that could be
+// read as a verdict.
 export const MIMO_EDGE_COLOR = "#5aa06a";
 // The Singapore reference host, one step darker than the neutral above. It is
 // the control, not the measurement — the line the reader checks against rather
