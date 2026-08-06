@@ -29,10 +29,18 @@ func recovery(next http.Handler) http.Handler {
 
 // contentSecurityPolicy is the page's resource allow-list.
 //
-// The site loads nothing from anywhere else: the SPA, its fonts and its icons
-// are all embedded in the binary and served same-origin, and every fetch goes
-// to this origin's /api. So the policy can be as tight as 'self' throughout
-// without a single exception — anything that trips it is a regression.
+// The site loads almost nothing from anywhere else: the SPA, its fonts and its
+// icons are all embedded in the binary and served same-origin, and every fetch
+// goes to this origin's /api. So the policy is 'self' throughout with exactly
+// one exception — anything else that trips it is a regression.
+//
+// The exception is Microsoft Clarity (heatmaps and session replay), which loads
+// its tag from www.clarity.ms and beacons to the *.clarity.ms shard it is
+// load-balanced onto plus c.bing.com. Those origins are named on script-src and
+// connect-src only, not on default-src: every other directive here is set
+// explicitly, so widening the fallback would be a wildcard nobody reads. Clarity
+// hands out an inline <script> to paste into <head>; ui/src/clarity.ts injects
+// the tag from the bundle instead, precisely so that 'unsafe-inline' stays off.
 //
 // 'unsafe-inline' for styles is the one concession, and it is unavoidable:
 // ECharts positions its tooltip by writing inline style on a div it creates,
@@ -46,11 +54,11 @@ func recovery(next http.Handler) http.Handler {
 // form-action and base-uri are 'none' because this page has no form and no
 // <base> — declaring that costs nothing and closes two redirection tricks.
 const contentSecurityPolicy = "default-src 'self'; " +
-	"script-src 'self'; " +
+	"script-src 'self' https://www.clarity.ms; " +
 	"style-src 'self' 'unsafe-inline'; " +
 	"img-src 'self' data:; " +
 	"font-src 'self'; " +
-	"connect-src 'self'; " +
+	"connect-src 'self' https://*.clarity.ms https://c.bing.com; " +
 	"object-src 'none'; " +
 	"base-uri 'none'; " +
 	"form-action 'none'; " +
