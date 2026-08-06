@@ -906,7 +906,7 @@ func (s *Store) RecentFailures(ctx context.Context, models []string, since time.
 	for _, m := range models {
 		args = append(args, m)
 	}
-	args = append(args, since.UTC().Format(time.RFC3339Nano), limit)
+	args = append(args, rfc(since), limit)
 
 	// error_detail is not selected, for the same reason no other public
 	// projection selects it: it is raw upstream text and this row is served

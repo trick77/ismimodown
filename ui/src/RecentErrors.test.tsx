@@ -94,6 +94,17 @@ describe("RecentErrors", () => {
     expect(screen.getByText(/Nothing failed/)).toBeInTheDocument();
   });
 
+  // Before the first response lands there is no evidence of anything, and a
+  // card claiming a clean day on a page that has not asked yet is the one
+  // sentence this must never print.
+  it("does not claim a clean day before anything has answered", () => {
+    render(<RecentErrors failures={null} />);
+
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Nothing failed/)).not.toBeInTheDocument();
+    expect(screen.getByText(/Not enough data yet/)).toBeInTheDocument();
+  });
+
   // The server orders the block; the card must not reorder it, or the row a
   // reader reads as "the latest" is not the latest.
   it("draws the failures in the order they arrive", () => {

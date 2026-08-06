@@ -387,7 +387,7 @@ export default function App() {
               filtered: only what failed, and reaching back a fixed day rather
               than the screenful the table holds. Reading the two in that order
               is "what went wrong", then "everything that happened". */}
-            <RecentErrors failures={data?.failures ?? []} />
+            <RecentErrors failures={data?.failures ?? null} />
             <SamplesTable
               perGroup={data?.samples.map((g) => g.samples) ?? []}
             />

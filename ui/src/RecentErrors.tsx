@@ -50,7 +50,14 @@ const CLASS_GLOSS: Record<string, string> = {
   canceled: "shutdown, not a fault",
 };
 
-export function RecentErrors({ failures }: { failures: Failure[] }) {
+// null is NOT the empty list, and the difference is the whole card. An empty
+// list is evidence — the server looked and found nothing — and the sentence it
+// earns is a claim about the endpoint's health. null is the absence of
+// evidence: the first load has not answered yet, or it failed. Collapsing the
+// two would make the page assert "nothing failed in the last 24 hours" before
+// it had asked anyone, on a page whose entire job is saying whether MiMo is
+// down. Every other panel takes its no-data case as null for the same reason.
+export function RecentErrors({ failures }: { failures: Failure[] | null }) {
   // The browser's clock, on the same timer and for the same reason as the raw
   // table: "ago" is a statement about the reader's own now.
   const [now, setNow] = useState(() => Date.now());
@@ -64,7 +71,14 @@ export function RecentErrors({ failures }: { failures: Failure[] }) {
       title="Most recent errors"
       subtitle="Only the failed calls, from the last 24 hours whichever range is selected above — each with the status code the endpoint answered with, where it got that far."
     >
-      {failures.length > 0 ? (
+      {failures === null ? (
+        // Nothing has answered yet. Neutral wording, matching the raw table
+        // below: it says the page has no reading, not that the reading is
+        // clean.
+        <p className="font-serif italic text-faint">
+          Not enough data yet — first samples within a few minutes.
+        </p>
+      ) : failures.length > 0 ? (
         <div className="overflow-x-auto">
           {/* Narrower than the raw table: five columns, and one of them is a
               class with a line of prose under it rather than a figure. */}
