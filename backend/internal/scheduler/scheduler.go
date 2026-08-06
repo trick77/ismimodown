@@ -48,6 +48,25 @@ const CycleJitter = 30 * time.Second
 // value can never turn this into a tight loop against a billed endpoint.
 const MinInterval = time.Minute
 
+// DispatchGap is the minimum quiet time between the end of one inference call
+// and the start of the next, anywhere in the process.
+//
+// Serialising the calls — see RunCycle — only answers a CONCURRENCY limit. The
+// 429s that motivated both were a short and a wide against mimo-v2.5 in one
+// cycle, which were already strictly sequential: the second went out the
+// instant the first came back. Nothing in a 429 says which kind of limiter
+// produced it, and against a short-window request or token budget back-to-back
+// is indistinguishable from simultaneous. This is the half of the fix that
+// covers that case.
+//
+// Too small and it stops separating the calls at all. Too large and it eats the
+// cycle: the ladder already allows a cycle to overrun on latency alone, and
+// this adds (probes-1) * DispatchGap on top of that, every cycle, including the
+// healthy ones. Two seconds against a 5-minute interval is under 1.5% of the
+// budget for the three probes a wide cycle runs, and it is the whole of a
+// plausible per-second limit's window.
+const DispatchGap = 2 * time.Second
+
 // WideInterval is how often the wide probe runs FOR ONE MODEL. Landing it ON a
 // cycle rather than on its own timer is deliberate — it gets its own network
 // reading, so its TTFT is decomposable exactly like the short probe's.
@@ -76,8 +95,9 @@ const WideSlack = CycleInterval / 2
 // OverrunSlotLimit is where a run of dropped slots stops being an overrun and
 // starts being the wall clock moving.
 //
-// A cycle's length is bounded by the probe ladder: a wide cycle costs at most
-// short+wide per model with the models concurrent, which is minutes, not hours.
+// A cycle's length is bounded by the probe ladder: with the probes serialised a
+// wide cycle costs at most short per model plus one wide, which is minutes even
+// at the top of the timeout ladder — not hours.
 // A catch-up longer than that is not an overrun at all — it is an NTP step, a
 // suspended host or a restored VM snapshot, and calling it "the previous cycle
 // was still running" is simply wrong.
@@ -121,6 +141,13 @@ type Deps struct {
 	// Now and Rand are seams for tests.
 	Now  func() time.Time
 	Rand func() float64
+
+	// Wait is the sleep seam, and it exists for DispatchGap. Defaults to
+	// sched.Sleep, which is what production uses; a test that drove a dozen
+	// cycles through the real one would spend DispatchGap per probe in wall
+	// time for a gap it is not the subject of. Returns false when ctx was
+	// cancelled first, exactly like sched.Sleep.
+	Wait func(ctx context.Context, d time.Duration) bool
 }
 
 // Scheduler runs probe cycles until its context is cancelled.
@@ -162,22 +189,35 @@ type Scheduler struct {
 	wideMu          sync.Mutex
 	lastWideByModel map[string]time.Time
 
-	// inFlight is the overrun guard, keyed by model+probe.
+	// slot admits ONE inference call at a time, process-wide. Not keyed by model
+	// and not by probe kind: MiMo throttles the API KEY, and the key is one.
 	//
-	// Per-(model, probe) rather than one global lock: mimo-v2.5-pro genuinely
-	// takes 2-3 minutes when things go bad, and a global lock would let one slow
-	// model suppress the other's samples — manufacturing a correlated outage
-	// across two independent series.
+	// It was keyed by model+probe, on the reasoning that a global lock would let
+	// mimo-v2.5-pro's bad day suppress mimo-v2.5's samples and manufacture a
+	// correlated outage across two independent series. That reasoning was sound
+	// and it is now outranked — a 429 is not a sample either, and a throttled run
+	// is counted against published availability as though MiMo had failed. The
+	// correlated-outage risk is real and accepted; see RunCycle.
 	//
-	// It is a BACKSTOP, not the thing that counts overruns. Run drives one cycle
-	// at a time and each model's two probes share a goroutine, so no key is ever
-	// held when it is asked for again and this guard cannot fire as the code
-	// stands. Reading its skipped_runs rows as "the guard fired" was wrong for
-	// exactly that reason; overruns are counted where they happen, against the
-	// scheduled slots a long cycle ran through. See logMissedTicks. Keep the
-	// guard: it is what makes dispatching cycles without waiting safe later.
-	mu       sync.Mutex
-	inFlight map[string]bool
+	// It BLOCKS; it does not skip. The keyed guard returned "skip" when it found
+	// a run in flight, which is the one thing that must not happen here: every
+	// row in a cycle is stamped with the cycle's start, so a probe that waits
+	// still lands in its own bucket, while a probe that is skipped leaves that
+	// bucket empty — indistinguishable from a probe that was never running.
+	//
+	// Only ctx cancellation gets a caller out of the queue, and that path is
+	// shutdown, where the cycle is abandoned unpersisted anyway.
+	slot chan struct{}
+
+	// lastDispatch is when the most recent inference call RETURNED, and it is the
+	// point DispatchGap is measured from. End-to-start rather than
+	// start-to-start: the gap is there to leave the far end's limiter quiet for a
+	// known stretch, and a start-to-start gap smaller than a probe's duration
+	// leaves none at all.
+	//
+	// Guarded by slot, not by a mutex — it is read and written only by whoever
+	// holds it, which is at most one goroutine by construction.
+	lastDispatch time.Time
 
 	// nextTick is the un-jittered schedule anchor. See nextDelay for why it is
 	// carried rather than recomputed from the clock each time.
@@ -192,9 +232,12 @@ func New(deps Deps) *Scheduler {
 	if deps.Rand == nil {
 		deps.Rand = sched.PseudoRand()
 	}
+	if deps.Wait == nil {
+		deps.Wait = sched.Sleep
+	}
 	return &Scheduler{
 		deps:            deps,
-		inFlight:        map[string]bool{},
+		slot:            make(chan struct{}, 1),
 		lastWideByModel: map[string]time.Time{},
 	}
 }
@@ -487,77 +530,63 @@ func (s *Scheduler) RunCycle(ctx context.Context) {
 	// wideModel.
 	wideFor := s.wideModel(ctx, started)
 
-	// The models run CONCURRENTLY, and the probes within one model do not.
+	// EVERY inference call in this process is serialised, across models as well as
+	// within one, and DispatchGap separates consecutive calls. The loop below is
+	// plainly sequential; the slot in runProbe is what actually enforces it.
 	//
-	// Sequentially across models, a cycle costs the SUM of the models' latencies,
-	// so the cadence breaks at a per-model latency of roughly CycleInterval
-	// divided by the model count — about 145 s with two models. mimo-v2.5-pro
-	// genuinely takes minutes when things go bad, and the cycle that overran then
-	// ran through the next slot entirely: the series thinned out precisely during
-	// the incident it exists to record, and the surviving samples were the fast
-	// ones. Concurrently the cycle costs the MAX instead, so one slow model no
-	// longer spends the other's budget.
+	// The models used to run concurrently, and the argument for it was a good
+	// one. Sequentially a cycle costs the SUM of the models' latencies, so the
+	// cadence breaks at a per-model latency of roughly CycleInterval divided by
+	// the model count — about 145 s with two. mimo-v2.5-pro genuinely takes
+	// minutes when things go bad, and the cycle that overran then ran through the
+	// next slot entirely: the series thinned out precisely during the incident it
+	// exists to record, and the surviving samples were the fast ones. Concurrently
+	// the cycle costs the MAX instead. Sequencing also lets one model's stall
+	// displace the other's reading from the cycle's start stamp — including past
+	// the ping its residual is subtracted against.
 	//
-	// It also stops one model's stall from displacing the other's reading in
-	// time. Every row in a cycle is stamped with the cycle's start, and under the
-	// sequential order the second model's probe could begin minutes after that
-	// stamp — including minutes after the ping its residual is subtracted
-	// against. Same JOIN, same cycle_id, much less staleness inside it.
+	// What outranks all of that: MiMo rate-limits the API KEY, and there is one
+	// key for both models and one host behind BaseURL. Concurrent dispatch put
+	// two calls on that key at the same instant and came back 429 —
+	// error_class=rate_limited, which is not in probe.CensoringErrorClasses and
+	// is not exempt from availability, so our own throttling published as a MiMo
+	// outage on a page whose entire job is reporting MiMo outages. A confounded
+	// sample is worse than a slow one; a fabricated outage is worse than both.
 	//
-	// Within one model, short and wide stay strictly sequential. Two runs at once
-	// against the same model contend for the same upstream node and each measures
-	// the other's queueing, which is the exact confound this probe exists to
-	// avoid — and it is why the in-flight guard is keyed by model+probe rather
-	// than held globally.
+	// So a cycle costs the sum again, and the worst case is real: three probes at
+	// the 240 s ceiling is twelve minutes against a five-minute interval. That is
+	// accepted rather than capped, because every alternative costs a sample. In
+	// particular, deriving each probe's deadline from the cycle's remaining budget
+	// would hold the cadence AND keep every row — but the effective timeout would
+	// then depend on how slow the OTHER model had been, and censored counts and
+	// percentiles would move for scheduling reasons. The timeout ladder is a
+	// constant describing what this page measures. Overruns stay visible instead:
+	// see logMissedTicks. Note the regime that actually hurts is slow-but-working,
+	// not dead — at 240 s the rows are failures, already out of the percentiles.
+	//
+	// Nothing is ever SKIPPED to protect the cadence. Every row in a cycle is
+	// stamped with the cycle's start, so a probe that waited its turn still lands
+	// in its own bucket however late it returns; a probe that was skipped leaves
+	// that bucket empty, which reads as a probe that was never running.
 	//
 	// The PINGS are unaffected: they all completed before the first probe is
 	// dispatched, so nothing here contends with the measurement the residual is
-	// subtracted against.
-	//
-	// The probes' OWN handshakes do now overlap, and that is a real if small
-	// cost. probe.NewClient sets DisableKeepAlives, so each run opens a fresh
-	// DNS+TCP+TLS connection, and two of those now share the uplink for a few
-	// milliseconds. It lands inside ttft_ms and therefore inside the published
-	// residual. Accepted rather than hidden: the residual is hundreds to
-	// thousands of milliseconds, the overlap is a fraction of one RTT, and the
-	// alternative — serialising the models — is the multi-minute sampling
-	// collapse this change exists to remove.
-	//
-	// A wide cycle costs short+wide for the ONE model carrying wide and short
-	// alone for the rest, so it is bounded by the slower of those two rather than
-	// by short+wide across the board. It can still run through its slot at the
-	// per-model latencies that motivated this; logMissedTicks makes that
-	// visible rather than silent, which is the honest outcome, and serialising
-	// less than this would cost the isolation above.
-	var (
-		mu sync.Mutex
-		wg sync.WaitGroup
-	)
+	// subtracted against. They stay sequential for their own reason — see above.
 	for _, model := range s.deps.Models {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-
-			var got []probe.InferResult
-			if res, ok := s.runProbe(ctx, model, probe.ProbeShort, n, started); ok {
-				got = append(got, res)
+		if res, ok := s.runProbe(ctx, model, probe.ProbeShort, n, started); ok {
+			cycle.Infer = append(cycle.Infer, res)
+		}
+		if model == wideFor {
+			if res, ok := s.runProbe(ctx, model, probe.ProbeWide, n, started); ok {
+				cycle.Infer = append(cycle.Infer, res)
 			}
-			if model == wideFor {
-				if res, ok := s.runProbe(ctx, model, probe.ProbeWide, n, started); ok {
-					got = append(got, res)
-				}
-			}
-
-			mu.Lock()
-			defer mu.Unlock()
-			cycle.Infer = append(cycle.Infer, got...)
-		}()
+		}
 	}
-	wg.Wait()
 
-	// Completion order is now a race, and the write order below is not allowed to
-	// be. Sorted so a cycle's rows land in the database in the same order every
-	// time, whichever model happened to finish first.
+	// Kept although the loop above is now deterministic and already produces this
+	// order. It is one comparison per row and it pins the invariant the readers
+	// depend on to the write path rather than to the shape of a loop somebody
+	// might reorder later.
 	slices.SortFunc(cycle.Infer, func(a, b probe.InferResult) int {
 		if c := strings.Compare(a.ModelID, b.ModelID); c != 0 {
 			return c
@@ -590,25 +619,20 @@ func (s *Scheduler) RunCycle(ctx context.Context) {
 	}
 }
 
-// runProbe executes one inference probe under the overrun guard.
+// runProbe executes one inference probe, holding the process-wide dispatch slot
+// for the whole call.
 //
-// Returns ok=false when the run was skipped, so the caller adds nothing to the
-// cycle rather than adding a zero-valued row.
+// Returns ok=false only when shutdown cut the wait short, so the caller adds
+// nothing to the cycle rather than adding a zero-valued row. That cycle is
+// abandoned unpersisted a few lines later anyway.
 func (s *Scheduler) runProbe(
 	ctx context.Context, model, kind string, n int64, started time.Time,
 ) (probe.InferResult, bool) {
-	key := model + "/" + kind
-	if !s.acquire(key) {
-		// The previous run is still in flight. Skip rather than pile up: two
-		// concurrent runs against one model would contend for the same upstream
-		// node and each would measure the other's queueing.
-		// The log line is the whole record now. This also wrote a skipped_runs
-		// row; that table is gone (migration 0005), and it never added anything
-		// this line does not already say.
-		slog.Warn("probe overrun; skipping", "model", model, "probe", kind, "cycle", n)
+	if !s.acquire(ctx) {
+		slog.Info("probe abandoned during shutdown", "model", model, "probe", kind, "cycle", n)
 		return probe.InferResult{}, false
 	}
-	defer s.release(key)
+	defer s.release()
 
 	// Recorded on DISPATCH, not on the decision and not on the write: an
 	// overrun-skipped wide never left the process and must still be retried
@@ -756,18 +780,38 @@ func truncate(s string, n int) string {
 	return s[:cut] + "…"
 }
 
-func (s *Scheduler) acquire(key string) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.inFlight[key] {
+// acquire takes the process-wide dispatch slot and then waits out whatever is
+// left of DispatchGap since the previous call returned.
+//
+// The wait happens INSIDE the slot, not before taking it. Outside, two waiters
+// would both time their gap against the same lastDispatch, both find it
+// satisfied, and both then queue for a slot they would enter back-to-back —
+// which is the thing the gap exists to prevent.
+//
+// Returns false only if ctx was cancelled, and gives the slot back when it does.
+func (s *Scheduler) acquire(ctx context.Context) bool {
+	select {
+	case s.slot <- struct{}{}:
+	case <-ctx.Done():
 		return false
 	}
-	s.inFlight[key] = true
+
+	// Zero on the first call of the process: nothing has been dispatched, so
+	// there is nothing to be quiet after, and the first cycle after a restart
+	// should not pay a gap it did not earn.
+	if !s.lastDispatch.IsZero() {
+		if d := DispatchGap - s.deps.Now().Sub(s.lastDispatch); d > 0 && !s.deps.Wait(ctx, d) {
+			<-s.slot
+			return false
+		}
+	}
 	return true
 }
 
-func (s *Scheduler) release(key string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	delete(s.inFlight, key)
+// release stamps the dispatch as finished and frees the slot. The stamp is
+// taken before the slot is given up, so the next holder cannot read a
+// lastDispatch older than the call it is waiting behind.
+func (s *Scheduler) release() {
+	s.lastDispatch = s.deps.Now()
+	<-s.slot
 }
