@@ -29,9 +29,10 @@
 // the reader is looking at, and it had the shape of a freshness claim without
 // being one — the verdict banner below is what states whether the data is
 // current. It still gets said where it does work: per probe kind, beside the
-// price it drives (PROBE_HINTS in CostPanel.tsx). The vantage went with it,
-// because the subtitle names the endpoint's location and the network panel
-// names both ends of the path it draws.
+// price it drives (PROBE_HINTS in CostPanel.tsx). The vantage went with it: an
+// arrow needs two ends, and nothing on this page acts on where we measure
+// from. The network panel names both ends of the path it draws, which is where
+// a reader who wants the geography finds it.
 //
 // "inference and network", not "inference and API": the API being measured IS
 // an inference API, so naming both would be one thing said twice. What actually

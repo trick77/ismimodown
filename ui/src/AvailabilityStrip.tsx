@@ -8,7 +8,11 @@ const FAULT_LABELS: Record<string, string> = {
   [FAULT_OK]: "fine",
   [FAULT_EDGE]: "MiMo's edge unreachable",
   // Historical: produced only while a second reference host existed.
-  [FAULT_ROUTE]: "route to the endpoint degraded",
+  // "the far end", not "the endpoint": that noun is MiMo's API elsewhere on
+  // the page, and this row sits directly under one that says "MiMo's edge
+  // unreachable" — the pair has to name two different things. Same words as
+  // the verdict banner's route/uplink headlines.
+  [FAULT_ROUTE]: "route to the far end degraded",
   [FAULT_UPLINK]: "nothing at the far end reachable",
 };
 
