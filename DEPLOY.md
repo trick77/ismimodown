@@ -211,9 +211,18 @@ echo 'BACKEND_PING_REF_AMS_HOST=ams.speedtest.clouvider.net' >> .env && docker c
 That fallback is tested: `194.127.172.176`, answering on 443 from Amsterdam.
 
 These two are the only probe targets with a setting. Both of MiMo's own ping
-hosts are fixed — Singapore is derived from `BACKEND_MIMO_BASE_URL`, Amsterdam
-is a constant (`token-plan-ams.xiaomimimo.com`, a CNAME to
-`mimo-pri-azams.alb.xiaomi.com`) — and neither can be pointed elsewhere.
+hosts are constants — `token-plan-sgp.xiaomimimo.com` and
+`token-plan-ams.xiaomimimo.com` (a CNAME to `mimo-pri-azams.alb.xiaomi.com`) —
+and neither can be pointed elsewhere.
+
+The Singapore edge used to be derived from `BACKEND_MIMO_BASE_URL`'s hostname.
+It is not any more: with two regions that made one edge target follow an
+operator setting while the other could not, so pointing the base URL at
+Amsterdam produced two identical lines labelled as a cross-region comparison.
+The consequence to know about is that **repointing `BACKEND_MIMO_BASE_URL` no
+longer moves the ping targets** — inference and the wire chart would then be
+measuring different hosts. If you repoint it, the ping constants in
+`backend/internal/config/config.go` need changing to match.
 
 Both references must be a hostname or an **IPv4** address. The probe resolves
 and dials A records only, so that all four numbers measure the same kind of

@@ -57,42 +57,103 @@ func TestLoadPingTargetDefaults(t *testing.T) {
 		t.Fatalf("Load: %v", err)
 	}
 
-	// Derived from the base URL rather than configured, so a deployment cannot
-	// ping one host while inferring against another.
-	if cfg.MimoHost != "token-plan-sgp.xiaomimimo.com" {
-		t.Errorf("MimoHost = %q, want the base URL's hostname", cfg.MimoHost)
+	if cfg.MimoSGPHost != DefaultMimoSGPHost {
+		t.Errorf("MimoSGPHost = %q, want %q", cfg.MimoSGPHost, DefaultMimoSGPHost)
 	}
 	if cfg.RefSGPHost != DefaultRefSGPHost {
 		t.Errorf("RefSGPHost = %q, want %q", cfg.RefSGPHost, DefaultRefSGPHost)
 	}
-	if cfg.MimoHost == cfg.RefSGPHost {
+	if cfg.MimoSGPHost == cfg.RefSGPHost {
 		t.Error("the two ping targets must be distinct; fault attribution is meaningless otherwise")
 	}
 }
 
-// MimoHost follows the base URL, and follows it through a port. probe.Pinger
-// appends :443 itself, so a port left on the host would be dialled as
-// "host:port:443" — a ping that fails forever and reads as an outage.
-func TestMimoPingHostFollowsTheBaseURL(t *testing.T) {
-	for _, tc := range []struct {
-		name    string
-		baseURL string
-		want    string
-	}{
-		{"plain host", "https://mimo.example.com/v1", "mimo.example.com"},
-		{"host with an explicit port", "https://mimo.example.com:8443/v1", "mimo.example.com"},
-		{"http scheme", "http://localhost:9000/v1", "localhost"},
+// All four ping targets must be distinct hosts.
+//
+// Two of them colliding is not a crash — it is four lines on "The wire itself"
+// where two are the same series under two region labels, presented as a
+// comparison. Nothing downstream can detect that: the labels are static in the
+// UI. It was reachable while the Singapore edge was derived from
+// BACKEND_MIMO_BASE_URL and the Amsterdam one was a constant; both are
+// constants now, and this is what keeps them from drifting back together.
+func TestEveryPingTargetIsADistinctHost(t *testing.T) {
+	setMinimalEnv(t)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	seen := map[string]string{}
+	for _, target := range []struct{ name, host string }{
+		{"MimoSGPHost", cfg.MimoSGPHost},
+		{"RefSGPHost", cfg.RefSGPHost},
+		{"MimoAMSHost", cfg.MimoAMSHost},
+		{"RefAMSHost", cfg.RefAMSHost},
 	} {
-		t.Run(tc.name, func(t *testing.T) {
+		if prev, ok := seen[target.host]; ok {
+			t.Errorf("%s and %s are both %q; two chart lines would be the same series",
+				prev, target.name, target.host)
+		}
+		seen[target.host] = target.name
+	}
+}
+
+// The edges do NOT follow the base URL any more.
+//
+// They did, on the reasoning that pinging one host while inferring against
+// another reports a path nobody uses. That held for one region. With two, it
+// made one edge target operator-controlled and the other fixed, so pointing the
+// base URL at Amsterdam collapsed both onto the same host.
+//
+// The tradeoff is real and is the point of this test: a deployment that
+// repoints the base URL now keeps probing the constants, so the ping layer and
+// the inference layer can disagree about where MiMo is. That is chosen, not
+// accidental.
+func TestPingTargetsIgnoreTheBaseURL(t *testing.T) {
+	for _, baseURL := range []string{
+		"https://mimo.example.com/v1",
+		"https://token-plan-ams.xiaomimimo.com/v1",
+		"http://localhost:9000/v1",
+	} {
+		t.Run(baseURL, func(t *testing.T) {
 			setMinimalEnv(t)
-			t.Setenv("BACKEND_MIMO_BASE_URL", tc.baseURL)
+			t.Setenv("BACKEND_MIMO_BASE_URL", baseURL)
 
 			cfg, err := Load()
 			if err != nil {
 				t.Fatalf("Load: %v", err)
 			}
-			if cfg.MimoHost != tc.want {
-				t.Errorf("MimoHost = %q, want %q", cfg.MimoHost, tc.want)
+			if cfg.MimoSGPHost != DefaultMimoSGPHost {
+				t.Errorf("MimoSGPHost = %q, want the constant %q", cfg.MimoSGPHost, DefaultMimoSGPHost)
+			}
+			if cfg.MimoAMSHost != DefaultMimoAMSHost {
+				t.Errorf("MimoAMSHost = %q, want the constant %q", cfg.MimoAMSHost, DefaultMimoAMSHost)
+			}
+		})
+	}
+}
+
+// The base URL is still VALIDATED, even though no ping target derives from it
+// any more.
+//
+// That validation was never really about the hostname: it refuses userinfo and
+// a query string, either of which would carry a live tp- key wherever BaseURL
+// travels, and it refuses a non-http scheme or a missing host. Dropping the
+// derivation must not quietly drop those with it.
+func TestBaseURLIsStillValidatedWithoutTheDerivation(t *testing.T) {
+	for _, tc := range []struct{ name, baseURL string }{
+		{"userinfo", "https://user:tp-livekey@example.com/v1"},
+		{"query string", "https://example.com/v1?api_key=tp-livekey"},
+		{"bad scheme", "ftp://example.com/v1"},
+		{"no host", "https://:8443/v1"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			setMinimalEnv(t)
+			t.Setenv("BACKEND_MIMO_BASE_URL", tc.baseURL)
+
+			if _, err := Load(); err == nil {
+				t.Fatalf("Load accepted BACKEND_MIMO_BASE_URL = %q", tc.baseURL)
 			}
 		})
 	}
@@ -227,8 +288,8 @@ func TestRetiredVariablesAreIgnored(t *testing.T) {
 	if cfg.ProbeSystemPrompt != DefaultSystemPrompt {
 		t.Errorf("ProbeSystemPrompt = %q, want the constant", cfg.ProbeSystemPrompt)
 	}
-	if cfg.MimoHost == "somewhere.else.example" {
-		t.Error("MimoHost must come from the base URL, not from the retired variable")
+	if cfg.MimoSGPHost == "somewhere.else.example" {
+		t.Error("MimoSGPHost must be the constant, not the retired variable")
 	}
 	if cfg.ProbeTimeout != ProbeTimeout || cfg.PingTimeout != PingTimeout {
 		t.Errorf("ladder = %v/%v, want the constants", cfg.PingTimeout, cfg.ProbeTimeout)

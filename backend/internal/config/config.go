@@ -40,10 +40,29 @@ const (
 	// does not.
 	DefaultRefSGPHost = "sgp.proof.ovh.net"
 
+	// DefaultMimoSGPHost is the Singapore edge, the one the inference base URL
+	// points at.
+	//
+	// A CONSTANT, and no longer BaseURL's hostname. It was derived, on the
+	// reasoning that pinging one host while inferring against another would
+	// report a path nobody is using — true, and it stopped being the whole
+	// picture once a second region was probed. Derivation made one of the two
+	// edge targets follow an operator setting while the other could not, so
+	// pointing BACKEND_MIMO_BASE_URL at Amsterdam silently produced two
+	// identical series labelled as a cross-region comparison.
+	//
+	// The tradeoff is explicit: a deployment that repoints the base URL now
+	// keeps probing these two hosts, so the ping layer and the inference layer
+	// can disagree about where MiMo is. That is the better failure — it is
+	// visible in this file, where both targets are named, rather than emergent
+	// from a URL three settings away. Both edges say where Xiaomi is; neither
+	// says where we run.
+	DefaultMimoSGPHost = "token-plan-sgp.xiaomimimo.com"
+
 	// DefaultMimoAMSHost is Xiaomi's other front for the same service.
 	//
-	// Not derived from BaseURL and not configurable, for the same reason
-	// MimoHost is not: it says where Xiaomi is, not where we run. It resolves to
+	// Not configurable, for the same reason the Singapore edge above is not: it
+	// says where Xiaomi is, not where we run. It resolves to
 	// mimo-pri-azams.alb.xiaomi.com — `azams`, Azure Amsterdam — which is what
 	// makes it a genuinely different edge rather than the Singapore one under
 	// another name. Two A records, no AAAA, same as the Singapore edge.
@@ -219,16 +238,15 @@ type Config struct {
 	//
 	// Two regions, each an edge paired with an independent reference.
 	//
-	// MimoHost is DERIVED from BaseURL's hostname and never configured on its
-	// own: pinging one host while inferring against another would report a path
-	// nobody is using. MimoAMSHost is fixed for the same reason from the other
-	// direction — nothing infers against Amsterdam, and where Xiaomi puts its
-	// edge is not a deployment's choice.
+	// Both EDGES are constants and neither is configurable: where Xiaomi puts
+	// its front doors is not a deployment's choice, and making one of them
+	// follow an operator setting is what let the two collapse onto the same
+	// host. See DefaultMimoSGPHost for the derivation this replaced.
 	//
 	// The two REFERENCES are the hosts a deployment can point elsewhere, because
 	// they are third-party speedtest nodes and the more renumber-prone half of
 	// each pair.
-	MimoHost    string
+	MimoSGPHost string
 	RefSGPHost  string
 	MimoAMSHost string
 	RefAMSHost  string
@@ -281,6 +299,7 @@ func Load() (Config, error) {
 		BaseURL:           env("BACKEND_MIMO_BASE_URL", DefaultBaseURL),
 		APIKey:            env("BACKEND_MIMO_API_KEY", ""),
 		RefSGPHost:        env("BACKEND_PING_REF_SGP_HOST", DefaultRefSGPHost),
+		MimoSGPHost:       DefaultMimoSGPHost,
 		MimoAMSHost:       DefaultMimoAMSHost,
 		RefAMSHost:        env("BACKEND_PING_REF_AMS_HOST", DefaultRefAMSHost),
 		ProbeUserAgent:    env("BACKEND_PROBE_USER_AGENT", DefaultUserAgent),
@@ -300,20 +319,17 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("BACKEND_MIMO_API_KEY is required")
 	}
 
-	// The ping target for MiMo's edge is the inference host, derived rather than
-	// configured: pinging one host while inferring against another would put a
-	// latency figure on the page for a path no request takes.
+	// Validated for its own sake, not for a hostname any more.
 	//
-	// This also subsumes the bare-hostname validation the old
-	// BACKEND_PING_MIMO_HOST needed. url.Hostname() on a URL that has already
-	// passed validateBaseURL cannot carry a scheme, a port, userinfo or a query
-	// — the port is stripped and the rest is rejected outright — so there is
-	// nothing left for a colon-and-slash check to catch.
-	host, err := validateBaseURL(cfg.BaseURL)
-	if err != nil {
+	// The returned host used to become the Singapore ping target; both edges are
+	// constants now (see DefaultMimoSGPHost). Everything else this check does is
+	// still load-bearing and has nothing to do with pinging: it refuses a URL
+	// carrying userinfo or a query string, either of which would carry a live
+	// tp- key wherever BaseURL travels, and it refuses a non-http scheme or a
+	// missing host outright.
+	if _, err := validateBaseURL(cfg.BaseURL); err != nil {
 		return Config{}, err
 	}
-	cfg.MimoHost = host
 
 	if err := validateRefHost(cfg.RefSGPHost, "BACKEND_PING_REF_SGP_HOST"); err != nil {
 		return Config{}, err

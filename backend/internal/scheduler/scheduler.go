@@ -107,7 +107,7 @@ type Deps struct {
 
 	Models []string
 
-	MimoHost    string
+	MimoSGPHost string
 	RefSGPHost  string
 	MimoAMSHost string
 	RefAMSHost  string
@@ -501,7 +501,7 @@ func (s *Scheduler) RunCycle(ctx context.Context) {
 	// because fault attribution reads those two and nothing else. Adding a
 	// region here is safe; removing Singapore is not.
 	for _, t := range []struct{ target, host string }{
-		{probe.TargetMimoSGP, s.deps.MimoHost},
+		{probe.TargetMimoSGP, s.deps.MimoSGPHost},
 		{probe.TargetRefSGP, s.deps.RefSGPHost},
 		{probe.TargetMimoAMS, s.deps.MimoAMSHost},
 		{probe.TargetRefAMS, s.deps.RefAMSHost},

@@ -37,8 +37,8 @@ services:
       # The two reference hosts, one per probed region, and the only probe
       # targets that are configurable — see the DefaultRefSGPHost and
       # DefaultRefAMSHost comments in backend/internal/config/config.go. Both of
-      # MiMo's own ping targets are fixed: Singapore is derived from
-      # BACKEND_MIMO_BASE_URL above, Amsterdam is a constant.
+      # MiMo's own ping targets are both constants and follow nothing here —
+      # not even BACKEND_MIMO_BASE_URL above.
       BACKEND_PING_REF_SGP_HOST: "${BACKEND_PING_REF_SGP_HOST:-sgp.proof.ovh.net}"
       BACKEND_PING_REF_AMS_HOST: "${BACKEND_PING_REF_AMS_HOST:-speedtest.amsterdam.linode.com}"
 

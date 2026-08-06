@@ -101,23 +101,6 @@ func run() error {
 		"db", cfg.DBPath,
 	)
 
-	// The Singapore edge is DERIVED from BACKEND_MIMO_BASE_URL while the
-	// Amsterdam one is a constant, so an operator who points the base URL at
-	// Amsterdam gets both edge targets resolving to the same host — two
-	// identical lines on "The wire itself", labelled as a comparison between
-	// regions and comparing nothing.
-	//
-	// Warned rather than refused: the deployment is otherwise valid, every
-	// number it publishes about MiMo is still correct, and failing to boot over
-	// a chart label would be the larger harm. Nothing downstream can detect
-	// this — the labels are static in the UI — so this line is the only place it
-	// surfaces.
-	if cfg.MimoHost == cfg.MimoAMSHost {
-		slog.Warn("both MiMo ping targets resolve to the same host; the two edge "+
-			"lines will be identical and their region labels wrong",
-			"host", cfg.MimoHost)
-	}
-
 	// The container mounts /data as a volume; on a fresh host the directory may
 	// exist but a nested path may not. Create it rather than failing to open.
 	if dir := filepath.Dir(cfg.DBPath); dir != "" && dir != "." {
@@ -187,7 +170,7 @@ func run() error {
 		}),
 		Pinger:      probe.NewPinger(cfg.PingTimeout),
 		Models:      cfg.Models,
-		MimoHost:    cfg.MimoHost,
+		MimoSGPHost: cfg.MimoSGPHost,
 		RefSGPHost:  cfg.RefSGPHost,
 		MimoAMSHost: cfg.MimoAMSHost,
 		RefAMSHost:  cfg.RefAMSHost,
