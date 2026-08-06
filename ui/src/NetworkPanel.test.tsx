@@ -109,10 +109,10 @@ describe("NetworkPanel", () => {
     }
   });
 
-  // Region is hue and role is lightness, and the legend swatch is the only
-  // place that mapping is visible outside the canvas jsdom cannot render. Two
-  // targets sharing a swatch would make the chart unreadable while every other
-  // assertion here still passed.
+  // Role is hue-versus-ink and region is which one, and the legend swatch is
+  // the only place that mapping is visible outside the canvas jsdom cannot
+  // render. Two targets sharing a swatch would make the chart unreadable while
+  // every other assertion here still passed.
   it("gives each target its own swatch", () => {
     const { container } = render(
       <NetworkPanel
@@ -125,9 +125,9 @@ describe("NetworkPanel", () => {
       />,
     );
 
-    const swatches = [...container.querySelectorAll("li span[aria-hidden]")].map(
-      (el) => (el as HTMLElement).style.background,
-    );
+    const swatches = [
+      ...container.querySelectorAll("li span[aria-hidden]"),
+    ].map((el) => (el as HTMLElement).style.background);
     expect(swatches).toHaveLength(4);
     expect(new Set(swatches).size).toBe(4);
     for (const color of [
