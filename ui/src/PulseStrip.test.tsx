@@ -282,6 +282,45 @@ describe("hourTicks", () => {
     expect(ticks.map((t) => t.label)).toEqual(["12:00"]);
   });
 
+  // The strip is the last 288 CYCLES, not a fixed 24 hours, so any day the
+  // daemon spent a while down reaches back past its own start hour and labels
+  // that hour twice. Two ticks, two positions, two identities — a tick keyed on
+  // its label would collide here and React would reconcile the pair as one.
+  it("labels an hour twice when the window is longer than a day", () => {
+    // 08:00 local yesterday through 09:55 local today, 26 hours.
+    const ticks = hourTicks(run("2026-08-04T06:00:00Z", 312), 3);
+    const nine = ticks.filter((t) => t.label === "09:00");
+
+    expect(nine).toHaveLength(2);
+    expect(nine[0]!.index).not.toBe(nine[1]!.index);
+    expect(nine[0]!.left).toBeLessThan(nine[1]!.left);
+  });
+
+  // What the phone renders is this list thinned. Thinned by the CLOCK: every
+  // other tick of a list that opens at 03:00 is six hours apart but lands on
+  // 03, 09, 15 — no longer the landmarks the wide set uses, and one label
+  // dropped at an edge flips them all.
+  it("thins to the same landmarks on a narrow screen", () => {
+    const ticks = hourTicks(run("2026-08-04T08:10:00Z", 288), 3);
+
+    expect(ticks.map((t) => t.label)).toEqual([
+      "12:00",
+      "15:00",
+      "18:00",
+      "21:00",
+      "00:00",
+      "03:00",
+      "06:00",
+      "09:00",
+    ]);
+    expect(ticks.filter((t) => t.hour % 6 === 0).map((t) => t.label)).toEqual([
+      "12:00",
+      "18:00",
+      "00:00",
+      "06:00",
+    ]);
+  });
+
   it("reads the strip as empty rather than throwing", () => {
     expect(hourTicks([], 3)).toEqual([]);
   });

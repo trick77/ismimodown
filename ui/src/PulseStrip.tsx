@@ -83,6 +83,11 @@ export type Tick = {
   label: string;
   // The whole hour it stands for, which is what the narrow set thins by.
   hour: number;
+  // The bar it points at. Its identity, because the label is not one: the strip
+  // is the last 288 CYCLES rather than a fixed 24 hours, so a window that
+  // reaches back further than a day — any day the daemon was down for a while —
+  // labels the same hour twice.
+  index: number;
 };
 
 // How close to an edge a centred label may sit before half of it hangs outside
@@ -134,7 +139,7 @@ export function hourTicks(ordered: Cycle[], step: number): Tick[] {
     const left = ((i + 0.5) / ordered.length) * 100;
     if (left < EDGE_GUARD || left > 100 - EDGE_GUARD) return;
     at.setMinutes(0, 0, 0);
-    out.push({ left, label: formatTime(at), hour });
+    out.push({ left, label: formatTime(at), hour, index: i });
   });
   return out;
 }
@@ -149,15 +154,15 @@ function Axis({ ticks }: { ticks: Tick[] }) {
   return (
     <div
       className="relative mt-1 h-4"
-      // Decorative: the strip is a single role="img" whose aria-label already
-      // carries the window, and both sets of labels are in the DOM at once, so
-      // without this a screen reader reads every hour twice.
+      // Decorative: both sets of labels are in the DOM at once — one shown per
+      // breakpoint — so without this a screen reader reads every hour twice,
+      // beside a strip whose own aria-label already carries the window.
       aria-hidden="true"
       data-testid="pulse-axis"
     >
       <div className="max-[720px]:hidden">
         {ticks.map((t) => (
-          <TickMark key={`w-${t.label}`} tick={t} />
+          <TickMark key={`w-${t.index}`} tick={t} />
         ))}
       </div>
       <div className="hidden max-[720px]:block">
@@ -168,7 +173,7 @@ function Axis({ ticks }: { ticks: Tick[] }) {
           // edge tick would flip them all.
           .filter((t) => t.hour % NARROW_STEP_HOURS === 0)
           .map((t) => (
-            <TickMark key={`n-${t.label}`} tick={t} />
+            <TickMark key={`n-${t.index}`} tick={t} />
           ))}
       </div>
     </div>
