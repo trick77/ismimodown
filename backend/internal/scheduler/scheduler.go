@@ -622,8 +622,9 @@ func (s *Scheduler) RunCycle(ctx context.Context) {
 // runProbe executes one inference probe, holding the process-wide dispatch slot
 // for the whole call.
 //
-// Returns ok=false only when shutdown cut the wait short, so the caller adds
-// nothing to the cycle rather than adding a zero-valued row. That cycle is
+// Returns ok=false when shutdown cut the wait short, and when the request was
+// rejected before it left the process — so the caller adds nothing to the cycle
+// rather than adding a zero-valued row. A cycle cut short by shutdown is
 // abandoned unpersisted a few lines later anyway.
 func (s *Scheduler) runProbe(
 	ctx context.Context, model, kind string, n int64, started time.Time,
@@ -634,10 +635,10 @@ func (s *Scheduler) runProbe(
 	}
 	defer s.release()
 
-	// Recorded on DISPATCH, not on the decision and not on the write: an
-	// overrun-skipped wide never left the process and must still be retried
-	// next cycle, while one that was sent has been billed whether or not the
-	// cycle it belonged to survived to be persisted.
+	// Recorded on DISPATCH, not on the decision and not on the write: a wide
+	// abandoned in acquire never left the process and must still be retried next
+	// cycle, while one that was sent has been billed whether or not the cycle it
+	// belonged to survived to be persisted.
 	if kind == probe.ProbeWide {
 		s.noteWideDispatch(model, started)
 	}
@@ -804,6 +805,18 @@ func (s *Scheduler) acquire(ctx context.Context) bool {
 			<-s.slot
 			return false
 		}
+	}
+
+	// Neither branch above necessarily consults ctx. The select picks at random
+	// when the slot is free AND ctx is already done, and the gap is skipped
+	// outright when d <= 0 — which is the ordinary case for the FIRST probe of a
+	// cycle, whose predecessor returned a whole CycleInterval ago. Cancel during
+	// the pings and every probe of that cycle would otherwise be dispatched into
+	// a dead context, one of them possibly a wide that noteWideDispatch would
+	// then record as sent.
+	if ctx.Err() != nil {
+		<-s.slot
+		return false
 	}
 	return true
 }

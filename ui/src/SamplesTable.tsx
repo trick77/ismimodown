@@ -49,10 +49,11 @@ const ROWS = 20;
 // cycle is stamped with that CYCLE'S instant rather than its own, so an ordinary
 // cycle puts two rows on the same timestamp and a wide cycle puts three. That
 // holds however the daemon dispatches them — the runs are serialised now, and
-// the rows still tie, because the stamp was never the dispatch time. Probe alone stopped being a total order the moment the second
-// model arrived — the two short runs would tie and swap places between renders,
-// on a table a reader is scanning down. Model, then probe: both sorts are
-// stable and total, so a run sits in the same place on every load.
+// the rows still tie, because the stamp was never the dispatch time. Probe
+// alone stopped being a total order the moment the second model arrived — the
+// two short runs would tie and swap places between renders, on a table a reader
+// is scanning down. Model, then probe: both sorts are stable and total, so a run
+// sits in the same place on every load.
 export function newestFirst(perGroup: Sample[][]): Sample[] {
   // Parsed once per sample rather than twice per comparison: the merge runs on
   // every stream event, and Date.parse is the expensive part of the sort.
@@ -85,9 +86,9 @@ export function newestFirst(perGroup: Sample[][]): Sample[] {
 //
 // Three consequences are shown rather than hidden. Every run in a cycle carries
 // the cycle's instant, so When repeats down the column and Model and Probe
-// beside it are what tell the rows apart. Wide has no single assertable answer, so it is
-// never graded and its Answer cell is a dash. And In jumps ~200x between the
-// probes — that step IS the difference between them, not an anomaly.
+// beside it are what tell the rows apart. Wide has no single assertable answer,
+// so it is never graded and its Answer cell is a dash. And In jumps ~200x
+// between the probes — that step IS the difference between them, not an anomaly.
 //
 // Tokens sits between Total and Throughput because that is the order the four
 // columns explain each other in: how long the run took, what went in, what came

@@ -776,6 +776,36 @@ func TestTheDispatchSlotIsGlobalNotKeyed(t *testing.T) {
 	s.release()
 }
 
+// A cancelled context must not get a probe dispatched, even when the slot is
+// free and no gap is outstanding — which is the ORDINARY case for the first
+// probe of a cycle, whose predecessor returned a whole CycleInterval ago.
+// Neither the select nor the gap consults ctx on that path, so acquire has to.
+//
+// The cost of getting it wrong is not just a wasted call: a wide dispatched into
+// a dead context is recorded by noteWideDispatch as sent, and the hour it was
+// meant for goes unmeasured.
+func TestACancelledContextIsNotAdmittedWhenNoGapIsOutstanding(t *testing.T) {
+	prober := &fakeProber{}
+	s, _ := newTestScheduler(t, prober, &fakePinger{})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if s.acquire(ctx) {
+		t.Fatal("a cancelled context was admitted; shutdown must not dispatch")
+	}
+	// And the slot was handed back, not leaked — a leaked slot would wedge every
+	// probe after it forever.
+	if !s.acquire(context.Background()) {
+		t.Error("the slot was not released on the cancelled path")
+	}
+	s.release()
+
+	if got := len(prober.requests()); got != 0 {
+		t.Errorf("requests = %d, want 0", got)
+	}
+}
+
 // The invariant this whole change exists for, asserted directly: no two
 // inference calls overlap, ever. Everything else in this file is a proxy for it.
 //
