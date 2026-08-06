@@ -45,6 +45,8 @@ func main() {
 	for _, target := range []struct{ name, host string }{
 		{probe.TargetMimoSGP, cfg.MimoHost},
 		{probe.TargetRefSGP, cfg.RefSGPHost},
+		{probe.TargetMimoAMS, cfg.MimoAMSHost},
+		{probe.TargetRefAMS, cfg.RefAMSHost},
 	} {
 		r := pinger.Ping(context.Background(), target.name, target.host)
 		fmt.Printf("ping  %-10s %-38s ok=%-5v dns=%6.1fms connect=%7.1fms %s\n",

@@ -164,7 +164,8 @@ func TestCheckConstraintsRejectUnknownEnums(t *testing.T) {
 		name string
 		q    string
 	}{
-		{"unknown ping target", `INSERT INTO net_probes (cycle_id, target, ok) VALUES (?, 'mimo_ams', 1)`},
+		// Not 'mimo_ams': 0004 admitted that one. A region nobody probes.
+		{"unknown ping target", `INSERT INTO net_probes (cycle_id, target, ok) VALUES (?, 'mimo_tokyo', 1)`},
 		{"unknown probe kind", `INSERT INTO infer_probes (cycle_id, model_id, probe, ok) VALUES (?, 'mimo-v2.5', 'narrow', 1)`},
 		{"unknown fault", `INSERT INTO cycle_fault (cycle_id, fault) VALUES (?, 'gremlins')`},
 	}
@@ -172,6 +173,33 @@ func TestCheckConstraintsRejectUnknownEnums(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			if _, err := db.Exec(tc.q, id); err == nil {
 				t.Error("expected a CHECK constraint violation")
+			}
+		})
+	}
+}
+
+// The other half of the constraint: every target the code writes must be
+// accepted. A CHECK too narrow fails the whole cycle transaction on insert —
+// taking the other region's rows and every inference probe down with it — so
+// the enum is pinned from both sides.
+//
+// 'ref_eu' is here because stored rows still carry it, not because anything
+// writes it.
+func TestNetProbesAcceptsEveryLiveTarget(t *testing.T) {
+	db := openTestDB(t)
+
+	res, err := db.Exec(`INSERT INTO cycles (started_at) VALUES ('2026-08-04T06:00:00Z')`)
+	if err != nil {
+		t.Fatalf("insert cycle: %v", err)
+	}
+	id, _ := res.LastInsertId()
+
+	for _, target := range []string{"mimo_sgp", "ref_sgp", "mimo_ams", "ref_ams", "ref_eu"} {
+		t.Run(target, func(t *testing.T) {
+			if _, err := db.Exec(
+				`INSERT INTO net_probes (cycle_id, target, ok) VALUES (?, ?, 1)`, id, target,
+			); err != nil {
+				t.Errorf("target %q rejected: %v", target, err)
 			}
 		})
 	}

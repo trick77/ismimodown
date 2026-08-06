@@ -203,10 +203,14 @@ func TestFaultRouteRemainsDefinedForStoredCycles(t *testing.T) {
 }
 
 // A host resolving to several addresses must not be declared unreachable
-// because the FIRST one is bad. MiMo's edge resolves to eight addresses and
-// cloudflare.com to four; pinning to addrs[0] would turn one bad address — or
-// an IPv6-first ordering on a box with broken v6 — into a published provider
-// outage that never happened.
+// because the FIRST one is bad. MiMo's Singapore edge resolves to eight
+// addresses and its Amsterdam edge to two; pinning to ips[0] would turn one bad
+// address into a published provider outage that never happened.
+//
+// The two addresses come from the lookup seam rather than from `localhost`
+// carrying 127.0.0.1 and ::1. That coincidence used to supply them, and pinning
+// the probe to IPv4 ended it — leaving the walk untested on any machine whose
+// hosts file lists one A record.
 func TestPingTriesEveryResolvedAddress(t *testing.T) {
 	good, stop := listenerAcceptingAfter(t, 0)
 	defer stop()
@@ -222,6 +226,9 @@ func TestPingTriesEveryResolvedAddress(t *testing.T) {
 	var attempts []string
 	p := NewPinger(5 * time.Second)
 	p.resolver = net.DefaultResolver
+	p.lookup = func(context.Context, string) ([]net.IP, error) {
+		return []net.IP{net.IPv4(127, 0, 0, 1), net.IPv4(127, 0, 0, 1)}, nil
+	}
 	// Two "addresses": the first refuses, the second answers.
 	targets := []string{badAddr, good}
 	idx := 0
@@ -249,6 +256,60 @@ func TestPingTriesEveryResolvedAddress(t *testing.T) {
 	// attempt before it would masquerade as edge latency.
 	if res.ConnectMs > 2000 {
 		t.Errorf("connect_ms = %v; it must time the successful handshake only", res.ConnectMs)
+	}
+}
+
+// The handshake is IPv4, at the dial and at the resolve.
+//
+// Not a style preference: the four targets are read against each other on one
+// chart, both Xiaomi edges are A-only and both references are dual-stack, so an
+// unpinned probe would time a v6 route to the references against a v4 route to
+// the edges and the gap would be published as edge latency.
+func TestPingDialsIPv4Only(t *testing.T) {
+	addr, stop := listenerAcceptingAfter(t, 0)
+	defer stop()
+
+	var networks []string
+	p := NewPinger(5 * time.Second)
+	p.dial = func(ctx context.Context, network, _ string) (net.Conn, error) {
+		networks = append(networks, network)
+		return (&net.Dialer{}).DialContext(ctx, network, addr)
+	}
+	p.lookup = func(context.Context, string) ([]net.IP, error) {
+		return []net.IP{net.IPv4(127, 0, 0, 1)}, nil
+	}
+
+	res := p.Ping(context.Background(), TargetRefAMS, "localhost")
+
+	if !res.OK {
+		t.Fatalf("expected OK, got class=%s detail=%s", res.ErrorClass, res.ErrorDetail)
+	}
+	for _, n := range networks {
+		if n != "tcp4" {
+			t.Errorf("dialled network %q, want tcp4 — a v6 route is not comparable "+
+				"with the v4 route the Xiaomi edges force", n)
+		}
+	}
+}
+
+// A host with AAAA records and no A is unreachable to this probe, and must say
+// so at the DNS layer rather than reporting a connect timeout: the endpoint was
+// never dialled, and blaming it would be a fabricated provider fault.
+func TestPingReportsDNSWhenNoIPv4Address(t *testing.T) {
+	p := NewPinger(5 * time.Second)
+	p.lookup = func(context.Context, string) ([]net.IP, error) { return nil, nil }
+	p.dial = func(context.Context, string, string) (net.Conn, error) {
+		t.Fatal("dialled despite there being no IPv4 address to dial")
+		return nil, nil
+	}
+
+	res := p.Ping(context.Background(), TargetRefAMS, "v6only.example")
+
+	if res.OK {
+		t.Fatal("expected failure when the host has no IPv4 address")
+	}
+	if res.ErrorClass != ErrClassDNS {
+		t.Errorf("class = %q, want %q", res.ErrorClass, ErrClassDNS)
 	}
 }
 

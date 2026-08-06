@@ -643,6 +643,16 @@ func TestUplinkExclusionAppliesToMimoButNotTheReference(t *testing.T) {
 		t.Errorf("reference: attempts = %d, available = %v%%; want 20 and 50%% — the instrument reports its own raw reachability",
 			got.Attempts, got.Available)
 	}
+	// Amsterdam is charted, never summarised. A second provider edge here would
+	// sit beside mimo_sgp carrying an availability computed WITHOUT the
+	// unattributable-cycle exclusion — one list, two rules, no way for a reader
+	// to tell which figure they are looking at.
+	for _, target := range []string{probe.TargetMimoAMS, probe.TargetRefAMS} {
+		if _, ok := byTarget[target]; ok {
+			t.Errorf("%s appears in Summary.Net; it is a chart series, not a published availability figure",
+				target)
+		}
+	}
 }
 
 // A run that SUCCEEDED on an unattributable cycle is still MiMo answering.

@@ -157,6 +157,7 @@ func TestLoadOverrides(t *testing.T) {
 	t.Setenv("BACKEND_DB_PATH", "/tmp/somewhere.db")
 	t.Setenv("BACKEND_LOG_LEVEL", "debug")
 	t.Setenv("BACKEND_PING_REF_SGP_HOST", "example.sg")
+	t.Setenv("BACKEND_PING_REF_AMS_HOST", "example.nl")
 
 	cfg, err := Load()
 	if err != nil {
@@ -173,6 +174,21 @@ func TestLoadOverrides(t *testing.T) {
 	}
 	if cfg.RefSGPHost != "example.sg" {
 		t.Errorf("RefSGPHost = %q", cfg.RefSGPHost)
+	}
+	if cfg.RefAMSHost != "example.nl" {
+		t.Errorf("RefAMSHost = %q", cfg.RefAMSHost)
+	}
+	// The EDGES are not configurable, and an override attempt must be inert
+	// rather than surprising: pinging a host nobody infers against would put a
+	// latency figure on the page for a path no request takes.
+	t.Setenv("BACKEND_PING_MIMO_AMS_HOST", "somewhere.else")
+	cfg, err = Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.MimoAMSHost != DefaultMimoAMSHost {
+		t.Errorf("MimoAMSHost = %q, want the constant %q — the Amsterdam edge is not configurable",
+			cfg.MimoAMSHost, DefaultMimoAMSHost)
 	}
 }
 
@@ -235,6 +251,11 @@ func TestLoadRejectsBadValues(t *testing.T) {
 		{"base url with a port and no host", "BACKEND_MIMO_BASE_URL", "https://:8443/v1", "BACKEND_MIMO_BASE_URL"},
 		{"ping host with port", "BACKEND_PING_REF_SGP_HOST", "example.com:443", "BACKEND_PING_REF_SGP_HOST"},
 		{"ping host with scheme", "BACKEND_PING_REF_SGP_HOST", "https://example.com", "BACKEND_PING_REF_SGP_HOST"},
+		// The error must name the variable the operator actually set. Both
+		// references run through one shared guard, so the wrong name here is a
+		// realistic slip and an infuriating one to debug.
+		{"ams ping host with port", "BACKEND_PING_REF_AMS_HOST", "example.com:443", "BACKEND_PING_REF_AMS_HOST"},
+		{"ams ping host with scheme", "BACKEND_PING_REF_AMS_HOST", "https://example.com", "BACKEND_PING_REF_AMS_HOST"},
 		// A credential embedded in the base URL would travel wherever that
 		// value travels, so it is refused at boot. Both of these otherwise
 		// pass every check.
@@ -318,32 +339,51 @@ func TestLoadCarriesTheLadder(t *testing.T) {
 	}
 }
 
-// The ping-host guard exists to catch "example.com:443", which would be dialled
-// as "host:port:443". It must not also reject a bare IPv6 literal: the error
-// message and .env.example both advertise that an IP is acceptable, and
-// probe.Pinger dials through net.JoinHostPort, which brackets v6 correctly.
-func TestLoadAcceptsIPv6PingHostButStillRejectsHostPort(t *testing.T) {
-	t.Run("bare IPv6 literal is accepted", func(t *testing.T) {
-		setMinimalEnv(t)
-		t.Setenv("BACKEND_PING_REF_SGP_HOST", "2606:4700:4700::1111")
+// The ping-host guard catches "example.com:443", which would be dialled as
+// "host:port:443", and it now also catches a bare IPv6 literal.
+//
+// The v6 case USED to be exempted, on the reasoning that the error message
+// advertises "or IP" and net.JoinHostPort brackets v6 correctly. Both still
+// true; what changed is that probe.Pinger resolves and dials IPv4 only, so a v6
+// literal is a host the probe can never reach. Accepting it would trade a loud
+// boot failure for a permanently-failing ping published as an outage — the exact
+// outcome this guard exists to prevent — so the exemption became a trap and went.
+//
+// Both reference variables share validateRefHost, and both are checked here: a
+// guard that drifted between the regions would leave one accepting what the
+// other refuses.
+func TestLoadRejectsUnreachableAndMalformedPingHosts(t *testing.T) {
+	for _, envName := range []string{
+		"BACKEND_PING_REF_SGP_HOST",
+		"BACKEND_PING_REF_AMS_HOST",
+	} {
+		t.Run(envName, func(t *testing.T) {
+			cases := []struct{ name, value string }{
+				{"bare IPv6 literal", "2606:4700:4700::1111"},
+				{"host:port", "cloudflare.com:443"},
+				{"scheme", "https://example.com"},
+			}
+			for _, tc := range cases {
+				t.Run(tc.name, func(t *testing.T) {
+					setMinimalEnv(t)
+					t.Setenv(envName, tc.value)
 
-		cfg, err := Load()
-		if err != nil {
-			t.Fatalf("Load: %v", err)
-		}
-		if cfg.RefSGPHost != "2606:4700:4700::1111" {
-			t.Errorf("RefSGPHost = %q, want the IPv6 literal", cfg.RefSGPHost)
-		}
-	})
+					if _, err := Load(); err == nil {
+						t.Fatalf("Load accepted %s = %q", envName, tc.value)
+					}
+				})
+			}
 
-	t.Run("host:port is still rejected", func(t *testing.T) {
-		setMinimalEnv(t)
-		t.Setenv("BACKEND_PING_REF_SGP_HOST", "cloudflare.com:443")
+			t.Run("bare IPv4 literal is accepted", func(t *testing.T) {
+				setMinimalEnv(t)
+				t.Setenv(envName, "1.1.1.1")
 
-		if _, err := Load(); err == nil {
-			t.Fatal("Load accepted a host:port ping target")
-		}
-	})
+				if _, err := Load(); err != nil {
+					t.Fatalf("Load rejected an IPv4 literal: %v", err)
+				}
+			})
+		})
+	}
 }
 
 // compose.yaml passes every optional variable through as "${VAR:-}", so an
@@ -359,6 +399,7 @@ func TestSetButEmptyIsTreatedAsUnset(t *testing.T) {
 		"BACKEND_DB_PATH",
 		"BACKEND_MIMO_BASE_URL",
 		"BACKEND_PING_REF_SGP_HOST",
+		"BACKEND_PING_REF_AMS_HOST",
 		"BACKEND_PROBE_USER_AGENT",
 	} {
 		t.Setenv(key, "")
@@ -377,6 +418,9 @@ func TestSetButEmptyIsTreatedAsUnset(t *testing.T) {
 	}
 	if cfg.RefSGPHost != DefaultRefSGPHost {
 		t.Errorf("RefSGPHost = %q, want %q", cfg.RefSGPHost, DefaultRefSGPHost)
+	}
+	if cfg.RefAMSHost != DefaultRefAMSHost {
+		t.Errorf("RefAMSHost = %q, want %q", cfg.RefAMSHost, DefaultRefAMSHost)
 	}
 	if cfg.ProbeUserAgent != DefaultUserAgent {
 		t.Errorf("ProbeUserAgent = %q, want %q", cfg.ProbeUserAgent, DefaultUserAgent)

@@ -107,8 +107,10 @@ type Deps struct {
 
 	Models []string
 
-	MimoHost   string
-	RefSGPHost string
+	MimoHost    string
+	RefSGPHost  string
+	MimoAMSHost string
+	RefAMSHost  string
 
 	// OnCycle is called after each cycle is persisted, for the SSE fan-out in
 	// phase 4. Optional.
@@ -489,12 +491,20 @@ func (s *Scheduler) RunCycle(ctx context.Context) {
 	// The network layer first, and always — it is free, it is fast, and every
 	// inference reading in this cycle is subtracted against it.
 	//
-	// Sequential, not concurrent: three simultaneous handshakes share one
-	// uplink and would contend for it, and the whole point is to measure that
-	// uplink rather than our own scheduling.
+	// Sequential, not concurrent: simultaneous handshakes share one uplink and
+	// would contend for it, and the whole point is to measure that uplink rather
+	// than our own scheduling. Four of them now rather than two, so the network
+	// layer costs at most 4 x PingTimeout (20 s) — still small against the cycle
+	// interval, and the reason to keep it sequential is unchanged.
+	//
+	// The Singapore pair is MANDATORY: samples.Save rejects a cycle without it,
+	// because fault attribution reads those two and nothing else. Adding a
+	// region here is safe; removing Singapore is not.
 	for _, t := range []struct{ target, host string }{
 		{probe.TargetMimoSGP, s.deps.MimoHost},
 		{probe.TargetRefSGP, s.deps.RefSGPHost},
+		{probe.TargetMimoAMS, s.deps.MimoAMSHost},
+		{probe.TargetRefAMS, s.deps.RefAMSHost},
 	} {
 		cycle.Net = append(cycle.Net, s.deps.Pinger.Ping(ctx, t.target, t.host))
 	}
