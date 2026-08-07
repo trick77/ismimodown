@@ -394,8 +394,13 @@ export function buildVerdict(
       // this line, a banner that has gone quiet is indistinguishable from one
       // that never had anything to report.
       headline: "Everything looks normal right now",
-      detail:
-        infra.lastRedAgo !== null
+      // Concatenated, never an either/or. lastRedAgo indexes the whole served
+      // block — three hours of it — while a failed inference run is a separate
+      // event from a failed cycle, so one network red aged well past the
+      // horizon used to swallow a run that had just dropped, under a sentence
+      // claiming every cycle since had been clean.
+      detail: [
+        ...(infra.lastRedAgo !== null
           ? [
               // This is where a LONE failure inside the horizon lands, and it
               // is the whole reason ELEVATED_RECENT is 2 rather than 1: one red
@@ -418,7 +423,9 @@ export function buildVerdict(
                   ? `The last failed cycle was ${agoWords(infra.lastRedMinutes ?? 5)}; the one since was clean.`
                   : `The last failed cycle was ${agoWords(infra.lastRedMinutes ?? infra.lastRedAgo * 5)}; the ${infra.lastRedAgo} since have all been clean.`,
             ]
-          : quietFailures(summary, recent),
+          : []),
+        ...quietFailures(summary, recent),
+      ],
     };
   }
   // The headline follows the severity. At elevated the evidence is two failures
@@ -438,7 +445,10 @@ export function buildVerdict(
         ? "having problems right now"
         : "showing early signs of trouble"
     }`,
-    detail,
+    // The quiet lines ride along here too: one model can be having problems
+    // while the other drops a single run, and the second one is not less true
+    // for arriving on a bad day.
+    detail: [...detail, ...quietFailures(summary, recent)],
   };
 }
 
@@ -486,18 +496,31 @@ function faultVerdict(state: State, recent: RecentCycle[], t: Track): Verdict {
   // these two classes are actually about. RecentErrors carries the same pair
   // of words.
   if (fault === FAULT_UPLINK || fault === FAULT_ROUTE) {
+    // counts[fault], NOT t.count. The two are the same number only when every
+    // red in the horizon carries the dominant class, and a MIXED horizon is
+    // exactly what the disclosure line below exists for: one uplink cycle
+    // beside one edge cycle is t.count = 2 with a dominant class of one, and
+    // the headline would say "2 cycles reached nothing at the far end" three
+    // lines above "1 of them did reach the reference host". Every sentence in
+    // this branch speaks for the dominant class alone, so all of them count it.
+    //
+    // Which puts the singular back within reach, for this count and no other:
+    // the elevated floor is two reds of ANY class, so one of them can be the
+    // only uplink cycle in the window.
+    const dominant = counts[fault] ?? 0;
+    const those = dominant === 1 ? "That cycle" : "Those cycles";
     const headline =
       fault === FAULT_UPLINK
         ? sustained
           ? "Nothing at the far end was reachable — this says nothing about MiMo"
-          : `${t.count} cycles reached nothing at the far end — this says nothing about MiMo`
+          : `${dominant} ${plural(dominant, "cycle")} reached nothing at the far end — this says nothing about MiMo`
         : sustained
           ? "The route to the far end is degraded — not MiMo, and not us"
-          : `${t.count} cycles found no route to the far end — not MiMo, and not us`;
+          : `${dominant} ${plural(dominant, "cycle")} found no route to the far end — not MiMo, and not us`;
     detail.push(
       fault === FAULT_UPLINK
-        ? "Those cycles reached neither MiMo nor the reference host, so they are excluded from availability. From one vantage point our own connection and the route to the far end look identical, and neither is MiMo's to answer for."
-        : "Those cycles could not reach MiMo's edge OR an unrelated host beside it.",
+        ? `${those} reached neither MiMo nor the reference host, so ${dominant === 1 ? "it is" : "they are"} excluded from availability. From one vantage point our own connection and the route to the far end look identical, and neither is MiMo's to answer for.`
+        : `${those} could not reach MiMo's edge OR an unrelated host beside it.`,
     );
     // A mixed run has to disclose the mix, or the headline claims more than the
     // evidence supports.
@@ -510,6 +533,10 @@ function faultVerdict(state: State, recent: RecentCycle[], t: Track): Verdict {
     return { state, headline, detail };
   }
 
+  // Plural unconditionally, unlike the branch above, because a singular is not
+  // reachable here: edge only becomes the dominant class by strictly beating
+  // both outward classes, so a lone edge cycle wins the tie only when it is the
+  // ONLY red — and one red does not reach this function at all.
   detail.push("They failed to reach MiMo while the reference host answered.");
   const unattributed = (counts[FAULT_UPLINK] ?? 0) + (counts[FAULT_ROUTE] ?? 0);
   if (unattributed > 0) {
@@ -585,14 +612,21 @@ export function scoreModelRecent(
 //
 // Only failures, and deliberately not wrong answers: a single wrong answer has
 // been silent since ELEVATED_WRONG_RECENT was set to 2, and silence is the
-// softener there. Only the singular, because two failures do not reach this
-// branch — they are the elevated verdict.
+// softener there.
+//
+// Scored, not merely counted, so this can be appended to ANY verdict without
+// saying the same thing twice: a model at or above the threshold already has
+// its own sentence from scoreModel, and only the ones the threshold silenced
+// come through here. That matters because the banner can be elevated for one
+// model while another quietly drops a run, and the second one vanishing is the
+// same forgetting this function exists to prevent.
 function quietFailures(summary: Summary, recent: RecentCycle[]): string[] {
   const horizon = Math.min(RECENT_CYCLES, recent.length);
   const lines: string[] = [];
   for (const model of summary.models) {
     const { failures } = modelTracks(model.model_id, recent);
     if (failures.count === 0) continue;
+    if (scoreTrack(failures, FAILURE_THRESHOLDS) !== "normal") continue;
     const when =
       failures.lastRedMinutes === null
         ? "just now"

@@ -451,6 +451,40 @@ describe("buildVerdict", () => {
     );
   });
 
+  // The headline speaks for the DOMINANT fault class, so it has to count that
+  // class and not every red in the horizon. One uplink cycle beside one edge
+  // cycle clears the elevated floor with a dominant count of one, and counting
+  // both put "2 cycles reached nothing at the far end" three lines above "1 of
+  // them did reach the reference host".
+  it("counts only the dominant fault class in its headline", () => {
+    const v = buildVerdict(
+      summary({ recent: recent([FAULT_UPLINK, FAULT_OK, FAULT_EDGE]) }),
+      summary(),
+    );
+    expect(v.state).toBe("elevated");
+    expect(v.headline).toMatch(/^1 cycle reached nothing at the far end/);
+    expect(v.detail.join(" ")).toMatch(/That cycle reached neither MiMo/);
+    expect(v.detail.join(" ")).toMatch(
+      /1 of them did reach the reference host/,
+    );
+  });
+
+  // lastRedAgo indexes the whole served block — three hours of it — while a run
+  // that failed after the handshake is a different event from a failed cycle.
+  // Reported as alternatives, one network red aged well past the horizon
+  // swallowed a run that had just dropped, under a sentence claiming every
+  // cycle since had been clean.
+  it("reports a quiet run failure beside an old network red", () => {
+    const cycles = recentModelFailures([2]).map((c, i) =>
+      i === 30 ? { ...c, fault: FAULT_EDGE, models: {} } : c,
+    );
+    const v = buildVerdict(summary({ recent: cycles }), summary());
+    expect(v.state).toBe("normal");
+    const detail = v.detail.join(" ");
+    expect(detail).toMatch(/The last failed cycle was/);
+    expect(detail).toMatch(/mimo-v2\.5 failed 1 of the last 12 runs/);
+  });
+
   // Two spread runs, which is where the model branch starts speaking. The
   // phrase names no cause on purpose: this same branch fires on latency and on
   // wrong answers, with no failed run anywhere in the horizon.
@@ -464,6 +498,51 @@ describe("buildVerdict", () => {
     expect(v.headline).not.toMatch(/having problems/i);
     expect(v.headline).not.toMatch(/failure/i);
     expect(v.detail.join(" ")).toMatch(/failed 2 of the last 12 runs/i);
+  });
+
+  // A bad day for one signal does not make another signal's evidence less
+  // true. The quiet line is scored, not merely counted, so a model already
+  // speaking through scoreModel never gets a second sentence here.
+  it("keeps a quiet run failure on a verdict that is not normal", () => {
+    const v = buildVerdict(
+      summary({
+        recent: recentModelFailures([0, 1, 2], { wrong: [5, 7] }),
+        models: [model(), model({ model_id: "mimo-v2.5-pro" })],
+      }),
+      summary(),
+    );
+    expect(v.state).toBe("degraded");
+    // mimo-v2.5 is the one failing; mimo-v2.5-pro has no runs in this block at
+    // all, so it must not acquire a sentence it did not earn.
+    expect(v.detail.join(" ")).toMatch(
+      /mimo-v2\.5 failed 3 of the last 12 runs/,
+    );
+    expect(v.detail.join(" ")).not.toMatch(/not yet a pattern/i);
+  });
+
+  it("names a second model's lone failure under a degraded first one", () => {
+    const OTHER = "mimo-v2.5-pro";
+    const cycles = recent([], { modelIds: [MODEL, OTHER] }).map((c, i) => ({
+      ...c,
+      models: {
+        [MODEL]: { ok: ![0, 1, 2].includes(i), answer_ok: null },
+        [OTHER]: { ok: i !== 5, answer_ok: null },
+      },
+    }));
+    const v = buildVerdict(
+      summary({
+        recent: cycles,
+        models: [model(), model({ model_id: OTHER })],
+      }),
+      summary(),
+    );
+    expect(v.state).toBe("degraded");
+    expect(v.headline).toMatch(/^mimo-v2\.5 is having problems/);
+    const detail = v.detail.join(" ");
+    expect(detail).toMatch(/mimo-v2\.5 failed 3 of the last 12 runs\./);
+    expect(detail).toMatch(
+      /mimo-v2\.5-pro failed 1 of the last 12 runs, 25 minutes ago\. One run is not yet a pattern\./,
+    );
   });
 
   // The run failed on connect, before it ever reached MiMo. Counting it against

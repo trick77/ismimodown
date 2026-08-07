@@ -234,6 +234,37 @@ describe("ModelCards", () => {
     );
   });
 
+  // The recent block can only ever make this chip WORSE. scoreModelRecent has
+  // no "unknown" to return — a model absent from the block scores normal — so
+  // folding it in flat would paint a card green for a model with no
+  // measurements at all, which is the one thing the chip must not do.
+  it("still says unknown for a model with nothing measured", () => {
+    render(
+      <ModelCards
+        summary={summary([
+          model({
+            attempts: 0,
+            succeeded: 0,
+            // Not null: the field is non-nullable, and the card reads it as
+            // null itself whenever attempts is 0.
+            available_pct: 0,
+            answered: 0,
+            correct: 0,
+            correct_pct: null,
+            ttft: { n: 0, sufficient: false, p50_ms: null, p95_ms: null },
+          }),
+        ])}
+        baseline={null}
+      />,
+    );
+
+    const card = screen.getByTestId("model-card-mimo-v2.5");
+    expect(card.querySelector("[data-testid='state-chip']")).toHaveAttribute(
+      "data-state",
+      "unknown",
+    );
+  });
+
   it("renders nothing but stays stable with no summary", () => {
     const { container } = render(<ModelCards summary={null} baseline={null} />);
     expect(container.querySelectorAll("section")).toHaveLength(0);
