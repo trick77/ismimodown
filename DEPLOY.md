@@ -103,6 +103,71 @@ those labels are dropped. Each header must appear exactly ONCE: a duplicate
 means Traefik is setting its own copy too, and two conflicting CSPs are enforced
 as their intersection, which breaks the page rather than hardening it.
 
+## Exploit-path bans
+
+A request for a path only an exploit scan asks for blocks that caller for **48
+hours** with a bare `403`. Not a rate limit: there is no budget and no refill,
+because this binary serves no PHP, no admin panel and no dotfiles, so there is
+no honest request to protect. Four rules, in
+`backend/internal/httpapi/exploitpaths.go`:
+
+- **any dotfile** — `/.env.prod`, `/.htaccess`, `/.git/config`, `/.DS_Store`.
+  One rule rather than a list, because a list never finishes: the first version
+  named `/.env` and `/.env.local` and let `/.env.prod` straight through.
+  `/.well-known` is the sole carve-out, so a future `security.txt` still works.
+- **an extension this binary cannot serve** — `.php`, `.asp(x)`, `.jsp`, `.cgi`,
+  `.sql`, `.bak`, `.pem`.
+- **a known segment at ANY depth** — `wp-admin`, `wp-includes`, `wp-content`,
+  `wp-json`, `vendor`, `cgi-bin`, `phpmyadmin`, `actuator`, `solr` and friends.
+  Depth matters: the WordPress scanners prepend a guess at the install root, so
+  a single pass is `/blog/wp-includes/…`, `/wordpress/wp-includes/…`,
+  `/2018/wp-includes/…`. Matching only at the front missed eleven of fourteen.
+- **a handful of exact paths** — `/config.json`, `/credentials`,
+  `/server-status`.
+
+The 404 budget (`notFoundPenalty`) is unchanged and still runs underneath: an
+ordinary wrong guess like `/favicon.ico` still just spends a token.
+
+Going back to scanning while banned **resets the block to a fresh 48 hours** from
+that moment, so a scanner has to actually stop for two days to get back in.
+Ordinary requests from a banned caller are refused but do NOT renew the ban —
+deliberately, since a key is an address and an address can be a NAT pool: one
+device asking for `/wp-login.php` bans every other, and a bystander with the
+dashboard open would otherwise have their own reconnecting tab renew the ban
+forever.
+
+Bans live in memory only. **Restarting the container clears every one of them**,
+which is the only escape hatch there is:
+
+```sh
+docker compose restart ismimodown
+```
+
+**This bans you too.** `curl https://ismimodown.com/.env` against production
+locks your own address out for 48 hours. Either wait it out or restart the
+container.
+
+The line to look for:
+
+```sh
+docker compose logs ismimodown | grep 'banned caller'
+# {"level":"WARN","msg":"banned caller for exploit path","client":"165.245.182.166",
+#  "path":"/wp-login.php","ban":"new","until":"2026-08-09T10:00:36Z"}
+```
+
+`ban` is `new` on the first offence and `extended` on a return visit. Repeat
+lines for the same caller are throttled to one an hour — a banned scanner does
+not stop knocking, and one line per refusal would bury the ban that started it.
+The ordinary request log still records every `403`.
+
+At most 10,000 addresses are held; past that the soonest-to-expire is evicted so
+the newest ban always lands. Well beyond real volume — the logs run to a few
+dozen such requests a day — but the callers this catches rotate addresses.
+
+Note this is per address, so it does **not** stop a scanner arriving through
+Cloudflare Workers: those rotate across Cloudflare's edge ranges and present a
+different address every few minutes. It works against direct-to-origin scanners.
+
 The first cycle runs immediately at startup rather than after a full interval,
 so there is data within seconds of a deploy. Percentiles stay suppressed until
 20 successful samples exist — roughly 100 minutes — and the dashboard says

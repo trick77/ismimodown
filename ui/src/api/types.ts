@@ -121,7 +121,11 @@ export type Sample = {
   error_class: string | null;
 };
 
-// One failed inference call, as the errors block serves it.
+// One inference call that went wrong, as the errors block serves it.
+//
+// Wrong in either of the two senses the probe records: the call failed, or the
+// call succeeded and the answer was graded wrong. answer_ok is what tells them
+// apart — see below.
 //
 // http_status is what this adds over the raw table: it tells a 429 apart from a
 // 503 when both arrive as error_class "http_error". Null on a transport
@@ -136,6 +140,14 @@ export type Failure = {
   probe: string;
   error_class: string | null;
   http_status: number | null;
+  // false when the call SUCCEEDED and the answer was then graded wrong — a
+  // 200, a body, and the wrong element in it. null on everything else: a
+  // failed run answered nothing to grade, and a wide probe is not graded at
+  // all. The card reads this BEFORE it reaches for the failure colour, because
+  // the one thing a graded-wrong row cannot claim is that the endpoint was
+  // down. Same shape and same reasoning as Cycle.answer_ok, which is what the
+  // pulse strip paints amber on.
+  answer_ok: boolean | null;
   // The cycle's stored attribution, so a row can say whose failure it was. Raw,
   // including the historical FAULT_ROUTE and the empty string a cycle with no
   // attribution carries — reading those is the client's job, as it is for

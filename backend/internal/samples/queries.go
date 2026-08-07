@@ -844,7 +844,7 @@ func (s *Store) RecentSamples(ctx context.Context, modelID, probeKind string, li
 // deliberately refuse to blame on MiMo, with nothing on the row saying so.
 //
 // Carried rather than filtered, and that is the whole point. Dropping those
-// rows would make the card print "Nothing failed in the last 24 hours" during
+// rows would make the card print "nothing went wrong in the last 24 hours" during
 // a real outage, which is worse than listing them unlabelled — the runs DID
 // fail, and a monitor that goes quiet when the network dies is the failure mode
 // this page exists to avoid. So they stay, labelled.
@@ -852,31 +852,52 @@ func (s *Store) RecentSamples(ctx context.Context, modelID, probeKind string, li
 // Served raw, including the historical 'route' and the empty string a cycle
 // with no attribution row carries. Deciding what those mean is the client's
 // job, exactly as it is for RecentCycle.Fault — see ui/src/verdict.ts.
+//
+// AnswerOK is what tells the block's two kinds of row apart. It is false on a
+// run that SUCCEEDED and was then graded wrong — a 200, a body, and the wrong
+// element in it — and nil on everything else: a failed run answered nothing to
+// grade, and a wide probe is not graded at all. The card must read it before it
+// reaches for the failure colour, because the one thing a graded-wrong row
+// cannot claim is that the endpoint was down.
 type Failure struct {
 	At         time.Time `json:"at"`
 	ModelID    string    `json:"model_id"`
 	Probe      string    `json:"probe"`
 	ErrorClass *string   `json:"error_class"`
 	HTTPStatus *int64    `json:"http_status"`
+	AnswerOK   *bool     `json:"answer_ok"`
 	Fault      string    `json:"fault"`
 }
 
 // MaxFailureLimit clamps how many failures any caller can ask for.
 const MaxFailureLimit = 50
 
-// RecentFailures returns the most recent FAILED inference calls across every
-// configured model and both probe kinds, newest first.
+// RecentFailures returns the most recent inference calls that went WRONG across
+// every configured model and both probe kinds, newest first.
+//
+// Wrong in either of the two senses the probe can record, and they share one
+// block deliberately. A call that never completed and a call that completed
+// with the wrong answer are both "MiMo did not do its job on this cycle", and
+// they are drawn as the same kind of event one panel up: the pulse strip paints
+// red for the first and amber for the second, on one strip, in one timeline.
+// Splitting them across two cards would make a reader diff two lists to
+// reconstruct that timeline — and, worse, would leave every amber bar with
+// nowhere to lead, which is exactly the gap this query used to have when it
+// filtered on ok = 0 alone.
+//
+// The two are told apart on the row, not by omission: see Failure.AnswerOK.
 //
 // Deliberately its own query rather than a filter over RecentSamples. That
 // projection is capped per model and probe at what the raw table draws — about
 // three quarters of an hour of runs — so filtering it client-side would answer
 // "did anything fail in the last 45 minutes", which on a healthy endpoint is an
 // empty block that looks broken. This reaches back over `since` instead and
-// returns nothing when nothing failed, which is a different and honest answer.
+// returns nothing when nothing went wrong, which is a different and honest
+// answer.
 //
 // `since` is the caller's, and the dashboard fixes it at a day regardless of
 // which window the reader selected — the same independence RecentCycles has,
-// and for the same reason: the last five failures are a fact about the endpoint,
+// and for the same reason: the last few bad runs are a fact about the endpoint,
 // not about the chart selector.
 //
 // Models are filtered to the configured list. A model that has been retired
@@ -909,13 +930,18 @@ func (s *Store) RecentFailures(ctx context.Context, models []string, since time.
 	// LEFT JOIN on cycle_fault, like RecentCycles: a cycle whose attribution row
 	// is missing must still produce its failure, and COALESCE turns that into
 	// the empty string the client already knows how to read as "unattributed".
+	// The predicate carries both kinds. `i.answer_ok = 0` is NULL-safe in
+	// SQLite — NULL = 0 is NULL, not true — so a run that was never graded is
+	// untouched by it and only an explicit 0 matches. Written as the comparison
+	// rather than `answer_ok IS NOT NULL AND answer_ok != 1` for that reason:
+	// the shorter form already means the right thing.
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT c.started_at, i.model_id, i.probe, i.error_class, i.http_status,
-		       COALESCE(f.fault, '')
+		       i.answer_ok, COALESCE(f.fault, '')
 		FROM infer_probes i
 		JOIN cycles c ON c.id = i.cycle_id
 		LEFT JOIN cycle_fault f ON f.cycle_id = c.id
-		WHERE i.ok = 0
+		WHERE (i.ok = 0 OR i.answer_ok = 0)
 		  AND i.model_id IN (`+placeholders(len(models))+`)
 		  AND c.started_at >= ?
 		ORDER BY c.started_at DESC, i.id DESC
@@ -931,11 +957,19 @@ func (s *Store) RecentFailures(ctx context.Context, models []string, since time.
 		var at string
 		var class sql.NullString
 		var status sql.NullInt64
-		if err := rows.Scan(&at, &f.ModelID, &f.Probe, &class, &status, &f.Fault); err != nil {
+		var answerOK sql.NullInt64
+		if err := rows.Scan(&at, &f.ModelID, &f.Probe, &class, &status, &answerOK, &f.Fault); err != nil {
 			return nil, err
 		}
 		f.At, _ = time.Parse(time.RFC3339Nano, at)
 		f.ErrorClass = nullS(class)
+		// Nil unless the run was actually graded, which is the same shape
+		// RecentPulse serves and for the same reason: "not graded" and "graded
+		// and passed" are different facts, and only the first is nil here.
+		if answerOK.Valid {
+			b := answerOK.Int64 == 1
+			f.AnswerOK = &b
+		}
 		// Null rather than 0 when the run never reached a status: the write
 		// path nulls the zero, and the card draws a dash for it. Printing 0
 		// would read as a status code.

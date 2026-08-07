@@ -17,6 +17,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/trick77/ismimodown/internal/ban"
 	"github.com/trick77/ismimodown/internal/config"
 	"github.com/trick77/ismimodown/internal/httpapi"
 	"github.com/trick77/ismimodown/internal/probe"
@@ -136,6 +137,18 @@ func run() error {
 	// cut off for three minutes rather than the thirty seconds a zero-floored
 	// bucket would cost it.
 	notFoundLimiter := ratelimit.New(1.0/30.0, 5)
+	// Some requests are not a wrong guess to be metered but a scan to be
+	// stopped: /wp-admin/install.php, /.env, anything ending .php. This binary
+	// serves none of it, so there is no honest caller to protect and no budget
+	// to spend — the caller is blocked outright for 48 hours. Nothing is
+	// persisted, so restarting the container is the one way to clear a ban,
+	// including your own.
+	//
+	// 10k addresses is the ceiling: the map is keyed by caller and each entry
+	// lives two days, and the scanners this catches are exactly the ones that
+	// rotate addresses. Well past any volume this site sees — the log runs to a
+	// few dozen such requests a day.
+	banStore := ban.New(48*time.Hour, 10_000)
 
 	// Closed when shutdown begins, so long-lived SSE handlers return instead of
 	// holding http.Server.Shutdown open until its timeout expires.
@@ -149,6 +162,7 @@ func run() error {
 		Broker:          broker,
 		Limiter:         limiter,
 		NotFoundLimiter: notFoundLimiter,
+		Ban:             banStore,
 		Shutdown:        shutdownCh,
 		Models:          cfg.Models,
 		Prices:          cfg.Prices,
@@ -210,11 +224,16 @@ func run() error {
 	// indistinguishable from a fresh one, so dropping idle entries loses
 	// nothing — and Sweep keeps any bucket still in debt, so a scanner cannot
 	// clear its record by pausing for the sweep interval.
+	//
+	// The ban store shares the ticker but not the interval: it drops entries
+	// whose 48 hours are up, and nothing else. Passing an idle age here would
+	// forgive a live ban 47 hours early.
 	go func() {
 		defer wg.Done()
 		for sched2.Sleep(ctx, 10*time.Minute) {
 			limiter.Sweep(30 * time.Minute)
 			notFoundLimiter.Sweep(30 * time.Minute)
+			banStore.Sweep()
 		}
 	}()
 
