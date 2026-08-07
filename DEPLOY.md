@@ -136,7 +136,7 @@ docker compose logs ismimodown | grep 'banned caller'
 ```
 
 `ban` is `new` on the first offence and `extended` on a return visit. Repeat
-lines for the same caller are throttled to one a minute — a banned scanner does
+lines for the same caller are throttled to one an hour — a banned scanner does
 not stop knocking, and one line per refusal would bury the ban that started it.
 The ordinary request log still records every `403`.
 

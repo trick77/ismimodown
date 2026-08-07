@@ -285,7 +285,7 @@ func banGate(store *ban.Store, next http.Handler) http.Handler {
 //
 // Rate-limited by the store, not here: see ban.Store.Ban. The request logger
 // records every 403 regardless, so nothing is lost when a line is suppressed —
-// only the repetition.
+// only the repetition, which is why the throttle can afford to be coarse.
 func logBan(key, path, kind string, store *ban.Store) {
 	attrs := []any{
 		"client", key,

@@ -26,7 +26,15 @@ import (
 // callers this catches do not stop knocking when they are refused — that is
 // what makes them worth banning — so an unthrottled line per refusal turns a
 // bounded map into an unbounded log, and buries the ban that started it.
-const logInterval = time.Minute
+//
+// An hour rather than a minute, and the difference is the whole point of
+// picking a number here. The throttle is checked per request, so it only bounds
+// a caller that asks FASTER than the interval; one polling just slower than it
+// is logged every single time. At a minute that is ~2,800 lines per banned
+// caller over a 48-hour term, from a scanner doing nothing but knocking once a
+// minute — and the ones in the logs arrive on roughly that cadence. An hour
+// caps it at ~48, which is a record of the ban rather than a transcript of it.
+const logInterval = time.Hour
 
 // Outcome describes what a call to Ban did, so the caller can log it without
 // the store having to know what the request was for.

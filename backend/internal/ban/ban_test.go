@@ -126,6 +126,33 @@ func TestRepeatBansAreLoggedAtMostOncePerInterval(t *testing.T) {
 	}
 }
 
+// The throttle only bounds a caller asking FASTER than the interval; one
+// polling just slower is logged every time. That makes the interval the cap on
+// lines per banned caller across a whole term, so it has to be big enough that
+// a persistent slow scanner writes a record rather than a transcript.
+func TestASlowPersistentScannerIsBoundedAcrossAFullTerm(t *testing.T) {
+	const ttl = 48 * time.Hour
+	now := time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
+	s := newAt(ttl, 10, &now)
+
+	logged := 0
+	if _, ok := s.Ban("203.0.113.7"); ok {
+		logged++
+	}
+	// Knocking just slower than the throttle, which is its worst case, for the
+	// length of a full ban.
+	for elapsed := time.Duration(0); elapsed < ttl; elapsed += logInterval + time.Second {
+		now = now.Add(logInterval + time.Second)
+		if _, ok := s.Ban("203.0.113.7"); ok {
+			logged++
+		}
+	}
+
+	if logged > 60 {
+		t.Errorf("logged %d lines for one caller over 48h; the interval is too short", logged)
+	}
+}
+
 // A caller that served its term and came back is newly banned, not extended —
 // and gets a line of its own regardless of when it was last logged.
 func TestBanAfterExpiryIsANewBanNotAnExtension(t *testing.T) {
