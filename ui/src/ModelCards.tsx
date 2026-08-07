@@ -1,14 +1,39 @@
 import type { Summary } from "./api/types";
 import { Figure, StateChip } from "./ui";
 import { formatMs, formatPct, formatTps, plural } from "./format";
+import type { State } from "./verdict";
 import {
   MIN_FAILURES_FOR_STATE,
   scoreAvailability,
   scoreCorrectness,
+  scoreModelRecent,
   scoreRatio,
   worst,
 } from "./verdict";
 import { colorForModel } from "./charts/options";
+
+// chipState folds the recent cycles into the three window figures WITHOUT
+// letting them answer a question the data cannot.
+//
+// Not a fourth argument to worst(). scoreModelRecent never returns "unknown" —
+// a model absent from the recent block, or a payload with no recent block at
+// all, both score normal — and worst() takes normal over unknown, so passing it
+// in flat would paint a card green for a model that has no measurements at all.
+// A window with no attempts and no baseline is exactly that card, and it read
+// "unknown" before this. Absence of evidence is not evidence of health any more
+// than it is evidence of failure.
+//
+// So the recent block can only ever make the chip WORSE, which is the whole
+// point of folding it in.
+function chipState(
+  availability: State,
+  correctness: State,
+  ttft: State,
+  recent: State,
+): State {
+  const window = worst(availability, correctness, ttft);
+  return recent === "normal" ? window : worst(window, recent);
+}
 
 // One card per model. Two models, not three.
 export function ModelCards({
@@ -78,6 +103,7 @@ export function ModelCards({
           m.answered - m.correct,
         );
         const ttft = scoreRatio(m.ttft.p50_ms, base?.ttft.p50_ms ?? null);
+        const recentState = scoreModelRecent(m.model_id, summary?.recent ?? []);
 
         return (
           <section
@@ -100,7 +126,30 @@ export function ModelCards({
                     by the tag. */}
                 <h2 className="num text-ui text-ink">{m.model_id}</h2>
               </div>
-              <StateChip state={worst(availability, correctness, ttft)} />
+              {/* The recent block joins the three window figures, so a
+                  DISCRETE failure — a dropped run, a wrong answer — can never
+                  leave this chip greener than the verdict banner above it: the
+                  figures describe the SELECTED window behind a floor of
+                  MIN_FAILURES_FOR_STATE, which a fault an hour old clears
+                  neither. See scoreModelRecent.
+
+                  Latency is not covered by that, and deliberately so. The
+                  banner scores TTFT on the fixed `now` window while this scores
+                  it on the selected one (App.tsx), so an hour-long spike can
+                  still show ELEVATED above a normal card. Pulling `now` in here
+                  would fix the chip and break the card: the TTFT figure below
+                  it is the selected window's, and a chip contradicting the
+                  number it sits over is worse than one contradicting a banner
+                  that says "right now" in its own headline.
+
+                  summary.recent, not a new prop: Recent is the one part of a
+                  Summary that is NOT window-scoped — the daemon fills it
+                  outside the window predicate (backend/internal/samples/
+                  queries.go, Summarize) — so this is the identical block the
+                  banner reads off `now`, whichever window is selected. */}
+              <StateChip
+                state={chipState(availability, correctness, ttft, recentState)}
+              />
             </header>
 
             <div className="grid grid-cols-2 gap-4">

@@ -2,7 +2,8 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { ModelCards } from "./ModelCards";
 import { MIN_FAILURES_FOR_STATE } from "./verdict";
-import type { ModelSummary, Summary } from "./api/types";
+import type { ModelSummary, RecentCycle, Summary } from "./api/types";
+import { FAULT_OK } from "./api/types";
 
 function model(over: Partial<ModelSummary> = {}): ModelSummary {
   return {
@@ -24,14 +25,37 @@ function model(over: Partial<ModelSummary> = {}): ModelSummary {
   };
 }
 
-const summary = (models: ModelSummary[]): Summary => ({
+const summary = (
+  models: ModelSummary[],
+  recent: RecentCycle[] = [],
+): Summary => ({
   window: "24h",
   cycles: 288,
   models,
   net: [],
-  recent: [],
+  recent,
   generated_at: "2026-08-04T12:00:00Z",
 });
+
+// A block of clean cycles with a model failing on the ones named — the network
+// reached MiMo, the inference run did not come back. Newest first, five minutes
+// apart, like the daemon serves it.
+const recentModelFailures = (
+  failing: number[],
+  modelId = "mimo-v2.5",
+): RecentCycle[] =>
+  Array.from({ length: 36 }, (_, i) => ({
+    at: new Date(
+      Date.parse("2026-08-04T12:00:00Z") - i * 300_000,
+    ).toISOString(),
+    fault: FAULT_OK,
+    models: {
+      [modelId]: {
+        ok: !failing.includes(i),
+        answer_ok: failing.includes(i) ? null : true,
+      },
+    },
+  }));
 
 describe("ModelCards", () => {
   // These cards sit above the fold with the whole page under them. Rendering
@@ -168,6 +192,77 @@ describe("ModelCards", () => {
       />,
     );
     expect(screen.getByRole("alert")).toHaveTextContent(/returned 1 token\b/);
+  });
+
+  // The invariant this chip exists to hold: a card can never read greener than
+  // the verdict banner above it. Two failed runs inside the hour is what the
+  // banner calls elevated; over the SELECTED window those same two sit under
+  // MIN_FAILURES_FOR_STATE, so every figure on the card is healthy and the
+  // header used to print NORMAL directly under an ELEVATED banner about the
+  // same model.
+  it("never reads greener than the recent cycles", () => {
+    render(
+      <ModelCards
+        summary={summary([model()], recentModelFailures([0, 2]))}
+        baseline={null}
+      />,
+    );
+
+    const card = screen.getByTestId("model-card-mimo-v2.5");
+    expect(card.querySelector("[data-testid='state-chip']")).toHaveAttribute(
+      "data-state",
+      "elevated",
+    );
+    // The figures still describe the window, and the window is clean. The chip
+    // is saying something they structurally cannot.
+    expect(screen.getByText("288/288 runs")).toBeInTheDocument();
+  });
+
+  // ...and one failed run is still nothing, on the card as on the banner.
+  it("stays normal for a single failed run", () => {
+    render(
+      <ModelCards
+        summary={summary([model()], recentModelFailures([0]))}
+        baseline={null}
+      />,
+    );
+
+    const card = screen.getByTestId("model-card-mimo-v2.5");
+    expect(card.querySelector("[data-testid='state-chip']")).toHaveAttribute(
+      "data-state",
+      "normal",
+    );
+  });
+
+  // The recent block can only ever make this chip WORSE. scoreModelRecent has
+  // no "unknown" to return — a model absent from the block scores normal — so
+  // folding it in flat would paint a card green for a model with no
+  // measurements at all, which is the one thing the chip must not do.
+  it("still says unknown for a model with nothing measured", () => {
+    render(
+      <ModelCards
+        summary={summary([
+          model({
+            attempts: 0,
+            succeeded: 0,
+            // Not null: the field is non-nullable, and the card reads it as
+            // null itself whenever attempts is 0.
+            available_pct: 0,
+            answered: 0,
+            correct: 0,
+            correct_pct: null,
+            ttft: { n: 0, sufficient: false, p50_ms: null, p95_ms: null },
+          }),
+        ])}
+        baseline={null}
+      />,
+    );
+
+    const card = screen.getByTestId("model-card-mimo-v2.5");
+    expect(card.querySelector("[data-testid='state-chip']")).toHaveAttribute(
+      "data-state",
+      "unknown",
+    );
   });
 
   it("renders nothing but stays stable with no summary", () => {
