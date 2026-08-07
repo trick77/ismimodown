@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Regenerate every favicon / PWA raster from the four SVG sources in
+# Regenerate every favicon / PWA raster from the three SVG sources in
 # assets/icons/. Run it by hand after editing any of them, and commit what it
 # writes:
 #
@@ -10,8 +10,9 @@
 # is not a package.json script.
 #
 # librsvg does the rasterising, not ImageMagick's own SVG support: IM's internal
-# MSVG delegate renders stroked paths soft and distorted, and every source here
-# is strokes. ImageMagick is used only to read the results back and assert them.
+# MSVG delegate renders stroked paths soft and distorted, and the mark inside
+# every source here is strokes. ImageMagick is used only to read the results
+# back and assert them.
 #
 # There is no favicon.ico, and no /favicon.svg either: the tab icon is
 # /icon.svg, which matches the icon-*.png rasters beside it. The clients that go
@@ -27,10 +28,8 @@ set -euo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)" # ui/
 SRC="$DIR/assets/icons"
 OUT="$DIR/public"
-MASTER="$SRC/tile.svg"          # the shape; renders the PWA rasters, never ships itself
-FAVICON="$SRC/icon-favicon.svg" # the master with a filled frame; ships as-is
-DARK='#1a1a19'                  # app surface and the tile ground (index.css --color-bg)
-TAB='#2e2e2b'                   # the tab icon's ground — lighter than DARK, see icon-favicon.svg
+MASTER="$SRC/tile.svg" # the shape; ships as /icon.svg and renders the PWA rasters
+DARK='#1a1a19'         # app surface, tile ground, and the knocked-out bars (index.css --color-bg)
 
 # bc is in the list because the safe-circle check below compares a float. Without
 # it the command substitution is empty, `(( ))` errors, the `if` reads false and
@@ -47,14 +46,18 @@ TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
 # --- icon.svg: served directly as the modern tab icon ------------------------
-# Its own source, not the master: Safari composites the tab icon onto white, so
-# this one carries a ground where the master does not.
-cp "$FAVICON" "$OUT/icon.svg"
+# The master itself, copied verbatim. There used to be a second source here
+# carrying a #2e2e2b ground, because Safari composites the tab icon onto a white
+# favourites plate and a bare outline turned into a scribble there. The mark is a
+# filled chip now and is its own ground on any plate, so that copy — and one more
+# file to mirror every shape change into by hand — is gone.
+cp "$MASTER" "$OUT/icon.svg"
 
 # --- from the master ---------------------------------------------------------
 # -b none keeps the renderer from inventing a ground the master does not have.
-# These stay TRANSPARENT: a launcher composites them itself, and both glyphs are
-# outlines enclosing no area, so there is no interior for its colour to fill.
+# These stay TRANSPARENT — meaning the CANVAS is: the chip itself is opaque, and
+# only the four corners outside its radius are clear. That is what lets a
+# launcher render it as a chip rather than as a square of ours.
 rsvg-convert -b none -w 192 -h 192 "$MASTER" -o "$OUT/icon-192.png"
 rsvg-convert -b none -w 512 -h 512 "$MASTER" -o "$OUT/icon-512.png"
 
@@ -73,8 +76,8 @@ rsvg-convert -w 512 -h 512 "$SRC/tile-maskable.svg" -o "$OUT/icon-maskable-512.p
 # device, so assert every ground here instead.
 #
 # The split is the point, so both directions are checked. The master's rasters
-# MUST stay transparent; the two OS tiles MUST stay opaque. Do not "fix" a
-# failure here by relaxing the check.
+# MUST keep a transparent canvas; the two OS tiles MUST stay opaque. Do not
+# "fix" a failure here by relaxing the check.
 fail=0
 check_alpha() { # <file> <expected true|false>
 	local got
@@ -92,23 +95,52 @@ check_alpha "$OUT/apple-touch-icon.png" true
 check_alpha "$OUT/icon-maskable-512.png" true
 
 # icon.svg ships as SVG, so there is no raster to read — render one here just to
-# assert it. Two samples, because it has to be a chip and not a tile: the canvas
-# corner transparent, and a point inside the frame but clear of the bars (the
-# tallest one starts around y=138 at this size) filled with $TAB. Losing that
-# fill is invisible until someone opens Safari's favourites bar.
+# assert it. Four samples, one per way this file can quietly go wrong:
+#
+#   corner   must be clear, or the icon is a square and not a chip
+#   bar      must be $DARK, or the mark was lost into its own ground
+#   tl, br   must both be opaque, warm, and DIFFERENT from each other
+#
+# The last pair is the gradient check. A chip whose fill was dropped, or whose
+# url(#og) resolved to nothing, renders flat black or not at all — and either is
+# invisible in a viewer that happens to sit on a dark page. Two points at
+# opposite ends of the ramp, both clear of the bars, prove the fill is there AND
+# still ramping. All four coordinates are in the 512 render: the tallest bar's
+# stroke runs x=358±34, and the two ramp samples sit in the chip's left and
+# right margins, outside the bars' x=119..392 band.
 rsvg-convert -b none -w 512 -h 512 "$OUT/icon.svg" -o "$TMP/icon-favicon.png"
-# -alpha on before both reads. Without it an image that happens to be fully
+# -alpha on before every read. Without it an image that happens to be fully
 # opaque carries no alpha channel, and then %[hex:...] returns six digits
 # instead of eight and %[fx:...a] does not report 1 — the comparisons below
 # would be measuring ImageMagick's channel bookkeeping rather than the icon.
 fav_corner="$(magick "$TMP/icon-favicon.png" -alpha on -format '%[fx:p{0,0}.a]' info:)"
-fav_ground="$(magick "$TMP/icon-favicon.png" -alpha on -format '%[hex:p{256,96}]' info: | tr '[:upper:]' '[:lower:]')"
+fav_bar="$(magick "$TMP/icon-favicon.png" -alpha on -format '%[hex:p{358,300}]' info: | tr '[:upper:]' '[:lower:]')"
+fav_tl="$(magick "$TMP/icon-favicon.png" -alpha on -format '%[hex:p{64,128}]' info: | tr '[:upper:]' '[:lower:]')"
+fav_br="$(magick "$TMP/icon-favicon.png" -alpha on -format '%[hex:p{448,384}]' info: | tr '[:upper:]' '[:lower:]')"
 if [[ "$fav_corner" != "0" ]]; then
 	echo "gen-icons: icon.svg's canvas corner has alpha $fav_corner, expected 0" >&2
 	fail=1
 fi
-if [[ "$fav_ground" != "${TAB#\#}ff" ]]; then
-	echo "gen-icons: icon.svg's frame is #$fav_ground, expected ${TAB}ff" >&2
+if [[ "$fav_bar" != "${DARK#\#}ff" ]]; then
+	echo "gen-icons: icon.svg's tallest bar is #$fav_bar, expected ${DARK}ff" >&2
+	fail=1
+fi
+# Warm = opaque, and red > green > blue with red well up: the terracotta ramp
+# and nothing else. Far less brittle than pinning the exact stop, which would
+# have to be recomputed for every coverage or corner-radius change.
+check_warm() { # <label> <x> <y>
+	local ok
+	ok="$(magick "$TMP/icon-favicon.png" -alpha on \
+		-format "%[fx:p{$2,$3}.a==1 && p{$2,$3}.r>0.6 && p{$2,$3}.r>p{$2,$3}.g && p{$2,$3}.g>p{$2,$3}.b]" info:)"
+	if [[ "$ok" != "1" ]]; then
+		echo "gen-icons: icon.svg's chip at $1 is not the accent ramp" >&2
+		fail=1
+	fi
+}
+check_warm "top-left" 64 128
+check_warm "bottom-right" 448 384
+if [[ "$fav_tl" == "$fav_br" ]]; then
+	echo "gen-icons: icon.svg's chip is flat #$fav_tl — the gradient did not resolve" >&2
 	fail=1
 fi
 
@@ -121,7 +153,7 @@ fi
 # Painting the safe circle over in the ground colour leaves nothing but ground IF
 # the mark is fully inside it, so the whole image collapses to one flat colour
 # and its standard deviation is 0. Any mark left outside shows up as spread. The
-# geometry caps coverage at 62% (see tile-maskable.svg); its own 48.6% is well
+# geometry caps coverage at 65% (see tile-maskable.svg); its own 48.6% is well
 # under that, so a non-zero reading here means a transform was edited without
 # recomputing it.
 CIRCLE_STDDEV="$(magick "$OUT/icon-maskable-512.png" -alpha off \
