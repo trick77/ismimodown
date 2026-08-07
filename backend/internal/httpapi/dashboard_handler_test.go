@@ -282,6 +282,52 @@ func TestOneLoadIsOneToken(t *testing.T) {
 	}
 }
 
+// seedWrongAnswer records one inference call that SUCCEEDED and was then graded
+// wrong, ago before testNow. OK true, a real status, no error class — which is
+// exactly the row the block used to miss, and what the pulse strip paints
+// amber.
+func seedWrongAnswer(
+	t *testing.T, store *samples.Store, ago time.Duration, model string,
+) {
+	t.Helper()
+	wrong := false
+	if _, err := store.Save(context.Background(), samples.Cycle{
+		StartedAt: testNow.Add(-ago),
+		Net: []probe.NetResult{
+			{Target: probe.TargetMimoSGP, ConnectMs: 170, OK: true},
+			{Target: probe.TargetRefSGP, ConnectMs: 265, OK: true},
+		},
+		Infer: []probe.InferResult{{
+			ModelID: model, Probe: probe.ProbeShort,
+			OK: true, HTTPStatus: 200, TTFTMs: 1200, AnswerOK: &wrong,
+		}},
+	}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+}
+
+// seedPassingAnswer records one inference call that succeeded and was graded
+// RIGHT — the ordinary healthy run, and the row the block must never carry.
+func seedPassingAnswer(
+	t *testing.T, store *samples.Store, ago time.Duration, model string,
+) {
+	t.Helper()
+	right := true
+	if _, err := store.Save(context.Background(), samples.Cycle{
+		StartedAt: testNow.Add(-ago),
+		Net: []probe.NetResult{
+			{Target: probe.TargetMimoSGP, ConnectMs: 170, OK: true},
+			{Target: probe.TargetRefSGP, ConnectMs: 265, OK: true},
+		},
+		Infer: []probe.InferResult{{
+			ModelID: model, Probe: probe.ProbeShort,
+			OK: true, HTTPStatus: 200, TTFTMs: 1200, AnswerOK: &right,
+		}},
+	}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+}
+
 // seedFailure records one failed inference call, ago before testNow.
 func seedFailure(
 	t *testing.T, store *samples.Store, ago time.Duration,
@@ -310,8 +356,11 @@ func TestDashboardServesTheNewestFailures(t *testing.T) {
 	h, store := newAPIServer(t)
 	seed(t, store, 25, 900)
 
-	// Six failures, oldest first, so the cap has something to drop.
-	for i := 6; i >= 1; i-- {
+	// One more failure than the cap, oldest first, so the cap has something to
+	// drop. Counted off dashboardFailureLimit rather than written as a literal:
+	// the cap has moved once already, and a test that has to be edited when it
+	// moves again is a test that will be edited wrongly.
+	for i := dashboardFailureLimit + 1; i >= 1; i-- {
 		seedFailure(t, store, time.Duration(i)*time.Minute,
 			"mimo-v2.5", probe.ErrClassHTTP, fmt.Sprintf("upstream said %d", i), 500+i)
 	}
@@ -321,7 +370,7 @@ func TestDashboardServesTheNewestFailures(t *testing.T) {
 		t.Fatalf("failures = %d, want %d", len(got.Failures), dashboardFailureLimit)
 	}
 	// Newest first: the one-minute-old row leads, carrying its own status, and
-	// the six-minute-old one is the row the cap dropped.
+	// the oldest one is the row the cap dropped.
 	first := got.Failures[0]
 	if first.HTTPStatus == nil || *first.HTTPStatus != 501 {
 		t.Errorf("http_status = %v, want the status the run recorded", first.HTTPStatus)
@@ -334,12 +383,94 @@ func TestDashboardServesTheNewestFailures(t *testing.T) {
 			t.Errorf("failure %d is newer than the one before it; the block is not newest-first", i)
 		}
 	}
-	// Only failures. A healthy run in the block would make the card lie about
-	// what it is showing.
+	// Only runs that went wrong. The block carries two kinds now — a failure
+	// has an error class, a graded-wrong run has answer_ok false — and a row
+	// that is neither is a healthy run, which would make the card lie about
+	// what it is showing. This seeding is all failures, so every row must be
+	// the first kind.
 	for _, f := range got.Failures {
 		if f.ErrorClass == nil {
-			t.Errorf("a run with no error class reached the failures block: %+v", f)
+			t.Errorf("a run with no error class reached the errors block: %+v", f)
 		}
+		if f.AnswerOK != nil {
+			t.Errorf("a failed run carries answer_ok = %v; it answered nothing to grade",
+				*f.AnswerOK)
+		}
+	}
+}
+
+// The amber bar's destination. A call that returned 200 and was graded wrong is
+// the OTHER way a run goes wrong, and it belongs in this block: the pulse strip
+// paints it amber, a reader follows the bar down to the card, and before this
+// the card had nothing for them — the query filtered on ok = 0 and a
+// graded-wrong run carries ok = 1.
+func TestErrorsBlockCarriesGradedWrongAnswers(t *testing.T) {
+	h, store := newAPIServer(t)
+	seed(t, store, 25, 900)
+
+	seedFailure(t, store, 3*time.Minute, "mimo-v2.5", probe.ErrClassHTTP, "upstream said 503", 503)
+	seedWrongAnswer(t, store, 2*time.Minute, "mimo-v2.5")
+	// The row that must NOT appear: it succeeded and it was right.
+	seedPassingAnswer(t, store, time.Minute, "mimo-v2.5")
+
+	got := getDashboard(t, h, "24h")
+	if len(got.Failures) != 2 {
+		t.Fatalf("failures = %d, want the failure and the wrong answer and nothing else: %+v",
+			len(got.Failures), got.Failures)
+	}
+
+	// Newest first, so the wrong answer leads — the two kinds interleave on one
+	// timeline rather than sorting into groups, which is the whole reason they
+	// share a block.
+	wrong := got.Failures[0]
+	if wrong.AnswerOK == nil || *wrong.AnswerOK {
+		t.Fatalf("answer_ok = %v, want false on the graded-wrong row", wrong.AnswerOK)
+	}
+	// It got a status, and that is the point of the row: it worked, and it was
+	// still wrong. A dash here would claim it never reached the endpoint.
+	if wrong.HTTPStatus == nil || *wrong.HTTPStatus != 200 {
+		t.Errorf("http_status = %v, want the 200 the run actually got", wrong.HTTPStatus)
+	}
+	// Nothing about the CALL went wrong, so there is no class to name. The card
+	// supplies the label; the wire stays the daemon's vocabulary.
+	if wrong.ErrorClass != nil {
+		t.Errorf("error_class = %q on a run that succeeded, want null", *wrong.ErrorClass)
+	}
+
+	if got.Failures[1].ErrorClass == nil || *got.Failures[1].ErrorClass != probe.ErrClassHTTP {
+		t.Errorf("the failure is missing from the block: %+v", got.Failures[1])
+	}
+}
+
+// A run nobody graded is not a run that went wrong.
+//
+// This is the NULL-safety assertion the widened predicate rests on: it reads
+// `i.answer_ok = 0`, and in SQLite NULL = 0 is NULL rather than true, so an
+// ungraded run is untouched by it. Wide probes are never graded, so getting
+// this wrong would fill the block with every wide run on the endpoint — one an
+// hour per model, all of them healthy.
+func TestUngradedRunsStayOutOfTheErrorsBlock(t *testing.T) {
+	h, store := newAPIServer(t)
+
+	if _, err := store.Save(context.Background(), samples.Cycle{
+		StartedAt: testNow.Add(-2 * time.Minute),
+		Net: []probe.NetResult{
+			{Target: probe.TargetMimoSGP, ConnectMs: 170, OK: true},
+			{Target: probe.TargetRefSGP, ConnectMs: 265, OK: true},
+		},
+		Infer: []probe.InferResult{{
+			// Wide: it ran, it succeeded, and nothing graded it. AnswerOK stays
+			// nil, exactly as probe.Client leaves it when there is no assertion.
+			ModelID: "mimo-v2.5", Probe: probe.ProbeWide,
+			OK: true, HTTPStatus: 200, TTFTMs: 1400,
+		}},
+	}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	got := getDashboard(t, h, "24h")
+	if len(got.Failures) != 0 {
+		t.Fatalf("an ungraded run reached the errors block: %+v", got.Failures)
 	}
 }
 

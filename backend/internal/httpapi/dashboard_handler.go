@@ -46,19 +46,26 @@ const (
 	// how far back the table reaches without saving a request.
 	dashboardSampleLimit = 20
 
-	// The failures block: how many, and how far back.
+	// The errors block: how many, and how far back.
 	//
-	// Five, because the block answers "what is going wrong right now" and a
-	// sixth row does not answer it better — the raw table below carries the
-	// full record, and the availability strip carries the counting.
+	// Ten, and it was five while the block held one kind of row. The query now
+	// carries both ways a run goes wrong — the calls that failed AND the calls
+	// that came back graded wrong — and those two compete for the same rows.
+	// Wrong answers are the noisier of the pair by this page's own reckoning
+	// (verdict.ts sets DEGRADED_WRONG_RECENT at 3 against ELEVATED_RECENT at
+	// 1), so at five a cluster of them inside one hour would evict last
+	// evening's http_error and the card would quietly stop showing the thing it
+	// was built to show. Ten is still a summary and not a log — the raw table
+	// below carries the full record, and the availability strip carries the
+	// counting — and it is still well under samples.MaxFailureLimit.
 	//
 	// A day, fixed, whatever window the reader selected. Same independence
-	// RecentCycles has and for the same reason: the last few failures are a
+	// RecentCycles has and for the same reason: the last few bad runs are a
 	// fact about the endpoint, not about the chart selector, and tying them to
 	// the pills would make a 30d selection quote a fortnight-old error as the
 	// current one. A handler test asserts the block is identical on 24h and
 	// 3mo.
-	dashboardFailureLimit  = 5
+	dashboardFailureLimit  = 10
 	dashboardFailureWindow = 24 * time.Hour
 )
 
@@ -236,8 +243,9 @@ func (s *server) buildDashboard(ctx context.Context, window samples.Window, now 
 		}
 	}
 
-	// Failures last, and NOT scoped to `window`: the block reaches back a fixed
-	// day so the errors card says the same thing whichever pill is selected.
+	// The bad runs last — failures and graded-wrong answers alike — and NOT
+	// scoped to `window`: the block reaches back a fixed day so the errors card
+	// says the same thing whichever pill is selected.
 	failures, err := s.deps.Samples.RecentFailures(
 		ctx, s.deps.Models, now.Add(-dashboardFailureWindow), dashboardFailureLimit)
 	if err != nil {
