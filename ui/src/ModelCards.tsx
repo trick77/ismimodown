@@ -5,6 +5,7 @@ import {
   MIN_FAILURES_FOR_STATE,
   scoreAvailability,
   scoreCorrectness,
+  scoreModelRecent,
   scoreRatio,
   worst,
 } from "./verdict";
@@ -100,7 +101,25 @@ export function ModelCards({
                     by the tag. */}
                 <h2 className="num text-ui text-ink">{m.model_id}</h2>
               </div>
-              <StateChip state={worst(availability, correctness, ttft)} />
+              {/* The recent block joins the three window figures, and it is
+                  what stops this chip from ever reading greener than the
+                  verdict banner above it: the figures describe the SELECTED
+                  window behind a floor of MIN_FAILURES_FOR_STATE, and a fault
+                  an hour old clears neither. See scoreModelRecent.
+
+                  summary.recent, not a new prop: Recent is the one part of a
+                  Summary that is NOT window-scoped — the daemon fills it
+                  outside the window predicate (backend/internal/samples/
+                  queries.go, Summarize) — so this is the identical block the
+                  banner reads off `now`, whichever window is selected. */}
+              <StateChip
+                state={worst(
+                  availability,
+                  correctness,
+                  ttft,
+                  scoreModelRecent(m.model_id, summary?.recent ?? []),
+                )}
+              />
             </header>
 
             <div className="grid grid-cols-2 gap-4">

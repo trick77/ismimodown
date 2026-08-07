@@ -164,12 +164,17 @@ describe("buildVerdict", () => {
 
   // The reported bug. One failed cycle is an anecdote: it is indistinguishable
   // from one retransmit storm on one connection from one vantage point.
-  it("does not call a single failed cycle degraded", () => {
+  //
+  // It used to paint the banner ELEVATED and then hedge the claim away in the
+  // sentence underneath — while the model cards, held to
+  // MIN_FAILURES_FOR_STATE, called the same cycle normal. The banner now says
+  // it in words and keeps its chip green.
+  it("does not paint a single failed cycle at all", () => {
     const v = buildVerdict(
       summary({ recent: recent([FAULT_EDGE]) }),
       summary(),
     );
-    expect(v.state).toBe("elevated");
+    expect(v.state).toBe("normal");
     expect(v.detail.join(" ")).toMatch(/not yet a pattern/i);
   });
 
@@ -313,15 +318,16 @@ describe("buildVerdict", () => {
   });
 
   // The headline follows the severity here for the same reason it does in the
-  // model branch: one cycle cannot support a present-tense absolute claim.
-  it("does not headline a single failed cycle as an outage", () => {
+  // model branch: two cycles cannot support a present-tense absolute claim.
+  // Spread rather than consecutive, or DEGRADED_STREAK claims them first.
+  it("does not headline two failed cycles as an outage", () => {
     const v = buildVerdict(
-      summary({ recent: recent([FAULT_EDGE]) }),
+      summary({ recent: recent([FAULT_EDGE, FAULT_OK, FAULT_EDGE]) }),
       summary(),
     );
     expect(v.state).toBe("elevated");
     expect(v.headline).not.toMatch(/edge is unreachable/i);
-    expect(v.headline).toMatch(/missed a cycle/i);
+    expect(v.headline).toMatch(/missed 2 cycles/i);
   });
 
   // The index is a count of cycles, not a clock: a dropped slot leaves no cycle
@@ -375,15 +381,29 @@ describe("buildVerdict", () => {
     expect(v.detail.join(" ")).toMatch(/up to 1 reasoning token\b/);
   });
 
-  // A cold start: the daemon has served exactly one cycle and it failed. The
-  // horizon is then 1, and "1 of the last 1 cycles" reads as a typo in the one
-  // sentence that is supposed to be carefully hedged.
-  it("says one cycle in the singular on a one-cycle horizon", () => {
+  // A cold start: the daemon has served exactly one cycle and it failed. Below
+  // ELEVATED_RECENT, so the banner stays green and reports it in the past
+  // tense — and the newest cycle being the failed one leaves no clean cycles
+  // to count "since", which is its own sentence.
+  it("reports a lone red newest cycle without counting cycles since", () => {
     const v = buildVerdict(
       summary({ cycles: 1, recent: recent([FAULT_EDGE], { count: 1 }) }),
       summary(),
     );
-    expect(v.detail.join(" ")).toMatch(/1 of the last 1 cycle /);
+    expect(v.state).toBe("normal");
+    expect(v.detail.join(" ")).toMatch(/the most recent cycle failed/i);
+    expect(v.detail.join(" ")).not.toMatch(/ 0 since /);
+  });
+
+  // The same lone red once clean cycles have run on top of it. One of them is
+  // the case the count cannot phrase in the plural.
+  it("counts a single clean cycle since the last failure in the singular", () => {
+    const v = buildVerdict(
+      summary({ recent: recent([FAULT_OK, FAULT_EDGE]) }),
+      summary(),
+    );
+    expect(v.state).toBe("normal");
+    expect(v.detail.join(" ")).toMatch(/the one since was clean/i);
   });
 
   it("names the struggling model and quantifies the regression", () => {
@@ -405,16 +425,45 @@ describe("buildVerdict", () => {
   });
 
   // One failed run is an anecdote whichever layer produced it, so the model
-  // branch has to say so in the same voice the network branch does.
-  it("softens a single model failure the way it softens a single cycle", () => {
+  // branch stays quiet about it exactly as the network branch now does.
+  it("does not paint a single model failure at all", () => {
     const v = buildVerdict(
       summary({ recent: recentModelFailures([0]) }),
       summary(),
     );
+    expect(v.state).toBe("normal");
+  });
+
+  // Silence is not an option for it either. The network layer's own lone-red
+  // sentence is keyed on the infra track, which a run that failed AFTER the
+  // handshake leaves clean — so without a line of its own, one failed run
+  // would leave a banner that is indistinguishable from a banner with nothing
+  // to report.
+  it("still reports a single model failure in the past tense", () => {
+    const v = buildVerdict(
+      summary({ recent: recentModelFailures([2]) }),
+      summary(),
+    );
+    expect(v.state).toBe("normal");
+    expect(v.headline).toMatch(/everything looks normal/i);
+    expect(v.detail.join(" ")).toMatch(
+      /mimo-v2\.5 failed 1 of the last 12 runs, 10 minutes ago\. One run is not yet a pattern\./i,
+    );
+  });
+
+  // Two spread runs, which is where the model branch starts speaking. The
+  // phrase names no cause on purpose: this same branch fires on latency and on
+  // wrong answers, with no failed run anywhere in the horizon.
+  it("names the model without naming a failure at elevated", () => {
+    const v = buildVerdict(
+      summary({ recent: recentModelFailures([0, 2]) }),
+      summary(),
+    );
     expect(v.state).toBe("elevated");
-    expect(v.headline).toMatch(/showing the odd failure/i);
+    expect(v.headline).toMatch(/showing early signs of trouble/i);
     expect(v.headline).not.toMatch(/having problems/i);
-    expect(v.detail.join(" ")).toMatch(/not yet a pattern/i);
+    expect(v.headline).not.toMatch(/failure/i);
+    expect(v.detail.join(" ")).toMatch(/failed 2 of the last 12 runs/i);
   });
 
   // The run failed on connect, before it ever reached MiMo. Counting it against
