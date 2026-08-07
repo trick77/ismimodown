@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/trick77/ismimodown/internal/ban"
 	"github.com/trick77/ismimodown/internal/ratelimit"
 )
 
@@ -204,6 +205,110 @@ func notFoundPenalty(l *ratelimit.Limiter, next http.Handler) http.Handler {
 			l.Charge(key, 1)
 		}
 	})
+}
+
+// banGate blocks callers that have asked for something only an exploit scan
+// asks for, and keeps blocking them for the store's TTL.
+//
+// This sits beside notFoundPenalty rather than inside it because the two answer
+// different questions. The penalty meters volume: a caller gets a budget of
+// wrong guesses because an honest browser makes some, and it refills, because
+// an honest browser deserves to be forgiven. There is no such budget for
+// /wp-admin/install.php — one is already the whole evidence — so metering it is
+// the wrong instrument.
+//
+// It matches the path on the way IN, before the mux. Deriving the trigger from
+// the response status the way notFoundPenalty does would silently miss half the
+// list: web.spaHandler serves index.html with a 200 for any unknown path
+// WITHOUT a file extension, so /phpmyadmin, /wp-admin and /actuator never 404.
+//
+// The response is a bare 403, not the 429 the limiter writes. A 429 with
+// Retry-After is a negotiation — it tells the caller the request was legitimate
+// but early, and names the moment to repeat it. Neither half is true here, and
+// naming the moment publishes the ban's length to the one party with a use for
+// it.
+//
+// A nil store disables it, matching notFoundPenalty, so tests wire nothing.
+func banGate(store *ban.Store, next http.Handler) http.Handler {
+	if store == nil {
+		return next
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Exempt for the same reason it is exempt from notFoundPenalty: the
+		// container healthcheck must not fail because of what another caller
+		// did. It cannot reach an exploit path, so this only removes collateral.
+		if r.URL.Path == "/healthz" {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// The same key the limiters and the request log use, so a ban, a 429
+		// and a log line all name the caller identically.
+		key := ratelimit.ClientIP(r)
+
+		exploit := isExploitPath(r.URL.Path)
+
+		if store.Banned(key) {
+			// A banned caller that goes back to scanning has its block reset to
+			// a FULL term from this moment — not topped up, not left to run
+			// out. So getting back in means actually stopping for 48 hours.
+			//
+			// Only a repeat EXPLOIT path renews it, though, and that
+			// restriction is load-bearing. Renewing on any request at all reads
+			// as the stricter choice and is in fact a trap: a key is an
+			// address, an address can be a NAT or a CGNAT pool, and one device
+			// behind it asking for /wp-login.php bans every other. If any of
+			// those bystanders has the dashboard open, its own reconnect loop
+			// and 5-minute refetch (see the stream effect in ui/src/App.tsx)
+			// push the expiry out forever — the ban becomes permanent, the
+			// documented "wait 48 hours" escape becomes unreachable, and the
+			// victim has no way to know that a restart is the only way back.
+			// A scanner, meanwhile, keeps walking its wordlist, so it renews
+			// its own ban without help.
+			if exploit {
+				_, shouldLog := store.Ban(key)
+				if shouldLog {
+					logBan(key, r.URL.Path, "extended", store)
+				}
+			}
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+
+		if exploit {
+			_, shouldLog := store.Ban(key)
+			if shouldLog {
+				logBan(key, r.URL.Path, "new", store)
+			}
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+// logBan writes the one line someone reads when they want to know who is
+// blocked, why, and until when.
+//
+// The triggering path is on it because this is also the line the operator reads
+// after locking themselves out, and "banned" alone would not say which request
+// did it. The expiry is absolute rather than a duration, so a line found in
+// yesterday's logs still answers "is that caller still out?".
+//
+// Rate-limited by the store, not here: see ban.Store.Ban. The request logger
+// records every 403 regardless, so nothing is lost when a line is suppressed —
+// only the repetition, which is why the throttle can afford to be coarse.
+func logBan(key, path, kind string, store *ban.Store) {
+	attrs := []any{
+		"client", key,
+		"path", path,
+		"ban", kind,
+	}
+	if expires, ok := store.Expires(key); ok {
+		attrs = append(attrs, "until", expires.UTC().Format(time.RFC3339))
+	}
+	slog.Warn("banned caller for exploit path", attrs...)
 }
 
 // writeTooManyRequests answers a throttled caller in the content type its path
