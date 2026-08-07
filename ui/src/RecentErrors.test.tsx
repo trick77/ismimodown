@@ -193,13 +193,26 @@ describe("RecentErrors", () => {
     expect(screen.getByText("http_error")).toBeInTheDocument();
   });
 
-  // A run that failed during our own outage is still not MiMo's, and that
-  // claim outranks anything the grader would have said.
-  it("keeps the attribution label ahead of the wrong-answer label", () => {
+  // The two CAN co-occur: the fault is the cycle's, recorded from the net
+  // probes, and a cycle whose Singapore probes went dark can still have carried
+  // an HTTPS call that completed with 200 and a wrong answer in it.
+  //
+  // Attribution takes the colour — the reader needs "not MiMo's" first, and
+  // amber would claim otherwise. It does NOT take the word: "failed" on a run
+  // that demonstrably returned 200 asserts a transport failure that did not
+  // happen, and the card's own subtitle promises wrong answers are marked as
+  // such.
+  it("surrenders the amber to an attributed fault but keeps the word", () => {
     render(<RecentErrors failures={[wrongAnswer({ fault: FAULT_UPLINK })]} />);
 
     expect(screen.getByText(/not attributable to MiMo/i)).toBeInTheDocument();
-    expect(screen.queryByText("wrong_answer")).not.toBeInTheDocument();
+
+    const label = screen.getByText("wrong_answer");
+    expect(label).toHaveClass("text-muted");
+    expect(label).not.toHaveClass("text-fault-edge");
+    expect(label).not.toHaveClass("text-danger");
+    // The one word this row must never print.
+    expect(screen.queryByText("failed")).not.toBeInTheDocument();
   });
 
   // A card that vanishes when nothing went wrong is indistinguishable from a

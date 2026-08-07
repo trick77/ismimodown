@@ -176,13 +176,17 @@ export function RecentErrors({ failures }: { failures: Failure[] | null }) {
             <tbody>
               {failures.map((f, i) => {
                 const note = attributionNote(f.fault);
-                // Attribution first, then the graded-wrong case, then the
-                // ordinary failure. The order is not arbitrary: a wrong answer
-                // arrives over a working uplink, so in practice these cannot
-                // co-occur — but "in practice" is not a guarantee, and a row
-                // that was BOTH must say whose outage it was rather than
-                // quibble about the answer.
-                const wrong = !note && wrongAnswer(f);
+                const wrong = wrongAnswer(f);
+                // Attribution outranks the grader for the COLOUR and the note,
+                // and for nothing else. The two can co-occur: the fault is the
+                // cycle's, recorded from the net probes, and a cycle whose two
+                // Singapore probes went dark can still have carried an HTTPS
+                // call that completed with 200 and a wrong answer in it. Such a
+                // row must say whose outage it was — that is the claim the
+                // reader needs first — but it must not go on to call a run that
+                // demonstrably returned 200 a failure. So the amber is
+                // surrendered and the WORD is not.
+                const mutedByFault = note !== null;
                 return (
                   <tr
                     key={`${f.at}-${f.model_id}-${f.probe}-${i}`}
@@ -210,10 +214,13 @@ export function RecentErrors({ failures }: { failures: Failure[] | null }) {
                         Muted is the run nobody could pin on MiMo: during our
                         own uplink outage the run genuinely failed, but the
                         evidence stops at our own edge, with the label below
-                        saying why. */}
+                        saying why. It outranks the amber — but only the
+                        colour. The WORD still says what happened, because
+                        "failed" on a run that returned 200 would assert a
+                        transport failure that did not occur. */}
                       <span
                         className={
-                          note
+                          mutedByFault
                             ? "num text-muted"
                             : wrong
                               ? "num text-fault-edge"
