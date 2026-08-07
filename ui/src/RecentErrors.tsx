@@ -5,13 +5,26 @@ import { unattributableFault } from "./verdict";
 import { Card } from "./ui";
 import { formatAgo, formatDateTime } from "./format";
 
-// The last few failures, in full.
+// The last few runs that went wrong, in full.
+//
+// Wrong in both senses the probe records, and that pairing is the point. A call
+// that never completed and a call that came back with the wrong answer are the
+// two ways MiMo fails to do its job, and the pulse strip above already draws
+// them on ONE timeline — red for the first, amber for the second. This card is
+// where a reader goes when a bar catches their eye, so it has to answer for
+// both bars. It used to answer only for red: the query filtered on ok = 0, a
+// graded-wrong run carries ok = 1, and every amber bar on the strip therefore
+// led here to nothing.
+//
+// The two kinds are told apart on the row rather than by omission — amber
+// against red, and a line of prose saying which happened. See wrongAnswer()
+// below.
 //
 // It sits above the raw table rather than inside it because it answers a
 // different question. The table is the unaggregated record of what happened
 // over the last three quarters of an hour, and on a healthy endpoint every row
 // in it is a tick — the one row that failed yesterday is not in it at all. This
-// block reaches back a fixed day and shows only the failures, so "what went
+// block reaches back a fixed day and shows only what went wrong, so "what went
 // wrong recently" stops depending on whether anything went wrong recently
 // enough to still be on screen.
 //
@@ -57,6 +70,30 @@ const CLASS_GLOSS: Record<string, string> = {
   canceled: "shutdown, not a fault",
 };
 
+// What a graded-wrong run is called in the Error column.
+//
+// Not in CLASS_GLOSS, and not sent by the server either: that map is keyed on
+// error_class, and a graded-wrong run has no error_class because nothing about
+// the CALL went wrong. Minting a synthetic class server-side would put a word
+// on the wire that no log line and no error_class column ever contains, and the
+// whole value of that column is that it matches a log line. So the name is the
+// card's, made here, in the same snake_case the real classes use — the column
+// reads as one vocabulary, and the prose lives on the line beneath as it does
+// for every other row.
+const WRONG_ANSWER_CLASS = "wrong_answer";
+const WRONG_ANSWER_GLOSS = "the call succeeded — the answer did not";
+
+// A run that came back and was graded wrong.
+//
+// answer_ok is only ever non-null on a run that SUCCEEDED — the probe grades
+// what it received, and a failed call received nothing — so false here means
+// exactly one thing: 200, a body, and the wrong content in it. That is the
+// amber bar on the strip, and this is the predicate that makes the row match
+// it.
+function wrongAnswer(f: Failure): boolean {
+  return f.answer_ok === false;
+}
+
 // A failure nobody could pin on MiMo.
 //
 // Both classes travel together everywhere in this codebase — route is no longer
@@ -98,7 +135,7 @@ function attributionNote(fault: string): { text: string; cls: string } | null {
 // list is evidence — the server looked and found nothing — and the sentence it
 // earns is a claim about the endpoint's health. null is the absence of
 // evidence: the first load has not answered yet, or it failed. Collapsing the
-// two would make the page assert "nothing failed in the last 24 hours" before
+// two would make the page assert "nothing went wrong in the last 24 hours" before
 // it had asked anyone, on a page whose entire job is saying whether MiMo is
 // down. Every other panel takes its no-data case as null for the same reason.
 export function RecentErrors({ failures }: { failures: Failure[] | null }) {
@@ -113,7 +150,7 @@ export function RecentErrors({ failures }: { failures: Failure[] | null }) {
   return (
     <Card
       title="Most recent errors"
-      subtitle="Only the failed calls, from the last 24 hours whichever range is selected above — each with the status code the endpoint answered with, where it got that far. A run that failed while nothing at the far end was reachable — or with no route to it — says so: it is listed, but it is not MiMo's."
+      subtitle="Only the runs that went wrong, from the last 24 hours whichever range is selected above — the calls that failed, and the calls that came back with the wrong answer, which are marked as such. Each carries the status code the endpoint answered with, where it got that far. A run that failed while nothing at the far end was reachable — or with no route to it — says so: it is listed, but it is not MiMo's."
     >
       {failures === null ? (
         // Nothing has answered yet. Neutral wording, matching the raw table
@@ -139,6 +176,13 @@ export function RecentErrors({ failures }: { failures: Failure[] | null }) {
             <tbody>
               {failures.map((f, i) => {
                 const note = attributionNote(f.fault);
+                // Attribution first, then the graded-wrong case, then the
+                // ordinary failure. The order is not arbitrary: a wrong answer
+                // arrives over a working uplink, so in practice these cannot
+                // co-occur — but "in practice" is not a guarantee, and a row
+                // that was BOTH must say whose outage it was rather than
+                // quibble about the answer.
+                const wrong = !note && wrongAnswer(f);
                 return (
                   <tr
                     key={`${f.at}-${f.model_id}-${f.probe}-${i}`}
@@ -152,21 +196,43 @@ export function RecentErrors({ failures }: { failures: Failure[] | null }) {
                     <td className="num py-2 pr-4">{f.model_id}</td>
                     <td className="num py-2 pr-4">{f.probe}</td>
                     <td className="py-2 pr-4">
-                      {/* Not red when nothing at the far end answered. The colour
-                        on this column means "MiMo failed", and during our own
-                        outage that is the one thing the row cannot claim — the
-                        run genuinely failed, but the evidence stops at our
-                        uplink. Muted, with the label below saying why. */}
+                      {/* Three colours, three claims.
+
+                        Red means "MiMo failed", and it is the only one of the
+                        three that says the endpoint was down.
+
+                        Amber is the graded-wrong run, and it is the SAME token
+                        the pulse strip paints that cycle with
+                        (--color-fault-edge) so the bar and the row read as one
+                        event. Red here would claim an outage that demonstrably
+                        did not happen — the call returned 200.
+
+                        Muted is the run nobody could pin on MiMo: during our
+                        own uplink outage the run genuinely failed, but the
+                        evidence stops at our own edge, with the label below
+                        saying why. */}
                       <span
-                        className={note ? "num text-muted" : "num text-danger"}
+                        className={
+                          note
+                            ? "num text-muted"
+                            : wrong
+                              ? "num text-fault-edge"
+                              : "num text-danger"
+                        }
                       >
-                        {f.error_class ?? "failed"}
+                        {wrong
+                          ? WRONG_ANSWER_CLASS
+                          : (f.error_class ?? "failed")}
                       </span>
                       {note ? (
                         <span
                           className={`mt-[2px] block text-micro ${note.cls}`}
                         >
                           {note.text}
+                        </span>
+                      ) : wrong ? (
+                        <span className="mt-[2px] block text-micro text-faint">
+                          {WRONG_ANSWER_GLOSS}
                         </span>
                       ) : (
                         f.error_class &&
@@ -179,7 +245,12 @@ export function RecentErrors({ failures }: { failures: Failure[] | null }) {
                     </td>
                     <td className="num py-2 text-right">
                       {/* A transport failure never got a status, and a dash says
-                        that. Printing 0 would read as a status code. */}
+                        that. Printing 0 would read as a status code.
+
+                        A graded-wrong run is the opposite case and prints its
+                        real status, which is normally 200 — and that is the
+                        whole row in one cell: it worked, and it was still
+                        wrong. */}
                       {f.http_status === null ? (
                         <span className="text-ghost">—</span>
                       ) : (
@@ -197,7 +268,7 @@ export function RecentErrors({ failures }: { failures: Failure[] | null }) {
         // from a card that broke, so the quiet state says so in words. This is
         // also the good news, and it is worth stating.
         <p className="font-serif italic text-faint">
-          Nothing failed in the last 24 hours.
+          Nothing failed and nothing was answered wrong in the last 24 hours.
         </p>
       )}
     </Card>

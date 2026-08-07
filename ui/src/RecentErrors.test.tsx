@@ -14,9 +14,23 @@ const failure = (over: Partial<Failure> = {}): Failure => ({
   probe: "short",
   error_class: "http_error",
   http_status: 503,
+  // null, not false: the call never completed, so there was no answer to
+  // grade. The graded-wrong fixture below is the one that carries false.
+  answer_ok: null,
   fault: FAULT_EDGE,
   ...over,
 });
+
+// A call that came back and was graded wrong: 200, a body, no error class.
+// This is the amber bar's row, and everything a failure fixture is not.
+const wrongAnswer = (over: Partial<Failure> = {}): Failure =>
+  failure({
+    error_class: null,
+    http_status: 200,
+    answer_ok: false,
+    fault: FAULT_OK,
+    ...over,
+  });
 
 const cellsOfFirstRow = () =>
   [...screen.getByRole("table").querySelectorAll("tbody tr td")].map(
@@ -133,13 +147,71 @@ describe("RecentErrors", () => {
     expect(screen.getByText("a non-2xx response")).toBeInTheDocument();
   });
 
-  // A card that vanishes when nothing failed is indistinguishable from a card
-  // that broke — and the quiet state is the good news, worth stating.
-  it("says so in words when nothing failed", () => {
+  // The amber bar's destination. A graded-wrong run is the other way a run
+  // goes wrong, and before this the card had nothing for it.
+  it("lists a graded-wrong answer and names it", () => {
+    render(<RecentErrors failures={[wrongAnswer()]} />);
+
+    const cells = cellsOfFirstRow();
+    expect(cells[3]).toContain("wrong_answer");
+    expect(screen.getByText(/the answer did not/)).toBeInTheDocument();
+  });
+
+  // Red on this column means "MiMo failed", and that is the one thing a run
+  // that returned 200 cannot claim. Amber is the token the pulse strip paints
+  // the same cycle with, so the bar and the row read as one event.
+  it("draws a graded-wrong answer amber, never in the failure colour", () => {
+    render(<RecentErrors failures={[wrongAnswer()]} />);
+
+    const label = screen.getByText("wrong_answer");
+    expect(label).toHaveClass("text-fault-edge");
+    expect(label).not.toHaveClass("text-danger");
+  });
+
+  // It worked, and it was still wrong — which is the whole row in one cell. A
+  // dash here would claim it never reached the endpoint.
+  it("prints the real status on a graded-wrong answer", () => {
+    render(<RecentErrors failures={[wrongAnswer()]} />);
+
+    const cells = cellsOfFirstRow();
+    expect(cells[4]).toBe("200");
+  });
+
+  // One block, one timeline: the two kinds interleave in the order the server
+  // sent them rather than sorting into groups.
+  it("carries failures and wrong answers in the same list", () => {
+    render(
+      <RecentErrors
+        failures={[
+          wrongAnswer({ at: "2026-08-04T11:59:00Z" }),
+          failure({ at: "2026-08-04T11:00:00Z" }),
+        ]}
+      />,
+    );
+
+    expect(screen.getByText("wrong_answer")).toBeInTheDocument();
+    expect(screen.getByText("http_error")).toBeInTheDocument();
+  });
+
+  // A run that failed during our own outage is still not MiMo's, and that
+  // claim outranks anything the grader would have said.
+  it("keeps the attribution label ahead of the wrong-answer label", () => {
+    render(<RecentErrors failures={[wrongAnswer({ fault: FAULT_UPLINK })]} />);
+
+    expect(screen.getByText(/not attributable to MiMo/i)).toBeInTheDocument();
+    expect(screen.queryByText("wrong_answer")).not.toBeInTheDocument();
+  });
+
+  // A card that vanishes when nothing went wrong is indistinguishable from a
+  // card that broke — and the quiet state is the good news, worth stating. It
+  // has to cover both kinds, or it claims a clean day on a day with three
+  // wrong answers in it.
+  it("says so in words when nothing went wrong", () => {
     render(<RecentErrors failures={[]} />);
 
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
     expect(screen.getByText(/Nothing failed/)).toBeInTheDocument();
+    expect(screen.getByText(/nothing was answered wrong/)).toBeInTheDocument();
   });
 
   // Before the first response lands there is no evidence of anything, and a
