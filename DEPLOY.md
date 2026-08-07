@@ -126,7 +126,10 @@ no honest request to protect. Four rules, in
   `/server-status`.
 
 The 404 budget (`notFoundPenalty`) is unchanged and still runs underneath: an
-ordinary wrong guess like `/favicon.ico` still just spends a token.
+ordinary wrong guess still just spends a token. Missing images are the exception
+— a 404 for `.ico`, `.png` or `.svg` costs nothing, since a browser asks for
+`/favicon.ico` and `/apple-touch-icon.png` on its own without the page naming
+them.
 
 Going back to scanning while banned **resets the block to a fresh 48 hours** from
 that moment, so a scanner has to actually stop for two days to get back in.

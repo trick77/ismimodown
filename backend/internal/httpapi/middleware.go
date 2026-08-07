@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"math"
 	"net/http"
+	"path"
 	"runtime/debug"
 	"strconv"
 	"strings"
@@ -160,10 +161,11 @@ func (rec *statusRecorder) Unwrap() http.ResponseWriter {
 // for those would compound the two limiters into something far harsher than
 // either was sized for.
 //
-// The budget still has to absorb the 404s an honest browser makes without being
-// asked to: /favicon.ico above all — the page ships /icon.svg and no .ico, so
-// every first visit misses once — plus apple-touch-icon variants, robots.txt, a
-// source map, and whatever a stale shell requests across a deploy.
+// The 404s an honest browser makes without being asked to are mostly icons —
+// /favicon.ico above all, since the page ships /icon.svg and no .ico, so every
+// first visit misses once — and those are exempt outright, see
+// uncountedAssetExts below. The budget still has to absorb the rest: robots.txt,
+// a source map, and whatever a stale shell requests across a deploy.
 //
 // A nil limiter disables it, so tests and callers that want no such limit need
 // wire nothing.
@@ -201,10 +203,41 @@ func notFoundPenalty(l *ratelimit.Limiter, next http.Handler) http.Handler {
 
 		rec := &statusRecorder{ResponseWriter: w}
 		next.ServeHTTP(rec, r)
-		if rec.status == http.StatusNotFound {
+		if rec.status == http.StatusNotFound && !isUncountedAsset(r.URL.Path) {
 			l.Charge(key, 1)
 		}
 	})
+}
+
+// uncountedAssetExts are image extensions whose 404s are never charged.
+//
+// A browser asks for these on its own, against paths the page never named:
+// /favicon.ico on every first visit (the page ships /icon.svg and no .ico),
+// /apple-touch-icon.png and its -precomposed twin from iOS, and whatever icon a
+// stale shell still references across a deploy. Several of those misses land
+// before the visitor has clicked anything, so the budget was paying for the
+// browser's guesses rather than for the caller's.
+//
+// Exempting them is cheap against a scanner rather than free: a wordlist is
+// .php, .env, .bak and extensionless paths, so the moment it guesses anything
+// but an image it spends from the same bucket as before. A caller that probes
+// ONLY image paths is never charged and so never gated — a deliberate trade,
+// since that is a narrow wordlist and banGate still answers the exploit names
+// in it. The gate above is otherwise untouched: a caller already in debt gets a
+// 429 for an icon like anything else, only the charge is waived.
+var uncountedAssetExts = map[string]bool{
+	".ico": true,
+	".png": true,
+	".svg": true,
+}
+
+// isUncountedAsset reports whether a 404 for this path should be free.
+//
+// Lowercased because the extension is the whole test and /FAVICON.ICO is the
+// same request; path.Ext takes the last dot segment, so /x.png/y is correctly
+// not an asset.
+func isUncountedAsset(p string) bool {
+	return uncountedAssetExts[strings.ToLower(path.Ext(p))]
 }
 
 // banGate blocks callers that have asked for something only an exploit scan
