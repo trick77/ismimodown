@@ -187,8 +187,7 @@ export function ModelCards({
               // availability figure: these runs ARE counted there. This says
               // something the numbers above structurally cannot — that the
               // slowest runs in the window are missing from the percentiles
-              // beside it, and that the worse the endpoint gets the more
-              // flattering those percentiles become.
+              // beside it.
               //
               // Gated on the same floor the chips use, for the same reason: a
               // single cut-off run is a rounding error, not a finding, and an
@@ -205,8 +204,7 @@ export function ModelCards({
                 {m.censored} of {m.attempts} runs were cut off by the timeout
                 limits. They count as failures in Availability above. The p50s
                 do not include them — those are medians of the runs that
-                finished, so the more runs get cut off, the faster this model
-                looks here.
+                finished.
               </p>
             )}
 

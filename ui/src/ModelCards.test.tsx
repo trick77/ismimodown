@@ -133,9 +133,8 @@ describe("ModelCards", () => {
   });
 
   // The percentiles on this card are computed over runs that finished, so the
-  // runs the ladder cut off were removed from the TOP of the distribution — and
-  // the card gets more flattering as truncation gets worse. Nothing in the
-  // numbers themselves can say that.
+  // runs the ladder cut off are counted in one figure and absent from another.
+  // Nothing in the numbers themselves can say that.
   it("says so when runs were cut off by the timeout limits", () => {
     render(
       <ModelCards
@@ -152,6 +151,9 @@ describe("ModelCards", () => {
     // are NOT in the percentiles above it.
     expect(note).toHaveTextContent(/count as failures in Availability/i);
     expect(note).toHaveTextContent(/p50s do not include them/i);
+    // The note used to close by spelling out which way the omission cuts. It
+    // was dropped on purpose; this keeps it from drifting back in.
+    expect(note).not.toHaveTextContent(/faster this model looks/i);
   });
 
   it("stays quiet when nothing was cut off", () => {
