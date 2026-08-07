@@ -105,12 +105,28 @@ as their intersection, which breaks the page rather than hardening it.
 
 ## Exploit-path bans
 
-A request for a path only an exploit scan asks for — `/wp-admin/install.php`,
-`/.env`, `/.git/config`, anything ending `.php` — blocks that caller for **48
+A request for a path only an exploit scan asks for blocks that caller for **48
 hours** with a bare `403`. Not a rate limit: there is no budget and no refill,
 because this binary serves no PHP, no admin panel and no dotfiles, so there is
-no honest request to protect. The full list is
-`backend/internal/httpapi/exploitpaths.go`.
+no honest request to protect. Four rules, in
+`backend/internal/httpapi/exploitpaths.go`:
+
+- **any dotfile** — `/.env.prod`, `/.htaccess`, `/.git/config`, `/.DS_Store`.
+  One rule rather than a list, because a list never finishes: the first version
+  named `/.env` and `/.env.local` and let `/.env.prod` straight through.
+  `/.well-known` is the sole carve-out, so a future `security.txt` still works.
+- **an extension this binary cannot serve** — `.php`, `.asp(x)`, `.jsp`, `.cgi`,
+  `.sql`, `.bak`, `.pem`.
+- **a known segment at ANY depth** — `wp-admin`, `wp-includes`, `wp-content`,
+  `wp-json`, `vendor`, `cgi-bin`, `phpmyadmin`, `actuator`, `solr` and friends.
+  Depth matters: the WordPress scanners prepend a guess at the install root, so
+  a single pass is `/blog/wp-includes/…`, `/wordpress/wp-includes/…`,
+  `/2018/wp-includes/…`. Matching only at the front missed eleven of fourteen.
+- **a handful of exact paths** — `/config.json`, `/credentials`,
+  `/server-status`.
+
+The 404 budget (`notFoundPenalty`) is unchanged and still runs underneath: an
+ordinary wrong guess like `/favicon.ico` still just spends a token.
 
 Going back to scanning while banned **resets the block to a fresh 48 hours** from
 that moment, so a scanner has to actually stop for two days to get back in.

@@ -101,9 +101,15 @@ budget on the page load itself: one visit is a dozen asset requests.
 `banGate` is a third thing and NOT a limiter — no budget, no refill. An exploit path
 (`internal/httpapi/exploitpaths.go`) → instant 48h block, bare 403, in memory only. Match on
 `r.URL.Path` BEFORE the mux, never on response status: `spaHandler` answers unknown
-EXTENSIONLESS paths with a 200, so `/wp-admin` never 404s. Prefix entries carry NO trailing
-slash — `path.Clean` strips it. Adding a path to the list → check it against
-`TestRealTrafficIsNotAnExploitPath` first; a false positive is a visitor blocked for two days.
+EXTENSIONLESS paths with a 200, so `/wp-admin` never 404s. Adding a path to the list → check it
+against `TestRealTrafficIsNotAnExploitPath` first; a false positive is a visitor blocked for
+two days.
+
+Segments match at ANY depth, not as a leading prefix — scanners prepend a guess at the install
+root (`/blog/wp-includes/…`, `/2018/wp-includes/…`). Safe only because this app has NO dynamic
+path segments (SPA state is query params); re-check that before adding a common English word.
+Any dot-segment is a ban, so dotfiles need no entries — `/.well-known` is the sole carve-out and
+must stay one.
 
 Only a REPEAT exploit path renews a ban, never an ordinary request. Do NOT "harden" this by
 renewing on any request: a key is an address, an address can be a NAT pool, and a banned
