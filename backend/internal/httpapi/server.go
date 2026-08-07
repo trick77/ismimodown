@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/trick77/ismimodown/internal/ban"
 	"github.com/trick77/ismimodown/internal/config"
 	"github.com/trick77/ismimodown/internal/ratelimit"
 	"github.com/trick77/ismimodown/internal/samples"
@@ -56,6 +57,10 @@ type Deps struct {
 	// the only budget the non-API surface has — see notFoundPenalty. Optional:
 	// nil means a caller may 404 forever.
 	NotFoundLimiter *ratelimit.Limiter
+	// Ban blocks callers caught asking for an exploit path outright, for as
+	// long as the store's TTL — see banGate. Optional: nil means no such
+	// caller is ever blocked, only metered by NotFoundLimiter.
+	Ban *ban.Store
 	// Shutdown is closed when the process begins shutting down. Only the SSE
 	// handler watches it, and that is the point.
 	//
@@ -129,8 +134,14 @@ func NewServer(deps Deps) *Server {
 	// status the mux produced — a 404 from the SPA handler or from an unmatched
 	// /api path alike — and its own 429 must still be logged and still carry the
 	// security headers.
+	//
+	// banGate between securityHeaders and notFoundPenalty. Inside logging, so
+	// every ban and every blocked request is on the record; outside
+	// notFoundPenalty, so a banned caller neither spends the 404 budget nor
+	// reaches the mux — including on /api/events, which is registered on the
+	// outer mux and so bypasses the request limiter entirely.
 	return &Server{
-		Handler: recovery(logging(securityHeaders(notFoundPenalty(s.deps.NotFoundLimiter, s.mux)))),
+		Handler: recovery(logging(securityHeaders(banGate(s.deps.Ban, notFoundPenalty(s.deps.NotFoundLimiter, s.mux))))),
 		cache:   s.cache,
 	}
 }

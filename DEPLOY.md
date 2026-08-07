@@ -103,6 +103,51 @@ those labels are dropped. Each header must appear exactly ONCE: a duplicate
 means Traefik is setting its own copy too, and two conflicting CSPs are enforced
 as their intersection, which breaks the page rather than hardening it.
 
+## Exploit-path bans
+
+A request for a path only an exploit scan asks for — `/wp-admin/install.php`,
+`/.env`, `/.git/config`, anything ending `.php` — blocks that caller for **48
+hours** with a bare `403`. Not a rate limit: there is no budget and no refill,
+because this binary serves no PHP, no admin panel and no dotfiles, so there is
+no honest request to protect. The full list is
+`backend/internal/httpapi/exploitpaths.go`.
+
+Coming back while banned **resets the block to a fresh 48 hours** from that
+moment, for any request at all — so a scanner has to actually stop for two days
+to get back in.
+
+Bans live in memory only. **Restarting the container clears every one of them**,
+which is the only escape hatch there is:
+
+```sh
+docker compose restart ismimodown
+```
+
+**This bans you too.** `curl https://ismimodown.com/.env` against production
+locks your own address out for 48 hours, and every page load you make afterwards
+pushes the expiry back out to a full 48 again. Restart the container.
+
+The line to look for:
+
+```sh
+docker compose logs ismimodown | grep 'banned caller'
+# {"level":"WARN","msg":"banned caller for exploit path","client":"165.245.182.166",
+#  "path":"/wp-login.php","ban":"new","until":"2026-08-09T10:00:36Z"}
+```
+
+`ban` is `new` on the first offence and `extended` on a return visit. Repeat
+lines for the same caller are throttled to one a minute — a banned scanner does
+not stop knocking, and one line per refusal would bury the ban that started it.
+The ordinary request log still records every `403`.
+
+At most 10,000 addresses are held; past that the soonest-to-expire is evicted so
+the newest ban always lands. Well beyond real volume — the logs run to a few
+dozen such requests a day — but the callers this catches rotate addresses.
+
+Note this is per address, so it does **not** stop a scanner arriving through
+Cloudflare Workers: those rotate across Cloudflare's edge ranges and present a
+different address every few minutes. It works against direct-to-origin scanners.
+
 The first cycle runs immediately at startup rather than after a full interval,
 so there is data within seconds of a deploy. Percentiles stay suppressed until
 20 successful samples exist — roughly 100 minutes — and the dashboard says

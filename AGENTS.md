@@ -98,6 +98,13 @@ route but charges only for a 404 — never 4xx at large, never a served response
 or a 400 compounds the two into a limit neither was sized for, and charging a 200 puts a
 budget on the page load itself: one visit is a dozen asset requests.
 
+`banGate` is a third thing and NOT a limiter — no budget, no refill. An exploit path
+(`internal/httpapi/exploitpaths.go`) → instant 48h block, bare 403, in memory only. Match on
+`r.URL.Path` BEFORE the mux, never on response status: `spaHandler` answers unknown
+EXTENSIONLESS paths with a 200, so `/wp-admin` never 404s. Prefix entries carry NO trailing
+slash — `path.Clean` strips it. Adding a path to the list → check it against
+`TestRealTrafficIsNotAnExploitPath` first; a false positive is a visitor blocked for two days.
+
 Tests: `openTestDB(t)` against a real SQLite file in `t.TempDir()`, never `:memory:`. Probes
 run against `httptest` fakes and a local `net.Listen` — no real API calls in tests, ever.
 
