@@ -112,9 +112,13 @@ because this binary serves no PHP, no admin panel and no dotfiles, so there is
 no honest request to protect. The full list is
 `backend/internal/httpapi/exploitpaths.go`.
 
-Coming back while banned **resets the block to a fresh 48 hours** from that
-moment, for any request at all — so a scanner has to actually stop for two days
-to get back in.
+Going back to scanning while banned **resets the block to a fresh 48 hours** from
+that moment, so a scanner has to actually stop for two days to get back in.
+Ordinary requests from a banned caller are refused but do NOT renew the ban —
+deliberately, since a key is an address and an address can be a NAT pool: one
+device asking for `/wp-login.php` bans every other, and a bystander with the
+dashboard open would otherwise have their own reconnecting tab renew the ban
+forever.
 
 Bans live in memory only. **Restarting the container clears every one of them**,
 which is the only escape hatch there is:
@@ -124,8 +128,8 @@ docker compose restart ismimodown
 ```
 
 **This bans you too.** `curl https://ismimodown.com/.env` against production
-locks your own address out for 48 hours, and every page load you make afterwards
-pushes the expiry back out to a full 48 again. Restart the container.
+locks your own address out for 48 hours. Either wait it out or restart the
+container.
 
 The line to look for:
 

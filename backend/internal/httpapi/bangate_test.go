@@ -214,8 +214,8 @@ func TestReturningBannedCallerIsLoggedAsAnExtension(t *testing.T) {
 	buf := captureLogs(t)
 	h := bannedServer(t)
 
-	getFrom(t, h, "/.env", "9.9.9.9")          // the ban
-	getFrom(t, h, "/api/dashboard", "9.9.9.9") // coming back
+	getFrom(t, h, "/.env", "9.9.9.9")         // the ban
+	getFrom(t, h, "/wp-login.php", "9.9.9.9") // back to scanning
 
 	var kinds []string
 	for _, entry := range allLogLines(t, buf) {
@@ -232,9 +232,9 @@ func TestReturningBannedCallerIsLoggedAsAnExtension(t *testing.T) {
 	}
 }
 
-// The return visit resets the clock rather than topping it up, and it does so
-// for ANY request — a banned caller asking for the front page is still probing.
-func TestReturnVisitResetsTheFullTerm(t *testing.T) {
+// A scanner that goes back to its wordlist resets the clock rather than topping
+// it up, so getting back in means actually stopping for a full term.
+func TestRepeatExploitPathResetsTheFullTerm(t *testing.T) {
 	store := ban.New(48*time.Hour, 100)
 	db := openTestDB(t)
 	h := NewServer(Deps{
@@ -248,8 +248,7 @@ func TestReturnVisitResetsTheFullTerm(t *testing.T) {
 		t.Fatal("caller is not banned after an exploit request")
 	}
 
-	// A plain, entirely innocent request from the banned caller.
-	if code := getFrom(t, h, "/api/dashboard", "9.9.9.9").Code; code != http.StatusForbidden {
+	if code := getFrom(t, h, "/wp-login.php", "9.9.9.9").Code; code != http.StatusForbidden {
 		t.Fatalf("return request = %d, want 403", code)
 	}
 
@@ -258,12 +257,52 @@ func TestReturnVisitResetsTheFullTerm(t *testing.T) {
 		t.Fatal("caller stopped being banned after coming back")
 	}
 	if !second.After(first) {
-		t.Errorf("expiry %v did not move past %v; the return visit must reset the term", second, first)
+		t.Errorf("expiry %v did not move past %v; scanning again must reset the term", second, first)
 	}
 	// Reset to a full term, not extended by one: the new expiry is ~48h out,
 	// not ~96h.
 	if remaining := time.Until(second); remaining > 49*time.Hour {
 		t.Errorf("remaining = %v, want about 48h — the term is reset, not accumulated", remaining)
+	}
+}
+
+// The trap this avoids, and the reason only a repeat EXPLOIT path renews a ban.
+//
+// A key is an address, and an address can be a NAT or CGNAT pool: one device
+// behind it asking for /wp-login.php bans every other. If renewing took ANY
+// request, a bystander with the dashboard open would have their own tab renew
+// the ban forever — the SPA reconnects its stream in an unbounded loop and
+// refetches every five minutes — so the documented "wait 48 hours" escape would
+// never arrive and only a container restart would help.
+func TestOrdinaryRequestsFromABannedCallerDoNotRenewTheBan(t *testing.T) {
+	store := ban.New(48*time.Hour, 100)
+	db := openTestDB(t)
+	h := NewServer(Deps{
+		Version: "test", DB: db, Samples: samples.New(db),
+		Models: []string{"mimo-v2.5"}, Ban: store,
+	})
+
+	getFrom(t, h, "/.env", "9.9.9.9")
+	first, ok := store.Expires("9.9.9.9")
+	if !ok {
+		t.Fatal("caller is not banned after an exploit request")
+	}
+
+	// Exactly what an open dashboard on a shared address keeps doing.
+	for range 20 {
+		if code := getFrom(t, h, "/api/events", "9.9.9.9").Code; code != http.StatusForbidden {
+			t.Fatalf("banned caller = %d, want 403", code)
+		}
+		getFrom(t, h, "/api/dashboard", "9.9.9.9")
+		getFrom(t, h, "/", "9.9.9.9")
+	}
+
+	second, ok := store.Expires("9.9.9.9")
+	if !ok {
+		t.Fatal("caller stopped being banned")
+	}
+	if !second.Equal(first) {
+		t.Errorf("expiry moved from %v to %v; a bystander's own page must not renew their ban", first, second)
 	}
 }
 

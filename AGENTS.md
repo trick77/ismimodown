@@ -105,6 +105,11 @@ EXTENSIONLESS paths with a 200, so `/wp-admin` never 404s. Prefix entries carry 
 slash — `path.Clean` strips it. Adding a path to the list → check it against
 `TestRealTrafficIsNotAnExploitPath` first; a false positive is a visitor blocked for two days.
 
+Only a REPEAT exploit path renews a ban, never an ordinary request. Do NOT "harden" this by
+renewing on any request: a key is an address, an address can be a NAT pool, and a banned
+bystander's own dashboard tab (unbounded SSE reconnect + 5-min refetch) would renew its own ban
+forever, making the 48h escape unreachable.
+
 Tests: `openTestDB(t)` against a real SQLite file in `t.TempDir()`, never `:memory:`. Probes
 run against `httptest` fakes and a local `net.Listen` — no real API calls in tests, ever.
 

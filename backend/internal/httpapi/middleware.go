@@ -246,23 +246,36 @@ func banGate(store *ban.Store, next http.Handler) http.Handler {
 		// and a log line all name the caller identically.
 		key := ratelimit.ClientIP(r)
 
-		// A banned caller that comes back has its block reset to a FULL term
-		// from this moment — not topped up, not left to run out. Nothing here
-		// asks what the return request was for: a banned caller asking for the
-		// front page is a banned caller still probing, and the block should
-		// outlive its attention span rather than the other way round. The
-		// practical effect is that a scanner has to actually stop for 48 hours
-		// to get back in.
+		exploit := isExploitPath(r.URL.Path)
+
 		if store.Banned(key) {
-			_, shouldLog := store.Ban(key)
-			if shouldLog {
-				logBan(key, r.URL.Path, "extended", store)
+			// A banned caller that goes back to scanning has its block reset to
+			// a FULL term from this moment — not topped up, not left to run
+			// out. So getting back in means actually stopping for 48 hours.
+			//
+			// Only a repeat EXPLOIT path renews it, though, and that
+			// restriction is load-bearing. Renewing on any request at all reads
+			// as the stricter choice and is in fact a trap: a key is an
+			// address, an address can be a NAT or a CGNAT pool, and one device
+			// behind it asking for /wp-login.php bans every other. If any of
+			// those bystanders has the dashboard open, its own reconnect loop
+			// and 5-minute refetch (see the stream effect in ui/src/App.tsx)
+			// push the expiry out forever — the ban becomes permanent, the
+			// documented "wait 48 hours" escape becomes unreachable, and the
+			// victim has no way to know that a restart is the only way back.
+			// A scanner, meanwhile, keeps walking its wordlist, so it renews
+			// its own ban without help.
+			if exploit {
+				_, shouldLog := store.Ban(key)
+				if shouldLog {
+					logBan(key, r.URL.Path, "extended", store)
+				}
 			}
 			w.WriteHeader(http.StatusForbidden)
 			return
 		}
 
-		if isExploitPath(r.URL.Path) {
+		if exploit {
 			_, shouldLog := store.Ban(key)
 			if shouldLog {
 				logBan(key, r.URL.Path, "new", store)
