@@ -282,6 +282,66 @@ func TestSuccessfulRequestsAreNotCharged(t *testing.T) {
 	}
 }
 
+// A browser asks for icons nobody linked — /favicon.ico on every first visit,
+// apple-touch-icon on iOS — and the budget must not pay for the browser's own
+// guesses.
+func TestImageMissesAreNotCharged(t *testing.T) {
+	h := scannerServer(t)
+
+	for _, path := range []string{
+		"/favicon.ico",
+		"/apple-touch-icon.png",
+		"/apple-touch-icon-precomposed.png",
+		"/FAVICON.ICO",
+		"/icon.svg",
+	} {
+		for i := 0; i < 4; i++ {
+			if code := getFrom(t, h, path, "9.9.9.9").Code; code != http.StatusNotFound {
+				t.Fatalf("%s request %d = %d, want 404; an image miss costs nothing", path, i, code)
+			}
+		}
+	}
+	// The budget is untouched, so the first real probe still has all three.
+	for i, path := range []string{"/wp-login.php", "/config.json", "/.env"} {
+		if code := getFrom(t, h, path, "9.9.9.9").Code; code != http.StatusNotFound {
+			t.Fatalf("probe %d (%s) = %d, want 404; icons must not have spent the budget", i, path, code)
+		}
+	}
+	if code := getFrom(t, h, "/wp-config.php.bak", "9.9.9.9").Code; code != http.StatusTooManyRequests {
+		t.Errorf("the fourth probe = %d, want 429; the exemption is for images, not for everything", code)
+	}
+}
+
+// The exemption waives the charge, not the gate: a caller already in debt is
+// cut off from everything, an icon included. It does NOT make an image-only
+// scanner reachable — nothing charges it, so nothing gates it either — only a
+// caller that spent the budget on something else.
+func TestAThrottledCallerIsRefusedImagesToo(t *testing.T) {
+	h := scannerServer(t)
+
+	for i := 0; i < 6; i++ {
+		getFrom(t, h, "/wp-login.php", "9.9.9.9")
+	}
+	if code := getFrom(t, h, "/favicon.ico", "9.9.9.9").Code; code != http.StatusTooManyRequests {
+		t.Errorf("/favicon.ico = %d, want 429 for a throttled caller", code)
+	}
+}
+
+// path.Ext takes the last dot segment, so an image extension in the middle of a
+// path is not an image request.
+func TestImageExtensionMustBeTheLastSegment(t *testing.T) {
+	h := scannerServer(t)
+
+	for i := 0; i < 3; i++ {
+		if code := getFrom(t, h, "/x.png/setup", "9.9.9.9").Code; code != http.StatusNotFound {
+			t.Fatalf("probe %d = %d, want 404", i, code)
+		}
+	}
+	if code := getFrom(t, h, "/x.png/setup", "9.9.9.9").Code; code != http.StatusTooManyRequests {
+		t.Errorf("the fourth probe = %d, want 429; only a trailing image extension is exempt", code)
+	}
+}
+
 // A health probe that fails because someone else scanned the box restarts a
 // healthy container.
 func TestHealthzIsNeverThrottled(t *testing.T) {
