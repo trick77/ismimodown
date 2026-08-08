@@ -240,6 +240,55 @@ describe("ModelCards", () => {
     );
   });
 
+  // Publishing the target is what turns a sub-target percentage with no chip
+  // into a contradiction, so the figure has to answer it itself. The sentence
+  // used to live only in the censored note, which means three 502s — the same
+  // figure, no note — left the card silently arguing with itself.
+  it("says why a sub-target percentage carries no chip, with no censored runs", () => {
+    render(
+      <ModelCards
+        summary={summary([
+          // available_pct too: the hint keys off the DISPLAYED figure, which
+          // is the one the reader sees disagreeing with the missing chip.
+          model({
+            attempts: 292,
+            succeeded: 289,
+            available_pct: 98.97,
+            censored: 0,
+          }),
+        ])}
+        baseline={null}
+      />,
+    );
+
+    expect(screen.queryByTestId("censored-mimo-v2.5")).toBeNull();
+    expect(screen.getByText(/289\/292 runs/)).toHaveTextContent(
+      /under the 99% target, within what this many runs can tell apart/,
+    );
+  });
+
+  // A window can fall under MIN_ATTEMPTS_FOR_STATE long after a cold start:
+  // unattributable cycles are excluded from the denominator, so a local uplink
+  // outage shrinks it — and modelTracks drops those same cycles from the recent
+  // track, so the fold that normally saves the header chip is clean too. This
+  // rendered 20.0% in green.
+  it("refuses to call a window too small to hold evidence normal", () => {
+    render(
+      <ModelCards
+        summary={summary([
+          model({ attempts: 15, succeeded: 3, available_pct: 20 }),
+        ])}
+        baseline={null}
+      />,
+    );
+
+    const figure = screen.getByText(/3\/15 runs/).parentElement as HTMLElement;
+    expect(figure.querySelector("[data-testid='state-chip']")).toHaveAttribute(
+      "data-state",
+      "unknown",
+    );
+  });
+
   // The target is published, not implied. A bare percentage next to nothing
   // invites the reader to assume the goal is 100%, which is the assumption this
   // whole scoring change exists to retire.

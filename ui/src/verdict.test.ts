@@ -181,9 +181,14 @@ describe("lower-is-worse metrics", () => {
 
   // The floor under the bound, in attempts. Three of five succeeding really is
   // a low bound — a window twenty minutes old must not publish DEGRADED off it.
-  it("says nothing about a window too young to have evidence", () => {
-    expect(scoreAvailability(3, 5)).toBe("normal");
-    expect(scoreAvailability(0, MIN_ATTEMPTS_FOR_STATE - 1)).toBe("normal");
+  //
+  // "unknown", never "normal". A window can fall under this floor long after a
+  // cold start, because unattributable cycles are excluded from the denominator
+  // — so this branch has to be able to say "no verdict" about a 20% figure, and
+  // green is not that.
+  it("says nothing about a window too small to hold evidence", () => {
+    expect(scoreAvailability(3, 5)).toBe("unknown");
+    expect(scoreAvailability(0, MIN_ATTEMPTS_FOR_STATE - 1)).toBe("unknown");
     expect(scoreAvailability(0, MIN_ATTEMPTS_FOR_STATE)).toBe("degraded");
   });
 

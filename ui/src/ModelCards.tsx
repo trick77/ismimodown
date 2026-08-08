@@ -97,6 +97,18 @@ export function ModelCards({
         // that meets it. scoreAvailability needs both integers to tell those
         // apart; available_pct is derived from the same two and adds nothing.
         const availability = scoreAvailability(m.succeeded, m.attempts);
+        // A percentage under the target with no chip beside it reads as a
+        // contradiction, and printing the target is what made it one — before
+        // it there was nothing on the card for the number to disagree with.
+        //
+        // The sentence that reconciles them existed already, but only inside
+        // the censored note below, so it appeared only when the failures came
+        // from the timeout ladder. Three 502s produce the identical figure and
+        // no note at all. It belongs on the figure that raises the question.
+        const unexplainedMiss =
+          availability === "normal" &&
+          m.attempts > 0 &&
+          m.available_pct < AVAILABILITY_TARGET;
         const correctness = scoreCorrectness(
           m.correct_pct,
           m.answered - m.correct,
@@ -176,7 +188,11 @@ export function ModelCards({
                 // one figure on the card that HAS one, and a percentage with
                 // nothing to be measured against invites the reader to assume
                 // the goal is 100%. It is not. See AVAILABILITY_TARGET.
-                hint={`${m.succeeded}/${m.attempts} runs · target ${AVAILABILITY_TARGET}%`}
+                hint={
+                  unexplainedMiss
+                    ? `${m.succeeded}/${m.attempts} runs · under the ${AVAILABILITY_TARGET}% target, within what this many runs can tell apart from meeting it`
+                    : `${m.succeeded}/${m.attempts} runs · target ${AVAILABILITY_TARGET}%`
+                }
               />
               <Figure
                 label="Correctness"
@@ -213,9 +229,9 @@ export function ModelCards({
                 data-testid={`censored-${m.model_id}`}
               >
                 {m.censored} of {m.attempts} runs were cut off by the timeout
-                limits. They count as failures in Availability above, which may
-                still be within target. The p50s do not include them — those are
-                medians of the runs that finished.
+                limits. They count as failures in Availability above, which says
+                for itself whether that missed the target. The p50s do not
+                include them — those are medians of the runs that finished.
               </p>
             )}
 

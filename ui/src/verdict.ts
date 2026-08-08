@@ -72,9 +72,15 @@ export const MIN_FAILURES_FOR_STATE = 3;
 // the daemon (backend/internal/samples/queries.go) — the same judgement about
 // the same cadence.
 //
-// Below it the answer is "normal", not "unknown": a young window that really is
-// broken is caught by scoreModelRecent, which needs two failures and does not
-// care how long the window has been open.
+// Below it the answer is "unknown", not "normal". Leaning on scoreModelRecent
+// to cover the gap does not work: that only reaches the header chip, so the
+// Availability FIGURE would print its percentage with nothing beside it, and
+// this is not only a cold start. `attempts` counts attributable cycles only —
+// a cycle nobody could pin on MiMo is excluded from the denominator on the
+// daemon (backend/internal/samples/queries.go) — so a long local uplink outage
+// drops a 24h window under this floor, and modelTracks filters those same
+// cycles out of the recent track, leaving the fold clean at the same moment.
+// A card reading 20.0% in green is exactly what that combination produced.
 export const MIN_ATTEMPTS_FOR_STATE = 20;
 
 // One-sided 95%. Two-sided z would demand more evidence than the question needs
@@ -128,7 +134,7 @@ export function wilsonUpper(succeeded: number, attempts: number): number {
 // diverge the safe way.
 export function scoreAvailability(succeeded: number, attempts: number): State {
   if (!Number.isFinite(attempts) || attempts <= 0) return "unknown";
-  if (attempts < MIN_ATTEMPTS_FOR_STATE) return "normal";
+  if (attempts < MIN_ATTEMPTS_FOR_STATE) return "unknown";
   const upper = wilsonUpper(succeeded, attempts);
   if (upper < AVAILABILITY_DEGRADED) return "degraded";
   if (upper < AVAILABILITY_TARGET) return "elevated";
