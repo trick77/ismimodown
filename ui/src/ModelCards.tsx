@@ -3,6 +3,7 @@ import { Figure, StateChip } from "./ui";
 import { formatMs, formatPct, formatTps, plural } from "./format";
 import type { State } from "./verdict";
 import {
+  AVAILABILITY_TARGET,
   MIN_FAILURES_FOR_STATE,
   scoreAvailability,
   scoreCorrectness,
@@ -90,14 +91,24 @@ export function ModelCards({
     <div className="grid gap-4 sm:grid-cols-2">
       {models.map((m) => {
         const base = baseline?.models.find((b) => b.model_id === m.model_id);
-        // The counts, not just the percentages. A card describes the selected
-        // window, and over a day of cycles one dropped connection is 99.65%
-        // available — under the band, and painted as a state. The band decides
-        // how bad it is; the count decides whether anything happened at all.
-        const availability = scoreAvailability(
-          m.attempts > 0 ? m.available_pct : null,
-          m.attempts - m.succeeded,
-        );
+        // The counts, not the percentage beside them. A card describes the
+        // selected window, and over a day of cycles three cut-off runs are
+        // 98.97% — under the target, and indistinguishable from an endpoint
+        // that meets it. scoreAvailability needs both integers to tell those
+        // apart; available_pct is derived from the same two and adds nothing.
+        const availability = scoreAvailability(m.succeeded, m.attempts);
+        // A percentage under the target with no chip beside it reads as a
+        // contradiction, and printing the target is what made it one — before
+        // it there was nothing on the card for the number to disagree with.
+        //
+        // The sentence that reconciles them existed already, but only inside
+        // the censored note below, so it appeared only when the failures came
+        // from the timeout ladder. Three 502s produce the identical figure and
+        // no note at all. It belongs on the figure that raises the question.
+        const unexplainedMiss =
+          availability === "normal" &&
+          m.attempts > 0 &&
+          m.available_pct < AVAILABILITY_TARGET;
         const correctness = scoreCorrectness(
           m.correct_pct,
           m.answered - m.correct,
@@ -129,9 +140,12 @@ export function ModelCards({
               {/* The recent block joins the three window figures, so a
                   DISCRETE failure — a dropped run, a wrong answer — can never
                   leave this chip greener than the verdict banner above it: the
-                  figures describe the SELECTED window behind a floor of
-                  MIN_FAILURES_FOR_STATE, which a fault an hour old clears
-                  neither. See scoreModelRecent.
+                  figures describe the SELECTED window behind floors of their
+                  own, which a fault an hour old clears neither. See
+                  scoreModelRecent — and note this fold got MORE load-bearing
+                  when availability moved to a confidence bound, because a
+                  quieter window figure is exactly what would have opened the
+                  gap.
 
                   Latency is not covered by that, and deliberately so. The
                   banner scores TTFT on the fixed `now` window while this scores
@@ -170,7 +184,15 @@ export function ModelCards({
                 label="Availability"
                 value={formatPct(m.attempts > 0 ? m.available_pct : null)}
                 state={availability}
-                hint={`${m.succeeded}/${m.attempts} runs`}
+                // The target rides along with the counts because this is the
+                // one figure on the card that HAS one, and a percentage with
+                // nothing to be measured against invites the reader to assume
+                // the goal is 100%. It is not. See AVAILABILITY_TARGET.
+                hint={
+                  unexplainedMiss
+                    ? `${m.succeeded}/${m.attempts} runs · under the ${AVAILABILITY_TARGET}% target, within what this many runs can tell apart from meeting it`
+                    : `${m.succeeded}/${m.attempts} runs · target ${AVAILABILITY_TARGET}%`
+                }
               />
               <Figure
                 label="Correctness"
@@ -189,22 +211,27 @@ export function ModelCards({
               // slowest runs in the window are missing from the percentiles
               // beside it.
               //
-              // Gated on the same floor the chips use, for the same reason: a
-              // single cut-off run is a rounding error, not a finding, and an
-              // amber box about it sits on the card every day forever. The
-              // floor is also what keeps the two halves of this card from
-              // contradicting each other — a censored run is a SUBSET of a
-              // failed one, so censored >= 3 implies at least 3 failures, and
-              // this banner can never appear while the Availability chip
-              // beside it is still suppressed by its own floor.
+              // Gated on MIN_FAILURES_FOR_STATE for the reason that constant
+              // exists: a single cut-off run is a rounding error, not a
+              // finding, and an amber box about it sits on the card every day
+              // forever.
+              //
+              // This note can now appear beside a NORMAL Availability chip, and
+              // that is not the two halves of the card contradicting each
+              // other. It used to be impossible, back when three failures was
+              // also the threshold for the chip — which was the bug: three
+              // cut-off runs in two days is a fact worth stating and is not a
+              // missed target. The note reports what happened; the chip reports
+              // whether it amounts to anything. The sentence below says which
+              // is which.
               <p
                 className="mt-4 rounded-ui border border-fault-edge/40 bg-fault-edge/10 px-3 py-2 text-label text-fault-edge"
                 data-testid={`censored-${m.model_id}`}
               >
                 {m.censored} of {m.attempts} runs were cut off by the timeout
-                limits. They count as failures in Availability above. The p50s
-                do not include them — those are medians of the runs that
-                finished.
+                limits. They count as failures in Availability above, which says
+                for itself whether that missed the target. The p50s do not
+                include them — those are medians of the runs that finished.
               </p>
             )}
 

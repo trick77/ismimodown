@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { ModelCards } from "./ModelCards";
-import { MIN_FAILURES_FOR_STATE } from "./verdict";
+import { AVAILABILITY_TARGET, MIN_FAILURES_FOR_STATE } from "./verdict";
 import type { ModelSummary, RecentCycle, Summary } from "./api/types";
 import { FAULT_OK } from "./api/types";
 
@@ -161,12 +161,13 @@ describe("ModelCards", () => {
     expect(screen.queryByTestId("censored-mimo-v2.5")).toBeNull();
   });
 
-  // The floor the Availability chip already uses. Without it the card refuses
-  // to paint a state on one dropped run and then paints an amber box about that
-  // same run — and at 288 cycles a day it does that essentially forever.
+  // Without a floor the card paints an amber box about a single dropped run,
+  // and at 288 cycles a day it does that essentially forever.
   //
-  // A censored run is a subset of a failed one, so this threshold also makes it
-  // impossible for the banner to appear while the chip beside it is suppressed.
+  // The note and the Availability chip no longer share a threshold, and are not
+  // meant to: the note reports that runs were cut off, the chip reports whether
+  // that amounts to a missed target. See the test below for the case where they
+  // deliberately disagree.
   it("stays quiet when too few runs were cut off to mean anything", () => {
     render(
       <ModelCards
@@ -186,6 +187,118 @@ describe("ModelCards", () => {
     expect(screen.queryByTestId("censored-mimo-v2.5")).toBeNull();
   });
 
+  // The reported bug. Three runs cut off by the timeout ladder over 48 hours is
+  // 99.49% available, which is not distinguishable from an endpoint meeting the
+  // 99% target — and the card said ELEVATED anyway, in the 24h view and the 48h
+  // view, off the same three runs.
+  //
+  // The note stays. Three cut-off runs is a fact about the p50s beside it and
+  // is worth stating; what it is not is a verdict.
+  it("notes three cut-off runs without calling them a missed target", () => {
+    render(
+      <ModelCards
+        summary={summary([
+          model({ censored: 3, attempts: 592, succeeded: 589 }),
+        ])}
+        baseline={null}
+      />,
+    );
+
+    expect(screen.getByTestId("censored-mimo-v2.5")).toHaveTextContent(
+      /3 of 592 runs were cut off/,
+    );
+    const card = screen.getByTestId("model-card-mimo-v2.5");
+    expect(card.querySelector("[data-testid='state-chip']")).toHaveAttribute(
+      "data-state",
+      "normal",
+    );
+    expect(card.querySelectorAll("[data-state='elevated']")).toHaveLength(0);
+  });
+
+  // The presence half of the regression above, and the only assertion that
+  // walks a genuinely-elevated availability through Figure.
+  //
+  // It is also the one test that can see the arguments going in backwards.
+  // scoreAvailability takes (succeeded, attempts) and the card has both to
+  // hand; swapped, p exceeds 1, the radical goes NaN, every comparison against
+  // the bands is false and the card reads NORMAL forever. Nothing else in the
+  // suite notices — the unit tests pass their own literals, and the 3-of-592
+  // case asserts the absence of a chip, which a NaN gives it for free.
+  it("chips the Availability figure when the target really is missed", () => {
+    render(
+      <ModelCards
+        summary={summary([model({ attempts: 292, succeeded: 282 })])}
+        baseline={null}
+      />,
+    );
+
+    const hint = screen.getByText(/282\/292 runs/);
+    const figure = hint.parentElement as HTMLElement;
+    expect(figure.querySelector("[data-testid='state-chip']")).toHaveAttribute(
+      "data-state",
+      "elevated",
+    );
+  });
+
+  // Publishing the target is what turns a sub-target percentage with no chip
+  // into a contradiction, so the figure has to answer it itself. The sentence
+  // used to live only in the censored note, which means three 502s — the same
+  // figure, no note — left the card silently arguing with itself.
+  it("says why a sub-target percentage carries no chip, with no censored runs", () => {
+    render(
+      <ModelCards
+        summary={summary([
+          // available_pct too: the hint keys off the DISPLAYED figure, which
+          // is the one the reader sees disagreeing with the missing chip.
+          model({
+            attempts: 292,
+            succeeded: 289,
+            available_pct: 98.97,
+            censored: 0,
+          }),
+        ])}
+        baseline={null}
+      />,
+    );
+
+    expect(screen.queryByTestId("censored-mimo-v2.5")).toBeNull();
+    expect(screen.getByText(/289\/292 runs/)).toHaveTextContent(
+      /under the 99% target, within what this many runs can tell apart/,
+    );
+  });
+
+  // A window can fall under MIN_ATTEMPTS_FOR_STATE long after a cold start:
+  // unattributable cycles are excluded from the denominator, so a local uplink
+  // outage shrinks it — and modelTracks drops those same cycles from the recent
+  // track, so the fold that normally saves the header chip is clean too. This
+  // rendered 20.0% in green.
+  it("refuses to call a window too small to hold evidence normal", () => {
+    render(
+      <ModelCards
+        summary={summary([
+          model({ attempts: 15, succeeded: 3, available_pct: 20 }),
+        ])}
+        baseline={null}
+      />,
+    );
+
+    const figure = screen.getByText(/3\/15 runs/).parentElement as HTMLElement;
+    expect(figure.querySelector("[data-testid='state-chip']")).toHaveAttribute(
+      "data-state",
+      "unknown",
+    );
+  });
+
+  // The target is published, not implied. A bare percentage next to nothing
+  // invites the reader to assume the goal is 100%, which is the assumption this
+  // whole scoring change exists to retire.
+  it("prints the availability target beside the counts", () => {
+    render(<ModelCards summary={summary([model()])} baseline={null} />);
+    expect(
+      screen.getByText(`288/288 runs · target ${AVAILABILITY_TARGET}%`),
+    ).toBeInTheDocument();
+  });
+
   it("counts a single reasoning token in the singular", () => {
     render(
       <ModelCards
@@ -198,10 +311,14 @@ describe("ModelCards", () => {
 
   // The invariant this chip exists to hold: a card can never read greener than
   // the verdict banner above it. Two failed runs inside the hour is what the
-  // banner calls elevated; over the SELECTED window those same two sit under
-  // MIN_FAILURES_FOR_STATE, so every figure on the card is healthy and the
-  // header used to print NORMAL directly under an ELEVATED banner about the
-  // same model.
+  // banner calls elevated; over the SELECTED window those same two are nowhere
+  // near enough evidence to claim the availability target was missed, so every
+  // figure on the card is healthy and the header used to print NORMAL directly
+  // under an ELEVATED banner about the same model.
+  //
+  // Load-bearing since the window score was loosened: this fold is the only
+  // thing standing between a quieter card and a card that contradicts the
+  // banner over it.
   it("never reads greener than the recent cycles", () => {
     render(
       <ModelCards
@@ -217,7 +334,7 @@ describe("ModelCards", () => {
     );
     // The figures still describe the window, and the window is clean. The chip
     // is saying something they structurally cannot.
-    expect(screen.getByText("288/288 runs")).toBeInTheDocument();
+    expect(screen.getByText(/288\/288 runs/)).toBeInTheDocument();
   });
 
   // ...and one failed run is still nothing, on the card as on the banner.
