@@ -4,8 +4,10 @@ import { FAULT_EDGE, FAULT_OK, FAULT_ROUTE, FAULT_UPLINK } from "./api/types";
 import {
   buildVerdict,
   RECENT_CYCLES,
+  MIN_ATTEMPTS_FOR_STATE,
   scoreAvailability,
   scoreCorrectness,
+  wilsonUpper,
   scoreRatio,
   worst,
 } from "./verdict";
@@ -111,14 +113,47 @@ describe("scoreRatio", () => {
   });
 });
 
+describe("wilsonUpper", () => {
+  // The clamp. At succeeded === attempts the radical is still non-zero, so the
+  // unclamped formula puts a number above 100 into a percentage.
+  it("never reports a bound above 100", () => {
+    expect(wilsonUpper(592, 592)).toBe(100);
+    expect(wilsonUpper(1, 1)).toBe(100);
+  });
+
+  it("is never below the measurement it bounds", () => {
+    const cases: Array<[number, number]> = [
+      [589, 592],
+      [289, 292],
+      [282, 292],
+      [1976, 2016],
+      [0, 100],
+    ];
+    for (const [ok, n] of cases) {
+      expect(wilsonUpper(ok, n)).toBeGreaterThanOrEqual((100 * ok) / n);
+    }
+  });
+
+  // More evidence, tighter bound, same measurement.
+  it("narrows as the sample grows", () => {
+    expect(wilsonUpper(99, 100)).toBeGreaterThan(wilsonUpper(990, 1000));
+  });
+
+  it("has no opinion without attempts", () => {
+    expect(wilsonUpper(0, 0)).toBe(100);
+  });
+});
+
 describe("lower-is-worse metrics", () => {
   // Scored against ABSOLUTE expectations, not a rolling baseline: a model that
-  // has been 97% available all week has not made 97% acceptable.
-  it("scores availability absolutely", () => {
-    expect(scoreAvailability(100, 0)).toBe("normal");
-    expect(scoreAvailability(99, 10)).toBe("elevated");
-    expect(scoreAvailability(96.8, 32)).toBe("degraded");
-    expect(scoreAvailability(null, 0)).toBe("unknown");
+  // has been 97% available all week has not made 97% acceptable. What the
+  // sample size decides is not the band, it is whether there is enough
+  // evidence to claim the band was missed.
+  it("scores availability against the target", () => {
+    expect(scoreAvailability(292, 292)).toBe("normal");
+    expect(scoreAvailability(282, 292)).toBe("elevated");
+    expect(scoreAvailability(277, 292)).toBe("degraded");
+    expect(scoreAvailability(0, 0)).toBe("unknown");
   });
 
   it("scores correctness absolutely", () => {
@@ -128,13 +163,32 @@ describe("lower-is-worse metrics", () => {
     expect(scoreCorrectness(null, 0)).toBe("unknown");
   });
 
-  // The floor. Over a day of cycles a single dropped connection is 99.65%
-  // available — under the band — and painting a state on that is how the chip
-  // came to mean nothing.
-  it("refuses to make a state out of one or two failures", () => {
-    expect(scoreAvailability(99.65, 1)).toBe("normal");
-    expect(scoreAvailability(99.3, 2)).toBe("normal");
-    expect(scoreAvailability(99.0, 3)).toBe("elevated");
+  // The reported bug, both readings of it. Three runs cut off by the timeout
+  // ladder painted the 24h card AND the 48h card, off the same three runs —
+  // 98.97% and 99.49%, neither of which is distinguishable from an endpoint
+  // that meets the target.
+  it("does not call three cut-off runs a missed target", () => {
+    expect(scoreAvailability(589, 592)).toBe("normal");
+    expect(scoreAvailability(289, 292)).toBe("normal");
+    expect(scoreAvailability(290, 292)).toBe("normal");
+  });
+
+  // ...but a sustained miss is still a miss. Two percent over seven days is
+  // the same failure RATE the 24h reading could not support a claim about.
+  it("still scores a rate the sample can support", () => {
+    expect(scoreAvailability(1976, 2016)).toBe("elevated");
+  });
+
+  // The floor under the bound, in attempts. Three of five succeeding really is
+  // a low bound — a window twenty minutes old must not publish DEGRADED off it.
+  it("says nothing about a window too young to have evidence", () => {
+    expect(scoreAvailability(3, 5)).toBe("normal");
+    expect(scoreAvailability(0, MIN_ATTEMPTS_FOR_STATE - 1)).toBe("normal");
+    expect(scoreAvailability(0, MIN_ATTEMPTS_FOR_STATE)).toBe("degraded");
+  });
+
+  // Correctness keeps the count-based floor; only availability moved.
+  it("refuses to make a state out of one or two wrong answers", () => {
     expect(scoreCorrectness(98, 1)).toBe("normal");
     expect(scoreCorrectness(94, 3)).toBe("degraded");
   });
@@ -166,9 +220,9 @@ describe("buildVerdict", () => {
   // from one retransmit storm on one connection from one vantage point.
   //
   // It used to paint the banner ELEVATED and then hedge the claim away in the
-  // sentence underneath — while the model cards, held to
-  // MIN_FAILURES_FOR_STATE, called the same cycle normal. The banner now says
-  // it in words and keeps its chip green.
+  // sentence underneath — while the model cards, held to their own floor,
+  // called the same cycle normal. The banner now says it in words and keeps its
+  // chip green.
   it("does not paint a single failed cycle at all", () => {
     const v = buildVerdict(
       summary({ recent: recent([FAULT_EDGE]) }),

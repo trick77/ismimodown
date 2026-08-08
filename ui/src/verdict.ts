@@ -37,24 +37,101 @@ export function scoreRatio(
 // Lower-is-worse metrics are scored against ABSOLUTE expectations, not a
 // rolling baseline: a model that has been 97% available all week has not made
 // 97% acceptable, and a drifting baseline would quietly normalise a fault.
-export const AVAILABILITY_ELEVATED = 99.5;
-export const AVAILABILITY_DEGRADED = 98;
+
+// The published expectation, and the only figure on this page that is a TARGET
+// rather than a band — hence the name, and hence the asymmetry with
+// CORRECTNESS_ELEVATED four lines down, which stays a band because nothing
+// states a target for correctness. Do not "restore consistency" here: the name
+// is what makes the number a promise instead of a threshold nobody chose.
+//
+// 99%, not 99.5% and emphatically not 100%. This is one endpoint probed from one
+// vantage over the public internet, and a page whose resting expectation is
+// perfection reports weather, not faults. 99% is roughly seven hours a month,
+// which is a number worth defending.
+export const AVAILABILITY_TARGET = 99;
+export const AVAILABILITY_DEGRADED = 97;
 export const CORRECTNESS_ELEVATED = 98;
 export const CORRECTNESS_DEGRADED = 95;
 
-// The floor under every percentage on this page.
+// The floor under the correctness percentage and the censored note.
 //
-// A percentage over a small numerator is a rounding error with a decimal point.
-// At 288 cycles a day, ONE failed run is 99.65% — under the elevated band — so
-// the bands alone paint a chip on a single dropped connection, every day,
-// forever. The band says how bad; this says whether anything actually happened.
+// A percentage over a small numerator is a rounding error with a decimal point,
+// and the bands alone paint a chip on a single wrong answer. The band says how
+// bad; this says whether anything actually happened.
+//
+// Availability used to be scored behind this same floor and no longer is — see
+// scoreAvailability, which asks the sharper version of the same question.
 export const MIN_FAILURES_FOR_STATE = 3;
 
-export function scoreAvailability(pct: number | null, failures: number): State {
-  if (pct === null || !Number.isFinite(pct)) return "unknown";
-  if (failures < MIN_FAILURES_FOR_STATE) return "normal";
-  if (pct < AVAILABILITY_DEGRADED) return "degraded";
-  if (pct < AVAILABILITY_ELEVATED) return "elevated";
+// The floor under the availability score, in ATTEMPTS rather than failures.
+//
+// The confidence bound below needs no protection from a small numerator, but it
+// does need protection from a small DENOMINATOR: three of five runs succeeding
+// is a genuinely low bound, so a window that started twenty minutes ago would
+// publish DEGRADED off five samples. Twenty matches MinSamplesForPercentile on
+// the daemon (backend/internal/samples/queries.go) — the same judgement about
+// the same cadence.
+//
+// Below it the answer is "normal", not "unknown": a young window that really is
+// broken is caught by scoreModelRecent, which needs two failures and does not
+// care how long the window has been open.
+export const MIN_ATTEMPTS_FOR_STATE = 20;
+
+// One-sided 95%. Two-sided z would demand more evidence than the question needs
+// — nobody is asking whether availability is suspiciously HIGH.
+const WILSON_Z = 1.645;
+
+// wilsonUpper is the optimistic end of the confidence interval on the TRUE
+// availability, given `succeeded` of `attempts`, as a percentage.
+//
+// Wilson rather than the textbook normal interval because the whole point is
+// behaviour near p = 1, where the normal interval is worthless: it is symmetric,
+// so at 592 of 592 it happily reports a bound above 100%.
+//
+// Clamped, because Wilson does too. At succeeded === attempts the radical is
+// still non-zero (the z²/4n² term survives), and an unclamped bound would put a
+// number over 100 into a percentage.
+export function wilsonUpper(succeeded: number, attempts: number): number {
+  if (attempts <= 0) return 100;
+  const p = succeeded / attempts;
+  const z2 = WILSON_Z * WILSON_Z;
+  const centre = p + z2 / (2 * attempts);
+  const margin =
+    WILSON_Z *
+    Math.sqrt((p * (1 - p)) / attempts + z2 / (4 * attempts * attempts));
+  const upper = (centre + margin) / (1 + z2 / attempts);
+  return Math.min(100, upper * 100);
+}
+
+// scoreAvailability scores the BOUND, not the measurement.
+//
+// The measurement alone cannot carry a verdict, because the same three failures
+// mean different things at different sample sizes and the bands cannot tell them
+// apart. Three cut-off runs in 48 hours is 99.49% — under a 99.5 band — and is
+// also indistinguishable from an endpoint that meets it. A count-based floor did
+// not fix that: at 288 cycles a day a floor of three failures IS the threshold
+// over the short windows, so any three runs painted the card and the band never
+// got a word in.
+//
+// So the band stays absolute, exactly as the comment above it demands — nothing
+// here drifts with observed behaviour — and the sample size decides a different
+// question: is there enough evidence to CLAIM we are under the target. Only when
+// even the optimistic end of the interval sits below the band does the page say
+// so.
+//
+// Counts, not the percentage the API also carries: available_pct is computed
+// from these two integers on the daemon, so taking it as well would add a
+// rounding path and a second source of truth for one number.
+//
+// The bound is always at least the measurement, so a chip can never appear while
+// the percentage printed beside it reads above the band. The two can only
+// diverge the safe way.
+export function scoreAvailability(succeeded: number, attempts: number): State {
+  if (!Number.isFinite(attempts) || attempts <= 0) return "unknown";
+  if (attempts < MIN_ATTEMPTS_FOR_STATE) return "normal";
+  const upper = wilsonUpper(succeeded, attempts);
+  if (upper < AVAILABILITY_DEGRADED) return "degraded";
+  if (upper < AVAILABILITY_TARGET) return "elevated";
   return "normal";
 }
 
@@ -109,7 +186,7 @@ export const DEGRADED_RECENT = 3;
 // TWO inside the hour before the banner says anything at all.
 //
 // One dropped run from one vantage point is an anecdote at every layer, which
-// is the rule MIN_FAILURES_FOR_STATE states sixty lines above — and this used
+// is the rule the floors above state for the window figures — and this used
 // to be 1, so the banner escalated on a single failure while the sentence
 // underneath it read "One run is not yet a pattern". The banner contradicting
 // itself in public is worse than the banner staying quiet, and the model cards
@@ -580,14 +657,19 @@ function modelTracks(
 // the prose.
 //
 // It exists so the model cards can never publish a greener state than the
-// banner above them. The card scores the SELECTED window behind a floor of
-// MIN_FAILURES_FOR_STATE, the banner scores the last RECENT_CYCLES behind a
-// floor of ELEVATED_RECENT, and those two disagreeing is not a bug in either
-// number — it is two questions with two honest answers, printed as one word in
-// the same chip. Matching the thresholds cannot fix it either: any banner floor
-// below MIN_FAILURES_FOR_STATE leaves the same gap one notch up, and it cannot
-// reach it because DEGRADED_RECENT already claims that count. So the card folds
-// this in instead, and the invariant holds whatever the thresholds become.
+// banner above them. The card scores the SELECTED window behind floors of its
+// own — MIN_ATTEMPTS_FOR_STATE and the confidence bound for availability,
+// MIN_FAILURES_FOR_STATE for correctness — while the banner scores the last
+// RECENT_CYCLES behind a floor of ELEVATED_RECENT, and those two disagreeing is
+// not a bug in either number: it is two questions with two honest answers,
+// printed as one word in the same chip. Matching the thresholds cannot fix it
+// either — a bound over a day of cycles and a count over the last hour are not
+// commensurable, and any banner floor low enough to close the gap leaves the
+// same gap one notch up, where DEGRADED_RECENT already claims the count. So the
+// card folds this in instead, and the invariant holds whatever the thresholds
+// become. That matters more now than it did: the window score was deliberately
+// loosened, and this fold is the only reason loosening it cannot leave the chip
+// greener than the sentence above it.
 export function scoreModelRecent(
   modelId: string,
   recent: RecentCycle[],
