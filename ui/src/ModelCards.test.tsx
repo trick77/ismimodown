@@ -215,6 +215,31 @@ describe("ModelCards", () => {
     expect(card.querySelectorAll("[data-state='elevated']")).toHaveLength(0);
   });
 
+  // The presence half of the regression above, and the only assertion that
+  // walks a genuinely-elevated availability through Figure.
+  //
+  // It is also the one test that can see the arguments going in backwards.
+  // scoreAvailability takes (succeeded, attempts) and the card has both to
+  // hand; swapped, p exceeds 1, the radical goes NaN, every comparison against
+  // the bands is false and the card reads NORMAL forever. Nothing else in the
+  // suite notices — the unit tests pass their own literals, and the 3-of-592
+  // case asserts the absence of a chip, which a NaN gives it for free.
+  it("chips the Availability figure when the target really is missed", () => {
+    render(
+      <ModelCards
+        summary={summary([model({ attempts: 292, succeeded: 282 })])}
+        baseline={null}
+      />,
+    );
+
+    const hint = screen.getByText(/282\/292 runs/);
+    const figure = hint.parentElement as HTMLElement;
+    expect(figure.querySelector("[data-testid='state-chip']")).toHaveAttribute(
+      "data-state",
+      "elevated",
+    );
+  });
+
   // The target is published, not implied. A bare percentage next to nothing
   // invites the reader to assume the goal is 100%, which is the assumption this
   // whole scoring change exists to retire.
