@@ -66,9 +66,16 @@ export function ModelCards({
   // by a whole card — which is the layout PageSpeed grades on mobile.
   //
   // The breakpoint is md rather than sm because the cards themselves moved —
-  // see the grid below. 500 still fits the stacked shape with a little slack: a
-  // card measures 236 px on a 393 px screen, where the display step is one size
-  // down (index.css), so two and a gap is 488.
+  // see the grid below. Two numbers still, though the card now has three sizes
+  // under them, and both are deliberately the SLACK side of every band they
+  // cover: 500 against a stacked pair measuring 488 on a phone and 470 between
+  // sm and md (a full-width card wraps less prose), 242 against 244 at
+  // 768–895, where the display step is one size down (index.css). Reserving
+  // slightly long settles the page UP by a few pixels when the cards arrive;
+  // reserving short drops everything below them down, which is the shift this
+  // whole placeholder exists to prevent. The one band that reserves short is
+  // 896–1023 at 259 — measured, pre-existing, and left alone rather than
+  // fixed with a third number nothing else on the page is split by.
   //
   // Both numbers assume the two models this probes, and they assume it
   // IDENTICALLY: one row of a two-column grid is the same assumption as two
