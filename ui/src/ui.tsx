@@ -62,7 +62,7 @@ export function CensoredNote({ bands }: { bands: number }) {
 // one that happened to render the badge first.
 export function LogScaleChip() {
   return (
-    <span className="num rounded-full border border-border px-2 py-[2px] text-micro uppercase tracking-wider text-faint">
+    <span className="num whitespace-nowrap rounded-full border border-border px-2 py-[2px] text-micro uppercase tracking-wider text-faint">
       log scale
     </span>
   );
@@ -101,8 +101,14 @@ export function Card({
   right?: ReactNode;
 }) {
   return (
-    <section className="card p-5">
-      <header className="mb-4 flex items-start justify-between gap-4">
+    <section className="card p-4 sm:p-5">
+      {/* Stacked below the sm breakpoint, side by side above it. The two chips
+          that ride this row — "log scale" and the cost panel's off-peak rate —
+          are three and four words wide, and on a phone they took a third of
+          the row and broke over three lines while the title beside them broke
+          over two. Neither is a control; both are notes about the panel, so
+          under the subtitle is where they read. */}
+      <header className="mb-4 flex flex-col items-start gap-2 sm:flex-row sm:justify-between sm:gap-4">
         <div>
           <h2 className="font-serif text-title font-normal text-ink">
             {title}

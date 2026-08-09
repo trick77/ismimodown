@@ -60,11 +60,22 @@ export function ModelCards({
   // surface is so that the reservation reads as a card on its way rather than
   // as a hole in the page.
   //
-  // TWO numbers because the grid has two shapes and a card is 242 px tall in
-  // both: side by side above the sm breakpoint, one row; stacked below it, two
-  // rows and a gap-4 between them. A single 242 was measured on a desktop
-  // viewport and left the phone shifting by a whole card — which is the layout
-  // PageSpeed grades on mobile.
+  // TWO numbers because the grid has two shapes: side by side above the md
+  // breakpoint, one row; stacked below it, two rows and a gap-4 between them. A
+  // single 242 was measured on a desktop viewport and left the phone shifting
+  // by a whole card — which is the layout PageSpeed grades on mobile.
+  //
+  // The breakpoint is md rather than sm because the cards themselves moved —
+  // see the grid below. Two numbers still, though the card now has three sizes
+  // under them, and both are deliberately the SLACK side of every band they
+  // cover: 500 against a stacked pair measuring 488 on a phone and 470 between
+  // sm and md (a full-width card wraps less prose), 242 against 244 at
+  // 768–895, where the display step is one size down (index.css). Reserving
+  // slightly long settles the page UP by a few pixels when the cards arrive;
+  // reserving short drops everything below them down, which is the shift this
+  // whole placeholder exists to prevent. The one band that reserves short is
+  // 896–1023 at 259 — measured, pre-existing, and left alone rather than
+  // fixed with a third number nothing else on the page is split by.
   //
   // Both numbers assume the two models this probes, and they assume it
   // IDENTICALLY: one row of a two-column grid is the same assumption as two
@@ -80,7 +91,7 @@ export function ModelCards({
   if (models.length === 0 && pending) {
     return (
       <div
-        className="card h-[500px] p-5 sm:h-[242px]"
+        className="card h-[500px] p-4 sm:p-5 md:h-[242px]"
         aria-hidden="true"
         data-testid="model-cards-pending"
       />
@@ -88,7 +99,12 @@ export function ModelCards({
   }
 
   return (
-    <div className="grid gap-4 sm:grid-cols-2">
+    // Two up from md, not from sm. A card holds four figures in a 2x2 grid,
+    // so two cards side by side is four columns of numbers across the page —
+    // and between 640 and 768 that column is ~110px against a longest figure
+    // of 138. Every throughput value wrapped. Stacked, each card gets the full
+    // width and the figures are the ones the desktop shows.
+    <div className="grid gap-4 md:grid-cols-2">
       {models.map((m) => {
         const base = baseline?.models.find((b) => b.model_id === m.model_id);
         // The counts, not the percentage beside them. A card describes the
@@ -119,7 +135,7 @@ export function ModelCards({
         return (
           <section
             key={m.model_id}
-            className="card p-5"
+            className="card p-4 sm:p-5"
             data-testid={`model-card-${m.model_id}`}
           >
             <header className="mb-4 flex items-center justify-between gap-3">

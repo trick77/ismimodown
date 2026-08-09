@@ -284,7 +284,7 @@ export default function App() {
   return (
     <>
       <div className="aura" aria-hidden="true" />
-      <div className="relative z-10 mx-auto max-w-[1180px] px-5 pb-24 sm:px-8">
+      <div className="relative z-10 mx-auto max-w-[1180px] px-4 pb-24 sm:px-8">
         <Masthead />
         {/* Everything the page is FOR, in one landmark, so a screen reader can
             jump past the masthead in a keystroke instead of arrowing through
@@ -324,7 +324,20 @@ export default function App() {
             </div>
           )}
 
-          <div className="grid gap-6">
+          {/* minmax(0,1fr), not the implicit 1fr this had: a grid item's
+              min-width is auto, so the widest thing inside ANY panel became
+              the floor for the whole column — and two panels below hold a
+              table with an 860px min-width. The column grew to 860, every
+              other panel with it, and the PAGE scrolled sideways instead of
+              the table doing it inside its own wrapper. A phone showed the
+              left 393px of a 1136px page: the model cards lost their right
+              half, every chart was cropped, and nothing said so.
+
+              Unprefixed, because the bug is not a phone bug — it is every
+              viewport under ~900px, which includes a split-screen laptop. It
+              costs nothing above that: the column is already wider than any
+              panel's min-content there. */}
+          <div className="grid gap-6 grid-cols-[minmax(0,1fr)]">
             <ModelCards
               summary={data?.summary ?? null}
               baseline={data?.baseline ?? null}

@@ -47,7 +47,7 @@ export function CostPanel({ cost }: { cost: CostBreakdown | null }) {
       subtitle="Every probe this page sends, priced from the usage MiMo reported on it — both models, both probe kinds."
       right={
         <span
-          className={`num rounded-full border px-2 py-[2px] text-micro uppercase tracking-wider ${
+          className={`num whitespace-nowrap rounded-full border px-2 py-[2px] text-micro uppercase tracking-wider ${
             cost.offpeak_active
               ? "border-online/40 bg-online/10 text-online"
               : "border-border-soft text-muted"
@@ -70,7 +70,11 @@ export function CostPanel({ cost }: { cost: CostBreakdown | null }) {
         </span>
       }
     >
-      <div className="mb-5 grid grid-cols-2 gap-5 border-b border-border-soft pb-5 sm:grid-cols-4">
+      {/* Four up from md rather than sm, for the reason the model cards move
+          on the same breakpoint: four columns inside a 600px card leaves each
+          figure ~120px, and "$0.000141" needs more than that. Two by two until
+          there is room for one row. */}
+      <div className="mb-5 grid grid-cols-2 gap-5 border-b border-border-soft pb-5 md:grid-cols-4">
         <Money
           label={`Last ${cost.window}`}
           value={formatUSD(cost.total.usd)}

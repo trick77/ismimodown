@@ -160,7 +160,17 @@ export function RecentErrors({ failures }: { failures: Failure[] | null }) {
           Not enough data yet — first samples within a few minutes.
         </p>
       ) : failures.length > 0 ? (
-        <div className="overflow-x-auto">
+        // `relative` for the same reason as the raw table's wrapper: anything
+        // absolutely positioned inside a scroller escapes it unless the
+        // scroller is the containing block, and then holds the page open at the
+        // table's full width. Nothing here is positioned today — this keeps it
+        // that way for the next cell that needs a visually-hidden label.
+        // Bled to the card's edges below sm, so a row that continues past the
+        // screen is cut off AT the screen rather than at a margin — on a phone
+        // the margin read as the end of the table. The padding is put back
+        // inside the scroller, so the first column still lines up with the
+        // prose above it and the last one is not flush against the edge.
+        <div className="relative -mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
           {/* Narrower than the raw table: five columns, and one of them is a
               class with a line of prose under it rather than a figure. */}
           <table className="w-full min-w-[520px] text-label">
