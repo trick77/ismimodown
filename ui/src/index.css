@@ -119,6 +119,36 @@ body {
   }
 }
 
+/* The display step steps down where the column holding it is too narrow.
+ *
+ * Every figure on the page is mono with tabular figures, so its width is
+ * exactly its character count — and the widest, "90.4 tok/s", needs 169px at
+ * 1.75rem. A model card holds four figures in a 2x2 grid, so that column only
+ * reaches 169px once the viewport is about 890px wide: below it the value
+ * wrapped onto a second line, which pushed the figure beside it out of line
+ * with its neighbour and made the card 60px taller than the reservation
+ * ModelCards holds for it. The cost panel's "$0.000141" ran out of its column
+ * the same way. Neither was visible before, because the page was overflowing
+ * sideways and every panel was being laid out ~900px wide whatever the screen
+ * said — see the grid comment in App.tsx.
+ *
+ * 1.4375rem, measured rather than guessed: the largest step of the scale that
+ * fits that string in the 138px column a 393px phone gives it, and a
+ * three-digit throughput would be one character longer and still fit.
+ *
+ * 56rem because that is where the desktop step starts fitting again — the
+ * threshold is a column width, not a device. An iPad in portrait is below it
+ * and takes the smaller step; every laptop is above it and is untouched.
+ * Written as a media query on the token rather than a variant on each call
+ * site, because it is one decision about the type scale and there are a dozen
+ * figures on the page.
+ */
+@media (width < 56rem) {
+  :root {
+    --text-display: 1.4375rem;
+  }
+}
+
 /* A fixed atmospheric wash behind the fold: two offset radial gradients. Fixed
    rather than scrolled so it reads as light in the room rather than as a
    texture on the page. */

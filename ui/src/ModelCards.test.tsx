@@ -65,11 +65,11 @@ describe("ModelCards", () => {
     render(<ModelCards summary={null} baseline={null} pending />);
 
     const pending = screen.getByTestId("model-cards-pending");
-    // Two shapes, because the grid has two: one row side by side above the sm
+    // Two shapes, because the grid has two: one row side by side above the md
     // breakpoint, two stacked rows below it. Reserving only the desktop height
     // leaves the phone shifting by a whole card.
     expect(pending).toHaveClass("h-[500px]");
-    expect(pending).toHaveClass("sm:h-[242px]");
+    expect(pending).toHaveClass("md:h-[242px]");
     // It carries no information, so it must not be an object a screen reader
     // stops on — the verdict banner above already says the page is loading.
     expect(pending).toHaveAttribute("aria-hidden", "true");

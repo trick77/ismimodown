@@ -139,7 +139,19 @@ export function SamplesTable({ perGroup }: { perGroup: Sample[][] }) {
   return (
     <Card title="Raw cycles" subtitle={subtitle}>
       {rows.length > 0 ? (
-        <div className="overflow-x-auto">
+        // `relative` so the wrapper is the containing block for what it
+        // scrolls. The sr-only "ok" spans below are position:absolute with no
+        // offsets, so they resolve against the nearest POSITIONED ancestor —
+        // which was the page shell — and sat at their static x inside an 860px
+        // table, 800-odd pixels out. Absolutely positioned to something outside
+        // the scroller, they are not clipped by it: they held the whole page
+        // open, and it scrolled sideways with the table still scrolling inside.
+        // Bled to the card's edges below sm, so a row that continues past the
+        // screen is cut off AT the screen rather than at a margin — on a phone
+        // the margin read as the end of the table. The padding is put back
+        // inside the scroller, so the first column still lines up with the
+        // prose above it and the last one is not flush against the edge.
+        <div className="relative -mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
           {/* The min-width went 640 → 700 with the Tokens column, and 700 → 860
               with Model and the In/Out split. It is what stops the columns
               being squeezed to the point of wrapping on a phone; the wrapper
