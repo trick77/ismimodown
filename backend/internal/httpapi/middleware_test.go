@@ -172,6 +172,47 @@ func TestNoThirdPartyOriginsInThePolicy(t *testing.T) {
 	}
 }
 
+// The og card is the one response another origin is supposed to be able to
+// load, so it is the one response CORP must not refuse.
+//
+// This was wrong for a long time and invisible, because the preview surfaces
+// that matter most — Slack, WhatsApp, Telegram, X — fetch the image server-side,
+// and a server-side fetch never consults CORP. Only a client hotlinking the URL
+// into a page sees the block, which is why the assertion is worth having.
+func TestTheOgCardIsEmbeddableCrossOrigin(t *testing.T) {
+	db := openTestDB(t)
+	h := NewServer(Deps{Version: "test", DB: db, Samples: samples.New(db)})
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/og.png", nil))
+
+	if got := rec.Header().Get("Cross-Origin-Resource-Policy"); got != "cross-origin" {
+		t.Errorf("/og.png: CORP = %q, want cross-origin; the card exists to be embedded", got)
+	}
+}
+
+// The exception is the card and nothing else. An icon, the manifest, the page
+// and the API all stay same-origin — none of them has any business being
+// embedded in someone else's document, and a blanket cross-origin would be the
+// easy way to lose that.
+func TestOnlyTheOgCardIsCrossOrigin(t *testing.T) {
+	db := openTestDB(t)
+	h := NewServer(Deps{Version: "test", DB: db, Samples: samples.New(db)})
+
+	for _, path := range []string{
+		"/", "/healthz", "/api/dashboard?window=24h",
+		"/icon.svg", "/icon-192.png", "/manifest.webmanifest", "/apple-touch-icon.png",
+		"/og.png/x", "/x/og.png",
+	} {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+
+		if got := rec.Header().Get("Cross-Origin-Resource-Policy"); got != "same-origin" {
+			t.Errorf("%s: CORP = %q, want same-origin", path, got)
+		}
+	}
+}
+
 // HSTS is the TLS terminator's to set: this process serves plain HTTP and does
 // not know whether anything in front of it is doing TLS at all. Emitting it here
 // would be wrong on a dev server and redundant in production.
@@ -252,18 +293,30 @@ func TestNotFoundsThrottleTheCaller(t *testing.T) {
 	}
 }
 
-// An unmatched /api path is a 404 like any other, and a scanner walking API
-// names must pay for it too.
-func TestUnknownAPIPathsAreCharged(t *testing.T) {
+// An unmatched /api path 404s, and an extensionless one is not charged for it —
+// /api/v1/users is extensionless like every other API name a scanner guesses.
+//
+// That is not a hole: /api/* is the one prefix with its OWN request limiter
+// (see routes()), so a caller walking API names is metered there, by request
+// rather than by miss. This limiter exists for the surface that has no other
+// bound. An /api path carrying a non-image extension is charged here as well,
+// since that is a wordlist rather than an API guess.
+func TestUnknownAPIPathsRelyOnTheRequestLimiter(t *testing.T) {
 	h := scannerServer(t)
 
-	for i := 0; i < 3; i++ {
+	for i := 0; i < 8; i++ {
 		if code := getFrom(t, h, "/api/v1/users", "9.9.9.9").Code; code != http.StatusNotFound {
-			t.Fatalf("probe %d = %d, want 404", i, code)
+			t.Fatalf("probe %d = %d, want 404 at no cost to the 404 budget", i, code)
 		}
 	}
-	if code := getFrom(t, h, "/api/v1/users", "9.9.9.9").Code; code != http.StatusTooManyRequests {
-		t.Errorf("the fourth probe = %d, want 429", code)
+	// The budget is intact, so an extensioned probe still has all three tokens.
+	for i, path := range []string{"/api/config.php", "/api/db.sql", "/api/old.bak"} {
+		if code := getFrom(t, h, path, "9.9.9.9").Code; code != http.StatusNotFound {
+			t.Fatalf("probe %d (%s) = %d, want 404", i, path, code)
+		}
+	}
+	if code := getFrom(t, h, "/api/x.aspx", "9.9.9.9").Code; code != http.StatusTooManyRequests {
+		t.Errorf("the fourth extensioned probe = %d, want 429", code)
 	}
 }
 
@@ -351,23 +404,77 @@ func TestWellKnownMissesAreNotCharged(t *testing.T) {
 	}
 }
 
-// A dotted path that only LOOKS like the carve-out is charged like anything
-// else. /.well-knownx is not under /.well-known, and neither is /x/.well-known
-// — the prefix is anchored at the root because that is where the spec puts it.
+// The scenario the extensionless exemption exists for, end to end.
+//
+// Until web.spaHandler stopped serving the shell for unknown extensionless
+// paths, every one of them was a 200 — so any such URL a search engine ever
+// discovered went into its index as a real page. They 404 after the deploy that
+// changes it, and the engine recrawls them to find out what happened. If those
+// 404s were charged, a dozen would exhaust a burst of five and the gate would
+// then answer EVERYTHING from that caller with a 429: the homepage, robots.txt,
+// the sitemap. A crawler locked out by the very change meant to get the site
+// indexed.
+//
+// Run against the real SPA handler, because the 404 has to be the real one.
+func TestARecrawlOfOldSoftFourOhFourURLsIsNotLockedOut(t *testing.T) {
+	static, err := web.Handler()
+	if err != nil {
+		t.Fatalf("web.Handler: %v", err)
+	}
+	h := NewServer(Deps{
+		Version:         "test",
+		DB:              openTestDB(t),
+		Static:          static,
+		NotFoundLimiter: ratelimit.New(0.0001, 5), // production's burst, no useful refill
+	})
+
+	// A crawler working through URLs it learned when they returned 200.
+	for _, path := range []string{
+		"/status", "/about", "/api-status", "/xiaomi-mimo", "/uptime",
+		"/history", "/faq", "/mimo", "/downdetector", "/incidents",
+	} {
+		if code := getFrom(t, h, path, "66.249.66.1").Code; code != http.StatusNotFound {
+			t.Fatalf("%s = %d, want a plain 404", path, code)
+		}
+	}
+
+	// The three requests that decide whether the site is indexable at all.
+	for _, path := range []string{"/", "/robots.txt", "/sitemap.xml"} {
+		if code := getFrom(t, h, path, "66.249.66.1").Code; code == http.StatusTooManyRequests {
+			t.Errorf("%s = 429 after the recrawl; the crawler is locked out", path)
+		}
+	}
+}
+
+// A path that only LOOKS like the carve-out is charged like anything else. The
+// prefix is anchored at the root, because that is where the spec puts it:
+// /.well-knownx is not under /.well-known, and neither is /x/.well-known.
+//
+// Every path here carries the same .php extension, so the extension is held
+// constant and the PREFIX is the only thing under test — an extensionless
+// look-alike would be exempt on its own account and prove nothing.
 //
 // No Ban store is wired here, so these reach the limiter and 404. In production
 // banGate answers them with a 403 first, since isDotPath makes the same
-// distinction and these fail it too. Both layers agree on which prefix is real,
-// which is the property worth pinning; this test pins the limiter's half.
+// distinction and these fail it too. Both layers agree on which prefix is real;
+// this pins the limiter's half.
 func TestOnlyTheRealWellKnownPrefixIsExempt(t *testing.T) {
 	h := scannerServer(t)
 
-	for i, path := range []string{"/.well-knownx", "/x/.well-known/y", "/.env"} {
+	// The real prefix: free, however many arrive.
+	for i := 0; i < 8; i++ {
+		if code := getFrom(t, h, "/.well-known/x.php", "9.9.9.9").Code; code != http.StatusNotFound {
+			t.Fatalf("real-prefix probe %d = %d, want 404 at no cost", i, code)
+		}
+	}
+
+	// The look-alikes: charged, and three of them exhaust the burst.
+	for i, path := range []string{"/.well-knownx/y.php", "/x/.well-known/y.php", "/.well-known.php"} {
 		if code := getFrom(t, h, path, "9.9.9.9").Code; code != http.StatusNotFound {
 			t.Fatalf("probe %d (%s) = %d, want 404", i, path, code)
 		}
 	}
-	if code := getFrom(t, h, "/.git/config", "9.9.9.9").Code; code != http.StatusTooManyRequests {
+	if code := getFrom(t, h, "/wp-login.php", "9.9.9.9").Code; code != http.StatusTooManyRequests {
 		t.Errorf("the fourth probe = %d, want 429; look-alikes must still be charged", code)
 	}
 }
@@ -387,17 +494,20 @@ func TestAThrottledCallerIsRefusedImagesToo(t *testing.T) {
 	}
 }
 
-// path.Ext takes the last dot segment, so an image extension in the middle of a
-// path is not an image request.
+// path.Ext takes the last dot segment, so an image extension in the MIDDLE of a
+// path does not make the request an image.
+//
+// The probes end in .php rather than in nothing, because an extensionless path
+// is exempt on its own account now and would prove nothing about the .png.
 func TestImageExtensionMustBeTheLastSegment(t *testing.T) {
 	h := scannerServer(t)
 
 	for i := 0; i < 3; i++ {
-		if code := getFrom(t, h, "/x.png/setup", "9.9.9.9").Code; code != http.StatusNotFound {
+		if code := getFrom(t, h, "/x.png/setup.php", "9.9.9.9").Code; code != http.StatusNotFound {
 			t.Fatalf("probe %d = %d, want 404", i, code)
 		}
 	}
-	if code := getFrom(t, h, "/x.png/setup", "9.9.9.9").Code; code != http.StatusTooManyRequests {
+	if code := getFrom(t, h, "/x.png/setup.php", "9.9.9.9").Code; code != http.StatusTooManyRequests {
 		t.Errorf("the fourth probe = %d, want 429; only a trailing image extension is exempt", code)
 	}
 }
@@ -512,13 +622,14 @@ func TestRetryAfterIsNeverZero(t *testing.T) {
 // Against the REAL SPA handler rather than a nil Static, because the two do not
 // answer the same way and only one of them ships.
 //
-// web.spaHandler now 404s EVERY unknown path, extension or not, so every wrong
-// guess a scanner makes spends from this budget. It used to serve the shell and
-// a 200 for anything extensionless, which made /admin and /.git/config free
-// however many arrived; that fallback went when the soft 404 did. Pinned here
-// because the change moved this limiter's coverage from half a wordlist to all
-// of it — and because it also makes a crawler chasing a dead extensionless link
-// pay for it, which is the cost side of the same trade.
+// web.spaHandler now 404s EVERY unknown path, extension or not — but what this
+// limiter CHARGES for did not change with it. An extensionless miss was free
+// when it was a 200 and is free now that it is a 404, deliberately: a search
+// engine recrawling a URL the old soft 404 taught it existed must not be able
+// to spend a budget that then gates it on / and /robots.txt.
+//
+// So the split under test is the same one that has always been here. What is
+// metered is a non-image extension.
 func TestChargingFollowsTheRealSPAHandler(t *testing.T) {
 	static, err := web.Handler()
 	if err != nil {
@@ -531,23 +642,20 @@ func TestChargingFollowsTheRealSPAHandler(t *testing.T) {
 		NotFoundLimiter: ratelimit.New(0.0001, 2),
 	})
 
-	// Extensionless, and now charged: two 404s exhaust the budget.
-	for i, path := range []string{"/admin", "/wp-admin"} {
-		if code := getFrom(t, h, path, "9.9.9.9").Code; code != http.StatusNotFound {
-			t.Fatalf("extensionless probe %d (%s) = %d, want 404", i, path, code)
+	// Extensionless: a real 404 now, and still no charge however many arrive.
+	for i := 0; i < 20; i++ {
+		if code := getFrom(t, h, "/admin", "9.9.9.9").Code; code != http.StatusNotFound {
+			t.Fatalf("extensionless probe %d = %d, want 404 at no cost", i, code)
 		}
 	}
-	if code := getFrom(t, h, "/dashboard", "9.9.9.9").Code; code != http.StatusTooManyRequests {
-		t.Errorf("third extensionless probe = %d, want 429", code)
-	}
 
-	// Extensioned: the same, on a caller with its own budget.
+	// Extensioned: the budget is untouched by all of that, and goes in two.
 	for i, path := range []string{"/wp-login.php", "/.env"} {
-		if code := getFrom(t, h, path, "9.9.9.8").Code; code != http.StatusNotFound {
+		if code := getFrom(t, h, path, "9.9.9.9").Code; code != http.StatusNotFound {
 			t.Fatalf("probe %d (%s) = %d, want 404", i, path, code)
 		}
 	}
-	if code := getFrom(t, h, "/xmlrpc.php", "9.9.9.8").Code; code != http.StatusTooManyRequests {
+	if code := getFrom(t, h, "/xmlrpc.php", "9.9.9.9").Code; code != http.StatusTooManyRequests {
 		t.Errorf("third extensioned probe = %d, want 429", code)
 	}
 }

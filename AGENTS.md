@@ -95,8 +95,10 @@ repo has none.
 
 Two limiters, different questions. The request one guards `/api/*`. The 404 one gates EVERY
 route but charges only for a 404 — never 4xx at large, never a served response, and never an
-image miss (`.ico`/`.png`/`.svg`) and never anything under `/.well-known` (`isUncounted404`): a
-browser asks for both on its own, unprompted. Charging a 429
+image miss, never `/.well-known`, and never an EXTENSIONLESS path (`isUncounted404`). What it
+charges is a non-image extension — `.php`, `.env`, `.bak` — i.e. a wordlist. Extensionless stays
+free because it always was (those paths were 200s until the soft-404 fix) and because charging
+it lets a crawler recrawling old soft-404 URLs gate itself off `/` and `/robots.txt`. Charging a 429
 or a 400 compounds the two into a limit neither was sized for, and charging a 200 puts a
 budget on the page load itself: one visit is a dozen asset requests.
 

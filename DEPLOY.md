@@ -102,6 +102,15 @@ curl -sSI https://ismimodown.com/ | \
   grep -Ei 'content-security-policy|x-content-type|x-frame|referrer|strict-transport'
 ```
 
+One header is path-dependent: `Cross-Origin-Resource-Policy` is `same-origin`
+everywhere except `/og.png`, which is `cross-origin` because the link-preview
+card is the one response another origin is meant to embed.
+
+```sh
+curl -sSI https://ismimodown.com/og.png | grep -i cross-origin-resource
+# cross-origin-resource-policy: cross-origin
+```
+
 CSP, `nosniff`, `X-Frame-Options` and `Referrer-Policy` come from the binary and
 are present with or without Traefik. `Strict-Transport-Security` comes from the
 `ismimodown-hsts` middleware in `compose.yaml` and is the one that disappears if
@@ -131,11 +140,22 @@ no honest request to protect. Four rules, in
 - **a handful of exact paths** — `/config.json`, `/credentials`,
   `/server-status`.
 
-The 404 budget (`notFoundPenalty`) is unchanged and still runs underneath: an
-ordinary wrong guess still just spends a token. Missing images are the exception
-— a 404 for `.ico`, `.png` or `.svg` costs nothing, since a browser asks for
-`/favicon.ico` and `/apple-touch-icon.png` on its own without the page naming
-them.
+The 404 budget (`notFoundPenalty`) runs underneath, and charges a narrower set
+than "any wrong guess". Three kinds of 404 cost nothing:
+
+- **Images** — `.ico`, `.png`, `.svg`. A browser asks for `/favicon.ico` and
+  `/apple-touch-icon.png` on its own, without the page naming them.
+- **`/.well-known/*`** — Chrome probes `/.well-known/traffic-advice` on
+  navigations and its devtools asks for an `appspecific` JSON file.
+- **Anything extensionless** — `/admin`, `/status`, `/about`. These returned
+  200 until the soft-404 fix, so they have never been charged; keeping them free
+  is what stops a search engine recrawling an old soft-404 URL from spending the
+  budget and being 429'd off `/` and `/robots.txt` next.
+
+What is left, and what the budget is really for, is a 404 with a non-image
+extension: `.php`, `.env`, `.bak`, `.sql`, `.aspx` — the shape of a wordlist,
+and nothing a browser asks for unprompted. Extensionless exploit names are not
+a gap: `banGate` answers those with a `403` on the first request.
 
 Going back to scanning while banned **resets the block to a fresh 48 hours** from
 that moment, so a scanner has to actually stop for two days to get back in.
