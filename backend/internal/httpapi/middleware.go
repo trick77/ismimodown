@@ -161,11 +161,17 @@ func (rec *statusRecorder) Unwrap() http.ResponseWriter {
 // for those would compound the two limiters into something far harsher than
 // either was sized for.
 //
-// The 404s an honest browser makes without being asked to are mostly icons —
-// /favicon.ico above all, since the page ships /icon.svg and no .ico, so every
-// first visit misses once — and those are exempt outright, see
-// uncountedAssetExts below. The budget still has to absorb the rest: robots.txt,
-// a source map, and whatever a stale shell requests across a deploy.
+// The 404s an honest browser makes without being asked to come in two shapes,
+// and both are exempt. Icons first — /favicon.ico above all, since the page
+// ships /icon.svg and no .ico, so every first visit misses once — see
+// uncountedAssetExts below. Then /.well-known/*: Chrome probes
+// /.well-known/traffic-advice on navigations and its devtools asks for
+// /.well-known/appspecific/com.chrome.devtools.json, neither of which anything
+// here serves. Those used to be free by accident, because web.spaHandler
+// answered every extensionless unknown path with the shell and a 200; it 404s
+// them now, so the exemption has to be stated rather than inherited. The budget
+// still absorbs the rest: robots.txt, a source map, and whatever a stale shell
+// requests across a deploy.
 //
 // A nil limiter disables it, so tests and callers that want no such limit need
 // wire nothing.
@@ -203,7 +209,7 @@ func notFoundPenalty(l *ratelimit.Limiter, next http.Handler) http.Handler {
 
 		rec := &statusRecorder{ResponseWriter: w}
 		next.ServeHTTP(rec, r)
-		if rec.status == http.StatusNotFound && !isUncountedAsset(r.URL.Path) {
+		if rec.status == http.StatusNotFound && !isUncounted404(r.URL.Path) {
 			l.Charge(key, 1)
 		}
 	})
@@ -238,6 +244,28 @@ var uncountedAssetExts = map[string]bool{
 // not an asset.
 func isUncountedAsset(p string) bool {
 	return uncountedAssetExts[strings.ToLower(path.Ext(p))]
+}
+
+// isUncounted404 reports whether a 404 for this path should be free at all:
+// an icon by extension, or anything under /.well-known.
+//
+// The /.well-known half is the same carve-out isDotPath already makes in
+// exploitpaths.go, for the same reason — it is the one dotted prefix a browser
+// or an operator has a real reason to ask for, and this binary serves nothing
+// under it, so every such request is a miss made by software the visitor did
+// not instruct. Charging for those puts a visitor's own browser into a budget
+// sized for wrong guesses.
+//
+// Reuses normalisePath so /.WELL-KNOWN/ and /.well-known/../.well-known/x are
+// the same request here as they are to the ban gate. A scanner gains nothing:
+// the prefix serves nothing, so a wordlist walked underneath it is free but
+// finds nothing, while anything OUTSIDE it is charged exactly as before.
+func isUncounted404(p string) bool {
+	if isUncountedAsset(p) {
+		return true
+	}
+	clean := normalisePath(p)
+	return clean == wellKnown || strings.HasPrefix(clean, wellKnown+"/")
 }
 
 // banGate blocks callers that have asked for something only an exploit scan

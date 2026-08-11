@@ -318,6 +318,60 @@ func TestImageMissesAreNotCharged(t *testing.T) {
 	}
 }
 
+// The other thing a browser asks for that nobody linked: /.well-known.
+//
+// Chrome probes /.well-known/traffic-advice on navigations and devtools asks for
+// /.well-known/appspecific/com.chrome.devtools.json. Neither is an image, and
+// both were free only by accident until web.spaHandler stopped answering
+// extensionless unknown paths with the shell and a 200 — at which point a
+// visitor's own browser started spending a budget meant for wrong guesses.
+func TestWellKnownMissesAreNotCharged(t *testing.T) {
+	h := scannerServer(t)
+
+	for _, path := range []string{
+		"/.well-known/traffic-advice",
+		"/.well-known/appspecific/com.chrome.devtools.json",
+		"/.well-known/security.txt",
+		"/.WELL-KNOWN/traffic-advice",
+	} {
+		for i := 0; i < 4; i++ {
+			if code := getFrom(t, h, path, "9.9.9.9").Code; code != http.StatusNotFound {
+				t.Fatalf("%s request %d = %d, want 404 at no cost", path, i, code)
+			}
+		}
+	}
+	// The budget is untouched, so a real probe still has the whole of it.
+	for i, path := range []string{"/wp-login.php", "/config.json", "/.env"} {
+		if code := getFrom(t, h, path, "9.9.9.9").Code; code != http.StatusNotFound {
+			t.Fatalf("probe %d (%s) = %d, want 404; /.well-known must not have spent the budget", i, path, code)
+		}
+	}
+	if code := getFrom(t, h, "/wp-config.php.bak", "9.9.9.9").Code; code != http.StatusTooManyRequests {
+		t.Errorf("the fourth probe = %d, want 429; the exemption is for /.well-known, not for everything", code)
+	}
+}
+
+// A dotted path that only LOOKS like the carve-out is charged like anything
+// else. /.well-knownx is not under /.well-known, and neither is /x/.well-known
+// — the prefix is anchored at the root because that is where the spec puts it.
+//
+// No Ban store is wired here, so these reach the limiter and 404. In production
+// banGate answers them with a 403 first, since isDotPath makes the same
+// distinction and these fail it too. Both layers agree on which prefix is real,
+// which is the property worth pinning; this test pins the limiter's half.
+func TestOnlyTheRealWellKnownPrefixIsExempt(t *testing.T) {
+	h := scannerServer(t)
+
+	for i, path := range []string{"/.well-knownx", "/x/.well-known/y", "/.env"} {
+		if code := getFrom(t, h, path, "9.9.9.9").Code; code != http.StatusNotFound {
+			t.Fatalf("probe %d (%s) = %d, want 404", i, path, code)
+		}
+	}
+	if code := getFrom(t, h, "/.git/config", "9.9.9.9").Code; code != http.StatusTooManyRequests {
+		t.Errorf("the fourth probe = %d, want 429; look-alikes must still be charged", code)
+	}
+}
+
 // The exemption waives the charge, not the gate: a caller already in debt is
 // cut off from everything, an icon included. It does NOT make an image-only
 // scanner reachable — nothing charges it, so nothing gates it either — only a

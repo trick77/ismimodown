@@ -407,7 +407,8 @@ something is told to read them. Once the certificate is good:
 
   A `429` or `403` against a crawler's address means `notFoundPenalty` or
   `banGate` cut it off — see the two sections above. The 404 budget is five
-  non-image misses refilling at one per 30s, and it gates *every* subsequent
+  chargeable misses refilling at one per 30s — images and `/.well-known` are
+  free — and it gates *every* subsequent
   request from that caller, `/` and `/robots.txt` included. Nothing in the app
   knows what a crawler is, deliberately, so this is a log question rather than a
   setting.
