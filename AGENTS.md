@@ -209,7 +209,7 @@ URLs on purpose) before touching it; never just widen it. The `<br>` in that hea
 bearing: left to wrap, the fallback broke a word later and measured WIDER than the real face.
 
 **Host and SEO strings move together:** `Host()` in `compose.yaml` (two routers — apex and the
-www 301), og:/twitter: URLs, `rel=canonical`, `robots.txt`, `sitemap.xml`, JSON-LD `@id`s, and
+www 308), og:/twitter: URLs, `rel=canonical`, `robots.txt`, `sitemap.xml`, JSON-LD `@id`s, and
 `.host` in `card.html`.
 
 **Comments in `ui/index.html` and `ui/public/` never ship.** `ui/build/strip-comments.ts` strips

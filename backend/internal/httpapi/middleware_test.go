@@ -139,7 +139,7 @@ func TestSecurityHeadersAreOnEveryResponse(t *testing.T) {
 	}
 }
 
-// The policy names no host but this one. Microsoft Clarity was the single
+// The policy names no host at all. Microsoft Clarity was the single
 // exception it ever carried — www.clarity.ms for the tag, *.clarity.ms and
 // c.bing.com for the beacons — and this asserts it did not come back, in the
 // only form that catches the next one too: no scheme-qualified origin anywhere

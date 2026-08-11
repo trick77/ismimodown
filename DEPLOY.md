@@ -17,8 +17,8 @@ with the dashboard embedded, plus one SQLite file.
   ```
 
 - **Two** DNS A records pointing at the host: `ismimodown.com` and
-  `www.ismimodown.com`. www exists only to 301 to the apex, but it needs its own
-  record and its own certificate — see below.
+  `www.ismimodown.com`. www exists only to redirect permanently (308) to the
+  apex, but it needs its own record and its own certificate — see below.
 - An ACME resolver named `letsencrypt` in Traefik's static config. The router
   labels name it explicitly:
 
@@ -397,18 +397,26 @@ something is told to read them. Once the certificate is good:
 - Do the same in **Bing Webmaster Tools**. Bing does not read Google's index and
   will not find a site of this size on its own in any useful time; it was
   missing from this list for a while and the site was absent from Bing while
-  ranking on Google, which is exactly the shape that produces.
+  ranking on Google, which is exactly the shape that symptom takes: indexed by
+  the engine that was told about the site, invisible to the one that was not.
 - Then check `bingbot` is not being throttled, because the two limiters in front
   of the site can do that silently:
 
   ```sh
-  docker compose logs ismimodown --since 168h | grep -iE '429|403' | head -50
+  docker compose logs ismimodown --since 168h | grep -E '"status":(403|429)' | head -50
   ```
 
-  A `429` or `403` against a crawler's address means `notFoundPenalty` or
-  `banGate` cut it off — see the two sections above. The 404 budget is five
-  chargeable misses refilling at one per 30s — images and `/.well-known` are
-  free — and it gates *every* subsequent
+  Match on the JSON field, not on the bare number: `grep 429` also hits a
+  `"dur":"429ms"` and any client address containing `4.29`.
+
+  The request log carries `method`, `path`, `status`, `dur` and `client` — and
+  deliberately no user-agent, so nothing in the line says "bingbot". Identify
+  the caller from `client`: reverse-DNS it (`dig -x`, which for a genuine
+  bingbot resolves under `search.msn.com`) or check it against Microsoft's
+  published bingbot ranges. A `429` or `403` against an address that resolves
+  that way means `notFoundPenalty` or `banGate` cut the crawler off — see the
+  two sections above. The 404 budget is five chargeable misses refilling at one
+  per 30s — images and `/.well-known` are free — and it gates *every* subsequent
   request from that caller, `/` and `/robots.txt` included. Nothing in the app
   knows what a crawler is, deliberately, so this is a log question rather than a
   setting.
