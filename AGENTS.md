@@ -95,14 +95,17 @@ repo has none.
 
 Two limiters, different questions. The request one guards `/api/*`. The 404 one gates EVERY
 route but charges only for a 404 — never 4xx at large, never a served response, and never an
-image miss (`.ico`/`.png`/`.svg`, `uncountedAssetExts`): a browser asks for those on its own. Charging a 429
+image miss, never `/.well-known`, and never an EXTENSIONLESS path (`isUncounted404`). What it
+charges is a non-image extension — `.php`, `.env`, `.bak` — i.e. a wordlist. Extensionless stays
+free because it always was (those paths were 200s until the soft-404 fix) and because charging
+it lets a crawler recrawling old soft-404 URLs gate itself off `/` and `/robots.txt`. Charging a 429
 or a 400 compounds the two into a limit neither was sized for, and charging a 200 puts a
 budget on the page load itself: one visit is a dozen asset requests.
 
 `banGate` is a third thing and NOT a limiter — no budget, no refill. An exploit path
 (`internal/httpapi/exploitpaths.go`) → instant 48h block, bare 403, in memory only. Match on
-`r.URL.Path` BEFORE the mux, never on response status: `spaHandler` answers unknown
-EXTENSIONLESS paths with a 200, so `/wp-admin` never 404s. Adding a path to the list → check it
+`r.URL.Path` BEFORE the mux, never on response status: a 403 on the first wordlist entry ends
+the visit, where waiting for the 404 budget lets the scanner walk five more. Adding a path → check it
 against `TestRealTrafficIsNotAnExploitPath` first; a false positive is a visitor blocked for
 two days.
 
@@ -141,6 +144,18 @@ limits. Keep all of them.
 
 See `DEPLOY.md`. Confirm all four ping targets FROM the probe box before trusting attribution —
 a dead SGP reference kills the edge-vs-uplink distinction silently.
+
+## Serving
+
+`web.spaHandler`: `/` serves the shell, EVERY other unknown path 404s. No SPA fallback — this
+site has one URL and no router, and serving the shell with a 200 for `/anything` made every wrong
+URL a duplicate of the one real page (a soft 404, which Bing reads as a signal about the host).
+Adding a client-side route → change `TestUnknownPathsAreNotFound` deliberately, and note that a
+404 now charges the 404 budget where the old 200 was free.
+
+No third-party origin in the CSP. Microsoft Clarity was the only one and is gone; re-adding any
+host means editing `contentSecurityPolicy` AND `TestNoThirdPartyOriginsInThePolicy`, which is the
+point of that test.
 
 ## Reference repos (read, never modify)
 
@@ -196,7 +211,7 @@ URLs on purpose) before touching it; never just widen it. The `<br>` in that hea
 bearing: left to wrap, the fallback broke a word later and measured WIDER than the real face.
 
 **Host and SEO strings move together:** `Host()` in `compose.yaml` (two routers — apex and the
-www 301), og:/twitter: URLs, `rel=canonical`, `robots.txt`, `sitemap.xml`, JSON-LD `@id`s, and
+www 308), og:/twitter: URLs, `rel=canonical`, `robots.txt`, `sitemap.xml`, JSON-LD `@id`s, and
 `.host` in `card.html`.
 
 **Comments in `ui/index.html` and `ui/public/` never ship.** `ui/build/strip-comments.ts` strips

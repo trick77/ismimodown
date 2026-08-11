@@ -168,11 +168,17 @@ services:
       # www needs a certificate of its own — and the redirect middleware has to
       # apply to www without applying to the apex it redirects TO.
       #
-      # permanent: true, i.e. 301. A 302 tells a search engine the split is
-      # temporary and it keeps both hostnames in the index, which is the
+      # permanent: true. A temporary redirect tells a search engine the split
+      # will be undone and it keeps both hostnames in the index, which is the
       # duplicate content this exists to prevent. The canonical link in
       # index.html says the same thing a second way, for the case where this
       # router is missing entirely.
+      #
+      # The wire code is 308, not the 301 this comment claimed for a long time:
+      # Traefik answers a permanent redirectregex with 308. Both are permanent
+      # and both consolidate the same way for Google and Bing, so nothing here
+      # needs changing — but a verification step grepping for "301" reports a
+      # working redirect as broken, which is why the number is written down.
       traefik.http.routers.ismimodown-www.rule: Host(`www.ismimodown.com`)
       traefik.http.routers.ismimodown-www.entrypoints: websecure
       traefik.http.routers.ismimodown-www.tls.certresolver: letsencrypt
