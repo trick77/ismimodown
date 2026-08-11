@@ -86,8 +86,14 @@ never completed — check DNS first, then `docker compose logs traefik`.
 www must redirect permanently rather than serve:
 
 ```sh
-curl -sSI https://www.ismimodown.com/ | head -3   # 301, location: https://ismimodown.com/
+curl -sSI https://www.ismimodown.com/ | head -3   # 308, location: https://ismimodown.com/
 ```
+
+**308, not 301.** Traefik answers a permanent `redirectregex` with 308; both are
+permanent and both consolidate the two hostnames the same way for Google and
+Bing. The path is preserved, so `https://www.…/sitemap.xml` lands on the apex
+copy rather than on the apex root — that is the middleware working, and it is
+the thing to check if a redirect ever looks suspect.
 
 Response headers, after a Traefik reload picks up the new labels:
 
@@ -388,6 +394,23 @@ something is told to read them. Once the certificate is good:
 
 - Add `https://ismimodown.com/` as a property in Google Search Console and
   submit `/sitemap.xml`.
+- Do the same in **Bing Webmaster Tools**. Bing does not read Google's index and
+  will not find a site of this size on its own in any useful time; it was
+  missing from this list for a while and the site was absent from Bing while
+  ranking on Google, which is exactly the shape that produces.
+- Then check `bingbot` is not being throttled, because the two limiters in front
+  of the site can do that silently:
+
+  ```sh
+  docker compose logs ismimodown --since 168h | grep -iE '429|403' | head -50
+  ```
+
+  A `429` or `403` against a crawler's address means `notFoundPenalty` or
+  `banGate` cut it off — see the two sections above. The 404 budget is five
+  non-image misses refilling at one per 30s, and it gates *every* subsequent
+  request from that caller, `/` and `/robots.txt` included. Nothing in the app
+  knows what a crawler is, deliberately, so this is a log question rather than a
+  setting.
 - Re-scrape the link preview by pasting the URL into Slack or WhatsApp.
   WhatsApp and Telegram cache a card effectively forever, which is what the
   `?v=` on the og:image URL exists to defeat — bump it in the same commit as any

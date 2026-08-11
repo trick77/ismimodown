@@ -127,21 +127,24 @@ func TestSecurityHeadersAreOnEveryResponse(t *testing.T) {
 		if strings.Contains(csp, "script-src 'self' 'unsafe-inline'") || strings.Contains(csp, "'unsafe-eval'") {
 			t.Errorf("%s: CSP must not allow inline or eval'd script: %q", path, csp)
 		}
-		// Clarity's tag is the ONE third-party origin the policy admits, and it
-		// is admitted by name. A second one arriving unremarked is the way a
-		// policy like this rots, so pin the whole directive rather than probe
-		// it for substrings.
-		if !strings.Contains(csp, "script-src 'self' https://www.clarity.ms;") {
-			t.Errorf("%s: script-src = %q, want 'self' plus clarity.ms and nothing else", path, csp)
+		// No third-party origin at all, on any directive. An origin arriving
+		// unremarked is the way a policy like this rots, so pin the whole
+		// directive rather than probe it for substrings.
+		if !strings.Contains(csp, "script-src 'self';") {
+			t.Errorf("%s: script-src = %q, want 'self' and nothing else", path, csp)
+		}
+		if !strings.Contains(csp, "connect-src 'self';") {
+			t.Errorf("%s: connect-src = %q, want 'self' and nothing else", path, csp)
 		}
 	}
 }
 
-// Clarity loads its tag from www.clarity.ms and beacons to whichever *.clarity.ms
-// shard it is load-balanced onto, plus c.bing.com. Both halves are needed: with
-// script-src alone the tag runs and every upload is blocked, which looks like a
-// working install and produces an empty dashboard.
-func TestClarityOriginsAreAllowed(t *testing.T) {
+// The policy names no host but this one. Microsoft Clarity was the single
+// exception it ever carried — www.clarity.ms for the tag, *.clarity.ms and
+// c.bing.com for the beacons — and this asserts it did not come back, in the
+// only form that catches the next one too: no scheme-qualified origin anywhere
+// in the policy.
+func TestNoThirdPartyOriginsInThePolicy(t *testing.T) {
 	db := openTestDB(t)
 	h := NewServer(Deps{Version: "test", DB: db, Samples: samples.New(db)})
 
@@ -149,18 +152,21 @@ func TestClarityOriginsAreAllowed(t *testing.T) {
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/healthz", nil))
 	csp := rec.Header().Get("Content-Security-Policy")
 
-	for _, want := range []string{
-		"script-src 'self' https://www.clarity.ms",
-		"connect-src 'self' https://*.clarity.ms https://c.bing.com",
-	} {
-		if !strings.Contains(csp, want) {
-			t.Errorf("CSP = %q, want it to contain %q", csp, want)
+	// "https://" and "http://" both, so a plaintext origin is not the way in.
+	// data: is deliberately not matched — img-src carries it on purpose, and it
+	// names no host.
+	for _, scheme := range []string{"https://", "http://"} {
+		if strings.Contains(csp, scheme) {
+			t.Errorf("CSP = %q, want no %s origin in it", csp, scheme)
 		}
 	}
+	if strings.Contains(csp, "clarity") || strings.Contains(csp, "bing") {
+		t.Errorf("CSP = %q, want no trace of the removed analytics origins", csp)
+	}
 
-	// default-src stays 'self'. Clarity's own documentation suggests widening
-	// that instead, but every directive this policy cares about is set
-	// explicitly, so a wildcard there would only loosen the ones nobody listed.
+	// default-src stays 'self'. Clarity's own documentation suggested widening
+	// that instead; every directive this policy cares about is set explicitly,
+	// so a wildcard there would only loosen the ones nobody listed.
 	if !strings.Contains(csp, "default-src 'self';") {
 		t.Errorf("CSP = %q, want default-src left at 'self'", csp)
 	}
@@ -452,11 +458,13 @@ func TestRetryAfterIsNeverZero(t *testing.T) {
 // Against the REAL SPA handler rather than a nil Static, because the two do not
 // answer the same way and only one of them ships.
 //
-// web.spaHandler 404s a missing file with an extension and serves the shell for
-// anything without one, so an extensionless probe — /admin, /.git/config — is a
-// 200 that costs a scanner nothing. That is the SPA's deep-link fallback doing
-// its job, and it is the boundary of what this limiter can see: pinned here so
-// the next person to widen the throttle knows where to look.
+// web.spaHandler now 404s EVERY unknown path, extension or not, so every wrong
+// guess a scanner makes spends from this budget. It used to serve the shell and
+// a 200 for anything extensionless, which made /admin and /.git/config free
+// however many arrived; that fallback went when the soft 404 did. Pinned here
+// because the change moved this limiter's coverage from half a wordlist to all
+// of it — and because it also makes a crawler chasing a dead extensionless link
+// pay for it, which is the cost side of the same trade.
 func TestChargingFollowsTheRealSPAHandler(t *testing.T) {
 	static, err := web.Handler()
 	if err != nil {
@@ -469,21 +477,39 @@ func TestChargingFollowsTheRealSPAHandler(t *testing.T) {
 		NotFoundLimiter: ratelimit.New(0.0001, 2),
 	})
 
-	// Extensionless: the shell, and no charge however many arrive.
-	for i := 0; i < 20; i++ {
-		if code := getFrom(t, h, "/admin", "9.9.9.9").Code; code != http.StatusOK {
-			t.Fatalf("extensionless probe %d = %d, want the SPA shell", i, code)
+	// Extensionless, and now charged: two 404s exhaust the budget.
+	for i, path := range []string{"/admin", "/wp-admin"} {
+		if code := getFrom(t, h, path, "9.9.9.9").Code; code != http.StatusNotFound {
+			t.Fatalf("extensionless probe %d (%s) = %d, want 404", i, path, code)
 		}
 	}
+	if code := getFrom(t, h, "/dashboard", "9.9.9.9").Code; code != http.StatusTooManyRequests {
+		t.Errorf("third extensionless probe = %d, want 429", code)
+	}
 
-	// Extensioned: a real 404, and the budget is gone in two.
+	// Extensioned: the same, on a caller with its own budget.
 	for i, path := range []string{"/wp-login.php", "/.env"} {
-		if code := getFrom(t, h, path, "9.9.9.9").Code; code != http.StatusNotFound {
+		if code := getFrom(t, h, path, "9.9.9.8").Code; code != http.StatusNotFound {
 			t.Fatalf("probe %d (%s) = %d, want 404", i, path, code)
 		}
 	}
-	if code := getFrom(t, h, "/xmlrpc.php", "9.9.9.9").Code; code != http.StatusTooManyRequests {
+	if code := getFrom(t, h, "/xmlrpc.php", "9.9.9.8").Code; code != http.StatusTooManyRequests {
 		t.Errorf("third extensioned probe = %d, want 429", code)
+	}
+}
+
+// The one path that must keep serving the page. Everything else 404s now, so
+// the check that the root itself did not get caught in that earns its own test
+// rather than an assertion buried inside another one.
+func TestRootStillServesTheShell(t *testing.T) {
+	static, err := web.Handler()
+	if err != nil {
+		t.Fatalf("web.Handler: %v", err)
+	}
+	h := NewServer(Deps{Version: "test", DB: openTestDB(t), Static: static})
+
+	if code := getFrom(t, h, "/", "9.9.9.9").Code; code != http.StatusOK {
+		t.Errorf("GET / = %d, want the shell", code)
 	}
 }
 

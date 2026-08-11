@@ -28,23 +28,31 @@ func TestHandlerServesIndex(t *testing.T) {
 	}
 }
 
-// A deep link reloaded in the browser must land on the SPA shell, not a 404.
-// The dashboard keeps its window filter in the query string and has no router,
-// but this is the behaviour every future path depends on.
-func TestHandlerFallsBackToTheShell(t *testing.T) {
+// An unknown path is a 404, whether or not it carries a file extension.
+//
+// This is the inverse of the SPA fallback every Vite template ships, and it is
+// deliberate: the dashboard keeps its state in the query string and has no
+// router, so there is no deep link to protect, and serving the shell with a 200
+// for /some/deep/link made every wrong URL on the host a duplicate of the one
+// real page. Search engines call that a soft 404 and Bing takes it as a signal
+// about the host rather than the URL. Add a client-side route and this test is
+// the one to change — deliberately, not by accident.
+func TestUnknownPathsAreNotFound(t *testing.T) {
 	h, err := Handler()
 	if err != nil {
 		t.Fatalf("Handler: %v", err)
 	}
 
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/some/deep/link", nil))
+	for _, path := range []string{"/some/deep/link", "/admin", "/index.html.bak", "/nope.js"} {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200 (SPA fallback)", rec.Code)
-	}
-	if !strings.Contains(rec.Body.String(), `id="root"`) {
-		t.Errorf("fallback did not serve the shell: %s", rec.Body.String())
+		if rec.Code != http.StatusNotFound {
+			t.Errorf("%s: status = %d, want 404", path, rec.Code)
+		}
+		if strings.Contains(rec.Body.String(), `id="root"`) {
+			t.Errorf("%s: served the shell instead of a 404 body", path)
+		}
 	}
 }
 
@@ -129,23 +137,21 @@ func TestCacheControlIsSetPerAsset(t *testing.T) {
 	}
 }
 
-// The shell itself, through the real handler — including via the SPA fallback,
-// which serves index.html under a path that is not its name. Reaching that
-// branch with no Cache-Control is how a deep link ends up being the one route
-// that hands out a year-old shell.
-func TestShellIsNotCachedOnEitherPath(t *testing.T) {
+// The shell itself, through the real handler. Only "/" reaches it now — the
+// fallback that served it under other names is gone — and it is the file that
+// names the current hashed bundle, so a cached copy is a browser pinned to a
+// deleted build.
+func TestShellIsNotCached(t *testing.T) {
 	h, err := Handler()
 	if err != nil {
 		t.Fatalf("Handler: %v", err)
 	}
 
-	for _, path := range []string{"/", "/some/deep/link"} {
-		rec := httptest.NewRecorder()
-		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
 
-		if got := rec.Header().Get("Cache-Control"); got != "no-cache" {
-			t.Errorf("%s: Cache-Control = %q, want no-cache", path, got)
-		}
+	if got := rec.Header().Get("Cache-Control"); got != "no-cache" {
+		t.Errorf("/: Cache-Control = %q, want no-cache", got)
 	}
 }
 

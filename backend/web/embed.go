@@ -6,7 +6,6 @@ import (
 	"io/fs"
 	"mime"
 	"net/http"
-	"path"
 	"strings"
 )
 
@@ -26,8 +25,8 @@ func init() {
 //go:embed all:dist
 var dist embed.FS
 
-// Handler serves the embedded SPA, falling back to index.html for unknown
-// paths so client-side routes survive a hard reload.
+// Handler serves the embedded SPA. Unknown paths 404; there is nothing to fall
+// back to, because this site has exactly one URL — see spaHandler.
 func Handler() (http.Handler, error) {
 	sub, err := fs.Sub(dist, "dist")
 	if err != nil {
@@ -50,27 +49,31 @@ func (h spaHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		name = "index.html"
 	}
 	if _, err := fs.Stat(h.fsys, name); err != nil {
-		// Unknown path. A deep link must land on the SPA instead of an error
-		// page, so it gets the shell — but a MISSING ASSET must not.
+		// Unknown path: 404, whatever it looks like.
 		//
-		// Falling back indiscriminately answers /assets/index-OLD.js with
+		// This used to serve index.html with a 200 for any EXTENSIONLESS
+		// unknown path, on the standard SPA argument that a deep link must
+		// survive a hard reload rather than land on an error page. That
+		// argument does not apply here: this app has no client-side router and
+		// exactly one URL. Its state lives in the query string — see
+		// ui/src/App.tsx — so no visitor-supplied word ever appears in a path
+		// position, and the fallback protected no real link.
+		//
+		// What it did instead was answer every wrong URL on the host with the
+		// homepage and a 200: a soft 404, and an unbounded set of duplicates of
+		// the one page this site has. The canonical link in index.html tells a
+		// search engine to collapse them; Bing in particular would rather be
+		// told 404 outright, and treats a host that 200s everything as a
+		// quality signal in its own right.
+		//
+		// The extensioned half was already a 404 and stays one for its own
+		// reason: falling back there answers /assets/index-OLD.js with
 		// index.html, 200, Content-Type text/html. A browser holding a stale
 		// shell across a deploy then parses HTML as JavaScript, dies on
-		// "Unexpected token '<'" and shows a white page, where a plain 404
-		// would have let it recover on reload. The same applies to
-		// /favicon.ico and every other extensioned request.
-		//
-		// A file extension is the discriminator rather than the Accept header:
-		// client-side routes are extensionless by construction, while every
-		// bundled asset is hashed and ends in one. Accept is not reliably sent
-		// on a hard navigation.
-		if path.Ext(name) != "" {
-			http.NotFound(w, r)
-			return
-		}
-		r = r.Clone(r.Context())
-		r.URL.Path = "/"
-		name = "index.html"
+		// "Unexpected token '<'" and shows a white page, where a plain 404 lets
+		// it recover on reload.
+		http.NotFound(w, r)
+		return
 	}
 	setCacheControl(w, name)
 	http.FileServer(h.files).ServeHTTP(w, r)

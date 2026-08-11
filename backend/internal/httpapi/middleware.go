@@ -33,16 +33,16 @@ func recovery(next http.Handler) http.Handler {
 //
 // The site loads almost nothing from anywhere else: the SPA, its fonts and its
 // icons are all embedded in the binary and served same-origin, and every fetch
-// goes to this origin's /api. So the policy is 'self' throughout with exactly
-// one exception — anything else that trips it is a regression.
+// goes to this origin's /api. So the policy is 'self' throughout, with no
+// exception at all — anything that trips it is a regression.
 //
-// The exception is Microsoft Clarity (heatmaps and session replay), which loads
-// its tag from www.clarity.ms and beacons to the *.clarity.ms shard it is
-// load-balanced onto plus c.bing.com. Those origins are named on script-src and
-// connect-src only, not on default-src: every other directive here is set
-// explicitly, so widening the fallback would be a wildcard nobody reads. Clarity
-// hands out an inline <script> to paste into <head>; ui/src/clarity.ts injects
-// the tag from the bundle instead, precisely so that 'unsafe-inline' stays off.
+// Microsoft Clarity used to be the one exception — its tag from
+// www.clarity.ms, its beacons to *.clarity.ms and c.bing.com — and it went
+// when ui/src/clarity.ts did. Nothing third-party is named here now, so an
+// origin appearing in this policy again is a decision rather than a leftover.
+// Name it on script-src or connect-src explicitly if it ever comes back, never
+// by widening default-src: every other directive below is set explicitly, so a
+// fallback wildcard would be one nobody reads.
 //
 // 'unsafe-inline' for styles is the one concession, and it is unavoidable:
 // ECharts positions its tooltip by writing inline style on a div it creates,
@@ -56,11 +56,11 @@ func recovery(next http.Handler) http.Handler {
 // form-action and base-uri are 'none' because this page has no form and no
 // <base> — declaring that costs nothing and closes two redirection tricks.
 const contentSecurityPolicy = "default-src 'self'; " +
-	"script-src 'self' https://www.clarity.ms; " +
+	"script-src 'self'; " +
 	"style-src 'self' 'unsafe-inline'; " +
 	"img-src 'self' data:; " +
 	"font-src 'self'; " +
-	"connect-src 'self' https://*.clarity.ms https://c.bing.com; " +
+	"connect-src 'self'; " +
 	"object-src 'none'; " +
 	"base-uri 'none'; " +
 	"form-action 'none'; " +
@@ -250,10 +250,14 @@ func isUncountedAsset(p string) bool {
 // /wp-admin/install.php — one is already the whole evidence — so metering it is
 // the wrong instrument.
 //
-// It matches the path on the way IN, before the mux. Deriving the trigger from
-// the response status the way notFoundPenalty does would silently miss half the
-// list: web.spaHandler serves index.html with a 200 for any unknown path
-// WITHOUT a file extension, so /phpmyadmin, /wp-admin and /actuator never 404.
+// It matches the path on the way IN, before the mux, rather than deriving the
+// trigger from the response status the way notFoundPenalty does. That used to
+// be load-bearing in the strongest sense — web.spaHandler answered any
+// extensionless unknown path with index.html and a 200, so /phpmyadmin,
+// /wp-admin and /actuator never produced a 404 to react to. It no longer is:
+// those all 404 today. Matching the path is still the right instrument, because
+// a 403 on the first wordlist entry costs the scanner its whole visit, where
+// waiting for the 404 budget to drain lets it walk five more paths first.
 //
 // The response is a bare 403, not the 429 the limiter writes. A 429 with
 // Retry-After is a negotiation — it tells the caller the request was legitimate
