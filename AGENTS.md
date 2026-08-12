@@ -39,8 +39,8 @@ are not censoring: nothing was measured. Never fold censored runs back INTO the 
 `MIN_FAILURES_FOR_STATE`.** One cut-off run in 288 daily cycles is a rounding error, and an
 amber box about it sits on the card forever. Chart bands still draw it. Gate prose, never data.
 
-**ONE inference call in flight, process-wide, `DispatchGap` apart.** Not per model, not per
-probe: MiMo throttles the API key and there is one key. Concurrent models returned 429s that
+**ONE inference call in flight, process-wide, `DispatchGap` apart.** Not per model: MiMo
+throttles the API key and there is one key. Concurrent models returned 429s that
 publish as a MiMo outage (`rate_limited` is neither censoring nor availability-exempt). The gap
 covers a short-window limiter, which serialising alone does not. Never race the models back.
 
@@ -53,14 +53,10 @@ deadlines; that moves `censored` and the percentiles for scheduling reasons.
 **`itl_p50_ms` is a chunk gap, not inter-token latency.** MiMo batches into bursts — a real run
 measured 0.0075 ms against 70 tok/s. Never lead a chart with it; `output_tps` is the robust one.
 
-**`probe` is a filter, never an aggregation.** Mixing `short` (40 tok) and `wide` (4k tok)
-destroys the prefill signal, which IS the gap between them.
-
 **`error_detail` is operator-only** — no public endpoint serves it; a provider error body can
 echo request fragments. A test asserts this.
 
-**`cached_tokens` must stay near zero.** A rise on `wide` means the cache-defeat nonce broke;
-on `short`, the system prompt went missing.
+**`cached_tokens` must stay near zero.** A rise means the system prompt went missing.
 
 **`reasoning_tokens` must be 0.** Send both `{"thinking":{"type":"disabled"}}` and
 `enable_thinking:false`. This, not the `ttft_ms`/`ttfat_ms` delta, is the primary alarm —

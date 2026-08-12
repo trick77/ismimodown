@@ -24,11 +24,10 @@ type dashboardBody struct {
 	Now      samples.Summary `json:"now"`
 	Baseline samples.Summary `json:"baseline"`
 	Series   struct {
-		TTFT     json.RawMessage `json:"ttft"`
-		TTFTWide json.RawMessage `json:"ttft_wide"`
-		TPS      json.RawMessage `json:"tps"`
-		Total    json.RawMessage `json:"total"`
-		Network  struct {
+		TTFT    json.RawMessage `json:"ttft"`
+		TPS     json.RawMessage `json:"tps"`
+		Total   json.RawMessage `json:"total"`
+		Network struct {
 			Targets map[string]json.RawMessage `json:"targets"`
 		} `json:"network"`
 	} `json:"series"`
@@ -37,12 +36,10 @@ type dashboardBody struct {
 	} `json:"cost"`
 	Pulse []struct {
 		ModelID string          `json:"model_id"`
-		Probe   string          `json:"probe"`
 		Cycles  []samples.Pulse `json:"cycles"`
 	} `json:"pulse"`
 	Samples []struct {
 		ModelID string           `json:"model_id"`
-		Probe   string           `json:"probe"`
 		Samples []samples.Sample `json:"samples"`
 	} `json:"samples"`
 	Failures []samples.Failure `json:"failures"`
@@ -93,8 +90,8 @@ func TestDashboardServesOneLoad(t *testing.T) {
 
 	// Five lines: four model metrics and the network underneath them.
 	for name, raw := range map[string]json.RawMessage{
-		"ttft": got.Series.TTFT, "ttft_wide": got.Series.TTFTWide,
-		"tps": got.Series.TPS, "total": got.Series.Total,
+		"ttft": got.Series.TTFT,
+		"tps":  got.Series.TPS, "total": got.Series.Total,
 	} {
 		if len(raw) == 0 {
 			t.Errorf("series.%s is absent; a panel would render empty", name)
@@ -124,44 +121,33 @@ func TestDashboardServesOneLoad(t *testing.T) {
 }
 
 // The raw table calls itself the unaggregated record. It showed a quarter of
-// one for a while: every request named the first model, and the wide runs were
-// never asked for at all. Both omissions were per-caller mistakes; composing
-// server-side is what stops them being possible to make again.
+// one for a while: every request named the first model. That was a per-caller
+// mistake; composing server-side is what stops it being possible to make again.
 //
 // Order is part of the contract. The client concatenates these groups and
 // sorts on the instant, so a group in the wrong position relabels rows.
-func TestDashboardCoversEveryModelAndProbe(t *testing.T) {
+func TestDashboardCoversEveryModel(t *testing.T) {
 	h, store := newAPIServer(t)
 	seed(t, store, 25, 900)
 
 	got := getDashboard(t, h, "24h")
 
-	var pairs []string
+	var models []string
 	for _, g := range got.Samples {
-		pairs = append(pairs, g.ModelID+"/"+g.Probe)
+		models = append(models, g.ModelID)
 	}
-	want := []string{
-		"mimo-v2.5/" + probe.ProbeShort,
-		"mimo-v2.5/" + probe.ProbeWide,
-		"mimo-v2.5-pro/" + probe.ProbeShort,
-		"mimo-v2.5-pro/" + probe.ProbeWide,
-	}
-	if len(pairs) != len(want) {
-		t.Fatalf("samples groups = %v, want %v", pairs, want)
+	want := []string{"mimo-v2.5", "mimo-v2.5-pro"}
+	if len(models) != len(want) {
+		t.Fatalf("samples groups = %v, want %v", models, want)
 	}
 	for i, w := range want {
-		if pairs[i] != w {
-			t.Errorf("samples group %d = %q, want %q", i, pairs[i], w)
+		if models[i] != w {
+			t.Errorf("samples group %d = %q, want %q", i, models[i], w)
 		}
 	}
 
-	// The pulse strip draws the short probe for every model — it is a
-	// per-cycle availability strip, and wide does not run every cycle.
 	var pulsed []string
 	for _, g := range got.Pulse {
-		if g.Probe != probe.ProbeShort {
-			t.Errorf("pulse group %q carries probe %q, want short", g.ModelID, g.Probe)
-		}
 		pulsed = append(pulsed, g.ModelID)
 	}
 	if len(pulsed) != 2 || pulsed[0] != "mimo-v2.5" || pulsed[1] != "mimo-v2.5-pro" {
@@ -219,8 +205,8 @@ func TestDashboardEmptyCollectionsAreNeverNull(t *testing.T) {
 	got := getDashboard(t, h, "24h")
 	// The groups exist even with nothing in them: the page draws a row per
 	// model whether or not that model has answered yet.
-	if len(got.Pulse) != 2 || len(got.Samples) != 4 {
-		t.Errorf("pulse = %d, samples = %d on an empty database; want 2 and 4",
+	if len(got.Pulse) != 2 || len(got.Samples) != 2 {
+		t.Errorf("pulse = %d, samples = %d on an empty database; want one group per model",
 			len(got.Pulse), len(got.Samples))
 	}
 }
@@ -298,8 +284,7 @@ func seedWrongAnswer(
 			{Target: probe.TargetRefSGP, ConnectMs: 265, OK: true},
 		},
 		Infer: []probe.InferResult{{
-			ModelID: model, Probe: probe.ProbeShort,
-			OK: true, HTTPStatus: 200, TTFTMs: 1200, AnswerOK: &wrong,
+			ModelID: model, OK: true, HTTPStatus: 200, TTFTMs: 1200, AnswerOK: &wrong,
 		}},
 	}); err != nil {
 		t.Fatalf("Save: %v", err)
@@ -320,8 +305,7 @@ func seedPassingAnswer(
 			{Target: probe.TargetRefSGP, ConnectMs: 265, OK: true},
 		},
 		Infer: []probe.InferResult{{
-			ModelID: model, Probe: probe.ProbeShort,
-			OK: true, HTTPStatus: 200, TTFTMs: 1200, AnswerOK: &right,
+			ModelID: model, OK: true, HTTPStatus: 200, TTFTMs: 1200, AnswerOK: &right,
 		}},
 	}); err != nil {
 		t.Fatalf("Save: %v", err)
@@ -341,8 +325,7 @@ func seedFailure(
 			{Target: probe.TargetRefSGP, ConnectMs: 265, OK: true},
 		},
 		Infer: []probe.InferResult{{
-			ModelID: model, Probe: probe.ProbeShort,
-			OK: false, ErrorClass: class, ErrorDetail: detail, HTTPStatus: status,
+			ModelID: model, OK: false, ErrorClass: class, ErrorDetail: detail, HTTPStatus: status,
 		}},
 	}); err != nil {
 		t.Fatalf("Save: %v", err)
@@ -447,7 +430,7 @@ func TestErrorsBlockCarriesGradedWrongAnswers(t *testing.T) {
 // This is the NULL-safety assertion the widened predicate rests on: it reads
 // `i.answer_ok = 0`, and in SQLite NULL = 0 is NULL rather than true, so an
 // ungraded run is untouched by it. Wide probes are never graded, so getting
-// this wrong would fill the block with every wide run on the endpoint — one an
+// this wrong would fill the block with every ungraded run on the endpoint — one an
 // hour per model, all of them healthy.
 func TestUngradedRunsStayOutOfTheErrorsBlock(t *testing.T) {
 	h, store := newAPIServer(t)
@@ -461,8 +444,7 @@ func TestUngradedRunsStayOutOfTheErrorsBlock(t *testing.T) {
 		Infer: []probe.InferResult{{
 			// Wide: it ran, it succeeded, and nothing graded it. AnswerOK stays
 			// nil, exactly as probe.Client leaves it when there is no assertion.
-			ModelID: "mimo-v2.5", Probe: probe.ProbeWide,
-			OK: true, HTTPStatus: 200, TTFTMs: 1400,
+			ModelID: "mimo-v2.5", OK: true, HTTPStatus: 200, TTFTMs: 1400,
 		}},
 	}); err != nil {
 		t.Fatalf("Save: %v", err)
@@ -568,8 +550,7 @@ func TestFailuresCarryTheCycleFault(t *testing.T) {
 			{Target: probe.TargetRefSGP, OK: true, ConnectMs: 265},
 		},
 		Infer: []probe.InferResult{{
-			ModelID: "mimo-v2.5", Probe: probe.ProbeShort,
-			OK: false, ErrorClass: probe.ErrClassConnectTimeout,
+			ModelID: "mimo-v2.5", OK: false, ErrorClass: probe.ErrClassConnectTimeout,
 		}},
 	}); err != nil {
 		t.Fatalf("Save: %v", err)
@@ -583,8 +564,7 @@ func TestFailuresCarryTheCycleFault(t *testing.T) {
 			{Target: probe.TargetRefSGP, OK: false, ErrorClass: probe.ErrClassConnectTimeout},
 		},
 		Infer: []probe.InferResult{{
-			ModelID: "mimo-v2.5", Probe: probe.ProbeShort,
-			OK: false, ErrorClass: probe.ErrClassConnectTimeout,
+			ModelID: "mimo-v2.5", OK: false, ErrorClass: probe.ErrClassConnectTimeout,
 		}},
 	}); err != nil {
 		t.Fatalf("Save: %v", err)

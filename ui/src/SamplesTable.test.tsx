@@ -11,7 +11,6 @@ const NOW = new Date("2026-08-04T12:00:00Z");
 const sample = (over: Partial<Sample> = {}): Sample => ({
   at: "2026-08-04T12:00:00Z",
   model_id: "mimo-v2.5",
-  probe: "short",
   ttft_ms: 900,
   total_ms: 1700,
   itl_p50_ms: 24,
@@ -33,13 +32,13 @@ const cellsOfFirstRow = () =>
   );
 
 describe("newestFirst", () => {
-  it("interleaves the probes by time rather than concatenating them", () => {
+  it("interleaves the groups by time rather than concatenating them", () => {
     const merged = newestFirst([
       [
         sample({ at: "2026-08-04T13:00:00Z" }),
         sample({ at: "2026-08-04T11:55:00Z" }),
       ],
-      [sample({ at: "2026-08-04T12:00:00Z", probe: "wide" })],
+      [sample({ at: "2026-08-04T12:00:00Z" })],
     ]);
     expect(merged.map((s) => s.at)).toEqual([
       "2026-08-04T13:00:00Z",
@@ -53,26 +52,14 @@ describe("newestFirst", () => {
   it("orders on the instant, not on the timestamp as text", () => {
     const merged = newestFirst([
       [sample({ at: "2026-08-04T12:00:00Z" })],
-      [sample({ at: "2026-08-04T12:00:00.5Z", probe: "wide" })],
+      [sample({ at: "2026-08-04T12:00:00.5Z" })],
     ]);
     expect(merged[0]!.at).toBe("2026-08-04T12:00:00.5Z");
   });
 
-  // A wide run shares its cycle's timestamp exactly with the short run beside
-  // it, so without a tie-break the pair would swap places between renders.
-  it("breaks a shared timestamp the same way every time", () => {
-    const at = "2026-08-04T12:00:00Z";
-    const short = sample({ at });
-    const wide = sample({ at, probe: "wide" });
-    expect(newestFirst([[short], [wide]]).map((s) => s.probe)).toEqual(
-      newestFirst([[wide], [short]]).map((s) => s.probe),
-    );
-  });
-
-  // Probe alone stopped being a total order when the table started drawing
-  // every model: every run in a cycle carries that CYCLE'S instant rather than
-  // its own, so the two models' short runs tie on both timestamp and probe. The
-  // pair would swap places between renders on a table a reader scans down.
+  // Every run in a cycle carries that CYCLE'S instant rather than its own, so
+  // the two models' runs tie on the timestamp. Without a second key the pair
+  // would swap places between renders on a table a reader scans down.
   it("breaks a tie between models the same way every time", () => {
     const at = "2026-08-04T12:00:00Z";
     const a = sample({ at, model_id: "mimo-v2.5" });
@@ -82,22 +69,18 @@ describe("newestFirst", () => {
     );
   });
 
-  // The full cross product a cycle produces once wide is due: two models, two
-  // probes, one instant. All four survive the merge — none is aggregated away.
-  it("keeps every run of a cycle that both models and both probes ran", () => {
+  // Every run a cycle produces, one instant. Both survive the merge — neither
+  // is aggregated away.
+  it("keeps every run of a cycle that both models ran", () => {
     const at = "2026-08-04T12:00:00Z";
     const merged = newestFirst([
       [sample({ at, model_id: "mimo-v2.5" })],
-      [sample({ at, model_id: "mimo-v2.5", probe: "wide" })],
       [sample({ at, model_id: "mimo-v2.5-pro" })],
-      [sample({ at, model_id: "mimo-v2.5-pro", probe: "wide" })],
     ]);
-    expect(merged).toHaveLength(4);
-    expect(merged.map((s) => `${s.model_id}/${s.probe}`)).toEqual([
-      "mimo-v2.5/short",
-      "mimo-v2.5/wide",
-      "mimo-v2.5-pro/short",
-      "mimo-v2.5-pro/wide",
+    expect(merged).toHaveLength(2);
+    expect(merged.map((s) => s.model_id)).toEqual([
+      "mimo-v2.5",
+      "mimo-v2.5-pro",
     ]);
   });
 });
@@ -129,28 +112,23 @@ describe("SamplesTable", () => {
 
   // What the cap costs now that the table draws every model, asserted rather
   // than left implied. The cap counts rows; a reader reads time. Two models at
-  // 12 short runs an hour each, plus a wide run an hour each, is ~26 rows an
-  // hour — so 20 rows is ~45 minutes, against the ~90 the same cap covered
-  // while the table held a single model. This test is what tells anyone who
-  // moves the number what they are trading.
-  it("covers about three quarters of an hour of both models", () => {
+  // 12 runs an hour each is ~24 rows an hour — so 20 rows is ~50 minutes,
+  // against the ~90 the same cap covered while the table held a single model.
+  // This test is what tells anyone who moves the number what they are trading.
+  it("covers about an hour of both models", () => {
     const at = (min: number) =>
       new Date(Date.UTC(2026, 7, 4, 12, 0) - min * 60_000).toISOString();
-    const groups = ["mimo-v2.5", "mimo-v2.5-pro"].flatMap((model_id) => [
+    const groups = ["mimo-v2.5", "mimo-v2.5-pro"].map((model_id) =>
       Array.from({ length: 20 }, (_, i) => sample({ model_id, at: at(i * 5) })),
-      Array.from({ length: 2 }, (_, i) =>
-        sample({ model_id, probe: "wide", at: at(i * 60), answer_ok: null }),
-      ),
-    ]);
+    );
     render(<SamplesTable perGroup={groups} />);
 
     const times = [...screen.getByRole("table").querySelectorAll("tbody tr")]
       .map((tr) => tr.querySelector("td")!.textContent)
       .filter((t): t is string => t !== null);
-    // 20 rows of two models is 40 minutes here: 8 five-minute ticks at two
-    // short runs each, plus the two wide runs sharing the newest of them.
-    expect(times[times.length - 1]).toBe("40 min ago");
-    expect(screen.getAllByText("wide")).toHaveLength(2);
+    // 20 rows of two models is 45 minutes here: 10 five-minute ticks at two
+    // runs each.
+    expect(times[times.length - 1]).toBe("45 min ago");
   });
 
   it("keeps the newest cycles, not the oldest", () => {
@@ -206,17 +184,16 @@ describe("SamplesTable", () => {
     expect(bodyRows()).toBe(2);
   });
 
-  // The whole point of the two columns: every run of a cycle carries the same
-  // timestamp, so these are what tell the rows apart.
-  it("names the model and the probe beside the time", () => {
+  // Every run of a cycle carries the same timestamp, so the model column is
+  // what tells the rows apart.
+  it("names the model beside the time", () => {
     render(
       <SamplesTable
-        perGroup={[[sample()], [sample({ probe: "wide", answer_ok: null })]]}
+        perGroup={[[sample()], [sample({ model_id: "mimo-v2.5-pro" })]]}
       />,
     );
     expect(cellsOfFirstRow()[1]).toBe("mimo-v2.5");
-    expect(cellsOfFirstRow()[2]).toBe("short");
-    expect(screen.getByText("wide")).toBeInTheDocument();
+    expect(screen.getByText("mimo-v2.5-pro")).toBeInTheDocument();
   });
 
   // The omission this table was fixed for: it fetched and drew the first model
@@ -235,22 +212,11 @@ describe("SamplesTable", () => {
     expect(screen.getByText("mimo-v2.5-pro")).toBeInTheDocument();
   });
 
-  // The column is the wire value, so a kind the table has never heard of is
-  // still a row an operator must see.
-  it("shows an unrecognised probe verbatim rather than dropping it", () => {
-    render(<SamplesTable perGroup={[[sample({ probe: "deep" })]]} />);
-    expect(screen.getByText("deep")).toBeInTheDocument();
-  });
-
-  // Wide has no single assertable answer, so it is never graded. A dash, not a
+  // A run that failed before an answer existed is never graded. A dash, not a
   // "wrong": ungraded and incorrect are the distinction the nil verdict exists
   // to keep.
   it("leaves the answer blank on a run that was never graded", () => {
-    render(
-      <SamplesTable
-        perGroup={[[sample({ probe: "wide", answer_ok: null })]]}
-      />,
-    );
+    render(<SamplesTable perGroup={[[sample({ answer_ok: null })]]} />);
     expect(screen.getByText("—")).toBeInTheDocument();
     expect(screen.queryByText("wrong")).not.toBeInTheDocument();
   });
@@ -279,7 +245,7 @@ describe("SamplesTable", () => {
       <SamplesTable
         perGroup={[
           [
-            sample({ probe: "wide", answer_ok: null }),
+            sample({ answer_ok: null }),
             sample({ prompt_tokens: 3801, output_tokens: 300 }),
           ],
         ]}

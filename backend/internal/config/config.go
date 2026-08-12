@@ -97,9 +97,9 @@ const DefaultUserAgent = "opencode/1.18.11 ai-sdk/openai-compatible/3.0.20 ai-sd
 //
 // When a request carries no system message, MiMo injects its own — measured at
 // 250 prompt tokens, of which 192 came back as `cached_tokens`. That breaks the
-// probe twice over: a "~40 token" short request actually costs ~263 tokens
-// (blowing the cost model by ~6.5x), and most of the prefill it is supposed to
-// be timing is served from cache instead of computed. Supplying any system
+// probe twice over: a "~40 token" request actually costs ~263 tokens (blowing
+// the cost model by ~6.5x), and most of the prefill inside its first token is
+// served from cache instead of computed. Supplying any system
 // message suppresses the injection entirely: prompt_tokens drops to 20 and
 // cached_tokens comes back null.
 //

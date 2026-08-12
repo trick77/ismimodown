@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Point } from "../api/types";
+import { shouldUseLogScale } from "../format";
 import {
   buildCostOption,
   buildDecompositionOption,
@@ -292,99 +293,6 @@ describe("buildDecompositionOption", () => {
     expect(opt.series[0]!.barMaxWidth).toBeLessThanOrEqual(20);
   });
 });
-
-describe("muted series", () => {
-  // The prefill panel replots the short probe's TTFT — the same data as the
-  // chart above it — because the gap to the wide probe is the measurement. At
-  // equal weight the panel reads as that chart repeated, which is how it was
-  // actually read. The baseline has to recede for the gap to be the figure.
-  it("thins and fades the marked series, leaving the subject alone", () => {
-    const opt = buildLineOption({
-      series: { "m · 34 tok": [pt(1, 1)], "m · 3800 tok": [pt(1, 2)] },
-      order: ["m · 34 tok", "m · 3800 tok"],
-      colorOf: () => "#3987e5",
-      unit: "ms",
-      dashed: (name) => name.includes("3800"),
-      muted: (name) => !name.includes("3800"),
-    });
-    const baseline = opt.series[0]!;
-    const subject = opt.series[1]!;
-
-    expect(baseline.lineStyle.width).toBeLessThan(subject.lineStyle.width);
-    expect(baseline.lineStyle.opacity).toBeLessThan(1);
-    expect(subject.lineStyle.opacity).toBe(1);
-  });
-
-  // The fill is what carries the eye at 0.12; thinning the stroke while leaving
-  // it would mute the wrong half of the series.
-  it("pulls the area fill back on a muted series", () => {
-    const opt = buildLineOption({
-      series: { a: [pt(1, 1)], b: [pt(1, 2)] },
-      order: ["a", "b"],
-      colorOf: () => "#3987e5",
-      unit: "ms",
-      muted: (name) => name === "a",
-    });
-    expect(opt.series[0]!.areaStyle!.opacity).toBeLessThan(
-      opt.series[1]!.areaStyle!.opacity,
-    );
-  });
-
-  it("leaves every series at full weight when no predicate is given", () => {
-    const opt = buildLineOption({
-      series: { a: [pt(1, 1)] },
-      order: ["a"],
-      colorOf: () => "#fff",
-      unit: "ms",
-    });
-    expect(opt.series[0]!.lineStyle.width).toBe(2);
-    expect(opt.series[0]!.lineStyle.opacity).toBe(1);
-  });
-});
-
-describe("dashed series", () => {
-  // The prefill panel plots two probes PER MODEL and colour follows the model,
-  // so both lines share a hue. Without a second visual channel the gap between
-  // them — the entire point of that panel — cannot be read.
-  it("gives a dashed line style to the marked series only", () => {
-    const opt = buildLineOption({
-      series: { "m · 34 tok": [pt(1, 1)], "m · 3800 tok": [pt(1, 2)] },
-      order: ["m · 34 tok", "m · 3800 tok"],
-      colorOf: () => "#3987e5",
-      unit: "ms",
-      dashed: (name) => name.includes("3800"),
-    });
-    expect(opt.series[0]!.lineStyle.type).toBe("solid");
-    expect(opt.series[1]!.lineStyle.type).toBe("dashed");
-    // Same hue is correct — colour follows the model.
-    expect(opt.series[0]!.lineStyle.color).toBe(opt.series[1]!.lineStyle.color);
-  });
-
-  // Two filled areas in the same hue stack into a solid block and hide the very
-  // gap the panel exists to show.
-  it("drops the area fill under a dashed series", () => {
-    const opt = buildLineOption({
-      series: { a: [pt(1, 1)], b: [pt(1, 2)] },
-      order: ["a", "b"],
-      colorOf: () => "#3987e5",
-      unit: "ms",
-      dashed: (name) => name === "b",
-    });
-    expect(opt.series[0]!.areaStyle).toBeDefined();
-    expect(opt.series[1]!.areaStyle).toBeUndefined();
-  });
-
-  it("defaults every series to solid when no predicate is given", () => {
-    const opt = buildLineOption({
-      series: { a: [pt(1, 1)] },
-      order: ["a"],
-      colorOf: () => "#fff",
-      unit: "ms",
-    });
-    expect(opt.series[0]!.lineStyle.type).toBe("solid");
-  });
-});
-
 describe("the time axis", () => {
   // The axis followed the VIEWER's machine, while the samples table below it
   // rendered Europe/Zurich — two clocks on one page, so a spike a reader
@@ -648,55 +556,9 @@ describe("buildCostOption", () => {
     expect(o.series[0]!.markArea).toBeUndefined();
   });
 });
-
-describe("a pinned time axis", () => {
-  // Two plots stacked and meant to be read against each other. The prefill
-  // panel's delta is sampled at the wide probe's hourly cadence and its
-  // reference strip at the short probe's, so their own extents differ by up to
-  // an hour; unpinned, a vertical through the pair means two different
-  // instants.
-  it("holds the axis to the given range rather than the data's", () => {
-    const opt = buildLineOption({
-      series: { a: [pt(2_000, 1)] },
-      order: ["a"],
-      colorOf: () => "#fff",
-      unit: "ms",
-      xRange: [1_000_000, 9_000_000],
-    });
-    expect(opt.xAxis.min).toBe(1_000_000);
-    expect(opt.xAxis.max).toBe(9_000_000);
-  });
-
-  it("leaves the axis to ECharts when no range is given", () => {
-    const opt = buildLineOption({
-      series: { a: [pt(2_000, 1)] },
-      order: ["a"],
-      colorOf: () => "#fff",
-      unit: "ms",
-    });
-    expect(opt.xAxis.min).toBeUndefined();
-    expect(opt.xAxis.max).toBeUndefined();
-  });
-
-  // The format follows the pinned span too, or a strip whose own data spans
-  // less than 48h prints HH:mm under a chart printing dates.
-  it("picks the tick format from the pinned span", () => {
-    const opt = buildLineOption({
-      series: { a: [pt(Date.UTC(2026, 7, 4) / 1000, 1)] },
-      order: ["a"],
-      colorOf: () => "#fff",
-      unit: "ms",
-      xRange: [Date.UTC(2026, 6, 1), Date.UTC(2026, 7, 4)],
-    });
-    expect(opt.xAxis.axisLabel.formatter(Date.UTC(2026, 7, 4, 16))).toMatch(
-      /Aug/,
-    );
-  });
-});
-
 describe("a series that can reach zero", () => {
   // ECharts does not refuse a non-positive value on a log axis, it DROPS the
-  // point — so a delta touching zero would come back as a line with holes that
+  // point — so a series touching zero would come back as a line with holes that
   // look exactly like buckets where nothing was measured.
   it("stays linear however wide the spread, when a value is not positive", () => {
     const opt = buildLineOption({
@@ -706,6 +568,29 @@ describe("a series that can reach zero", () => {
       unit: "ms",
     });
     expect(opt.logScale).toBe(false);
+  });
+
+  // THIS is the case that makes the guard load-bearing, and the reason the two
+  // above do not: dynamicRange FILTERS non-positives out and then measures what
+  // is left, so it only returns 1 when fewer than two positives survive. Give it
+  // two positives more than 20x apart and it reports a log-worthy spread while
+  // the series still holds a negative — which is precisely the point ECharts
+  // would drop. A reader checking whether this guard is dead code will look at
+  // the tests above, conclude it is, and delete it. It is not.
+  it("stays linear when the POSITIVE values alone would force a log axis", () => {
+    const values = [pt(1, -400), pt(2, 900), pt(3, 40_000)];
+    // The spread the axis would see if the negative were simply ignored.
+    expect(shouldUseLogScale(values.map((p) => p.p50))).toBe(true);
+
+    const opt = buildLineOption({
+      series: { a: values },
+      order: ["a"],
+      colorOf: () => "#fff",
+      unit: "ms",
+    });
+    expect(opt.logScale).toBe(false);
+    // And the point survives, which is the whole reason to stay linear.
+    expect(opt.series[0]!.data).toContainEqual([1000, -400]);
   });
 
   it("stays linear on an exact zero too", () => {
@@ -728,46 +613,5 @@ describe("a series that can reach zero", () => {
       unit: "ms",
     });
     expect(opt.logScale).toBe(true);
-  });
-});
-
-describe("the zero line", () => {
-  // On a series of DIFFERENCES, zero is not the floor of the plot — it is where
-  // the reading changes meaning: above it the long prompt cost something, at or
-  // below it the baseline moved instead.
-  it("hangs one rule at zero off the first series only", () => {
-    const opt = buildLineOption({
-      series: { a: [pt(1, 1)], b: [pt(1, 2)] },
-      order: ["a", "b"],
-      colorOf: () => "#fff",
-      unit: "ms",
-      zeroLine: true,
-    });
-    expect(opt.series[0]!.markLine!.data).toEqual([{ yAxis: 0 }]);
-    expect(opt.series[1]!.markLine).toBeUndefined();
-  });
-
-  it("draws no rule unless asked", () => {
-    const opt = buildLineOption({
-      series: { a: [pt(1, 1)] },
-      order: ["a"],
-      colorOf: () => "#fff",
-      unit: "ms",
-    });
-    expect(opt.series[0]!.markLine).toBeUndefined();
-  });
-
-  // A log axis has no zero to rule, and cannot acquire one: it only exists
-  // where every value is above it.
-  it("draws no rule on a log axis", () => {
-    const opt = buildLineOption({
-      series: { a: [pt(1, 900), pt(2, 40_000)] },
-      order: ["a"],
-      colorOf: () => "#fff",
-      unit: "ms",
-      zeroLine: true,
-    });
-    expect(opt.logScale).toBe(true);
-    expect(opt.series[0]!.markLine).toBeUndefined();
   });
 });

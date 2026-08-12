@@ -62,8 +62,8 @@ func main() {
 	for _, model := range cfg.Models {
 		q := probe.Pick(0)
 		res, err := client.Run(context.Background(), probe.Request{
-			ModelID: model, Probe: probe.ProbeShort, Prompt: q.Prompt(),
-			MaxTokens: probe.ShortMaxTokens, QuestionID: q.ID, Assert: q.Assert,
+			ModelID: model, Prompt: q.Prompt(),
+			MaxTokens: probe.MaxTokens, QuestionID: q.ID, Assert: q.Assert,
 		})
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "run %s: %v\n", model, err)
@@ -87,20 +87,4 @@ func main() {
 		fmt.Printf("  question=%s answer_ok=%s\n", res.QuestionID, answerOK)
 		fmt.Printf("  content: %.120s\n", res.Content)
 	}
-
-	// The wide probe, once, to confirm cache defeat actually holds.
-	res, err := client.Run(context.Background(), probe.Request{
-		ModelID: "mimo-v2.5", Probe: probe.ProbeWide,
-		Prompt: probe.WidePrompt(), MaxTokens: probe.WideMaxTokens,
-	})
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "wide: %v\n", err)
-		return
-	}
-	fmt.Printf("\nwide  mimo-v2.5  ok=%v class=%s\n", res.OK, res.ErrorClass)
-	fmt.Printf("  ttft=%.0fms total=%.0fms itl_p50=%.1fms\n", res.TTFTMs, res.TotalMs, res.ITLP50Ms)
-	fmt.Printf("  tokens: prompt=%d output=%d cached=%d reasoning=%d  finish=%s\n",
-		res.Usage.PromptTokens, res.Usage.CompletionTokens,
-		res.Usage.PromptTokensDetails.CachedTokens,
-		res.Usage.CompletionTokenDetails.ReasoningTokens, res.FinishReason)
 }

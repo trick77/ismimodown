@@ -211,26 +211,25 @@ came back on and every latency figure is measuring something else:
 ```sh
 docker compose exec ismimodown /usr/local/bin/ismimodown -healthcheck && echo healthy
 sqlite3 data/mimostats.db \
-  'SELECT model_id, probe, ttft_ms, reasoning_tokens, cached_tokens, answer_ok
+  'SELECT model_id, ttft_ms, reasoning_tokens, cached_tokens, answer_ok
    FROM infer_probes ORDER BY id DESC LIMIT 8'
 ```
 
-`cached_tokens` should also be at or near 0. On `wide` a rise means the
-cache-defeat nonce stopped working and the prefill numbers have quietly become
-cache lookups; on `short` it means the system message went missing and MiMo is
-serving its own injected prompt from cache.
+`cached_tokens` should also be at or near 0. A rise means the system message
+went missing and MiMo is serving its own injected prompt from cache.
 
-The `probe` column reads `short` from migration 0003 onward; databases last
-written by an older build hold `infer` there instead. That CHECK is why the
-rename is one-way.
+The `probe` column is gone from migration 0006 onward, and so are the `wide`
+rows it distinguished — see that migration for why the measurement they served
+could not be supported. **0006 deletes data and there is no way back.** Take the
+backup below before deploying a build that carries it.
 
-A pre-0003 binary on a migrated database boots clean — 0003 is already recorded
-— and then stores nothing at all. A cycle is written in ONE transaction, so the
-short probe's row failing the constraint takes the whole cycle down with it: the
-cycle row, both network readings and the wide run. The daemon logs `persist
-cycle failed` every five minutes while everything already collected stays on the
-dashboard, so it reads as a page that quietly stopped updating rather than as an
-outage. Roll forward, not back.
+An older binary on a migrated database boots clean — the migration is already
+recorded — and then stores nothing at all, because its INSERT names a column
+that no longer exists. A cycle is written in ONE transaction, so that failure
+takes the whole cycle with it: the cycle row and both network readings. The
+daemon logs `persist cycle failed` every five minutes while everything already
+collected stays on the dashboard, so it reads as a page that quietly stopped
+updating rather than as an outage. Roll forward, not back.
 
 ```sh
 docker compose logs ismimodown | grep 'persist cycle failed'

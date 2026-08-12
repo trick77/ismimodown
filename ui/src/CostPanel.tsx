@@ -17,18 +17,9 @@ import { CHART_HEIGHT, buildCostOption } from "./charts/options";
 // produces a total that is technically correct and reads as the daily bill.
 const MIN_RUNS = 10;
 
-// How often each probe kind runs, said once beside its per-run price — the one
-// thing about a probe that no response carries.
-//
-// Keyed on the wire value, which is also what the label is built from: since
-// 0003 the schema spells both kinds the way a reader should see them, so
-// nothing translates and there is no second spelling to keep in step. A kind
-// with no entry here simply gets no cadence, which is the honest outcome for a
-// probe this card has never heard of.
-const PROBE_HINTS: Record<string, string> = {
-  short: "every few minutes",
-  wide: "hourly",
-};
+// How often the probe runs, said once beside its per-run price — the one thing
+// about it that no response carries.
+const PROBE_CADENCE = "every few minutes";
 
 export function CostPanel({ cost }: { cost: CostBreakdown | null }) {
   // Still no panel below MIN_RUNS: a total over three runs is technically
@@ -44,7 +35,7 @@ export function CostPanel({ cost }: { cost: CostBreakdown | null }) {
   return (
     <Card
       title="What this dashboard costs to run"
-      subtitle="Every probe this page sends, priced from the usage MiMo reported on it — both models, both probe kinds."
+      subtitle="Every probe this page sends, priced from the usage MiMo reported on it — both models."
       right={
         <span
           className={`num whitespace-nowrap rounded-full border px-2 py-[2px] text-micro uppercase tracking-wider ${
@@ -74,7 +65,7 @@ export function CostPanel({ cost }: { cost: CostBreakdown | null }) {
           on the same breakpoint: four columns inside a 600px card leaves each
           figure ~120px, and "$0.000141" needs more than that. Two by two until
           there is room for one row. */}
-      <div className="mb-5 grid grid-cols-2 gap-5 border-b border-border-soft pb-5 md:grid-cols-4">
+      <div className="mb-5 grid grid-cols-2 gap-5 border-b border-border-soft pb-5 md:grid-cols-3">
         <Money
           label={`Last ${cost.window}`}
           value={formatUSD(cost.total.usd)}
@@ -82,17 +73,17 @@ export function CostPanel({ cost }: { cost: CostBreakdown | null }) {
             cost.total.tokens.prompt + cost.total.tokens.output,
           )} tokens`}
         />
-        {/* Per PROBE, never a single mean over both: a wide run carries a
-            ~3.6k-token prompt against a short one's ~70, so their average
-            describes no run that is ever sent. */}
-        {cost.probes.map((p) => (
-          <Money
-            key={p.probe}
-            label={`Per ${p.probe} run`}
-            value={formatUSDPrecise(perRun(p))}
-            hint={`${formatInt(p.runs)} runs · ${PROBE_HINTS[p.probe] ?? ""}`}
-          />
-        ))}
+        {/* One mean over every run, which is honest now that every run sends
+            the same prompt. It used to be split per probe kind: a ~3.6k-token
+            prompt averaged with a ~70-token one describes no run that is ever
+            sent. There is one kind. */}
+        <Money
+          label="Per run"
+          value={formatUSDPrecise(perRun(cost.total))}
+          // The run count is already on the tile to its left; repeating it
+          // here spends the line on a number the eye just read.
+          hint={PROBE_CADENCE}
+        />
         <Money
           label="Saved off-peak"
           value={saved === null ? "—" : formatUSDPrecise(saved)}
