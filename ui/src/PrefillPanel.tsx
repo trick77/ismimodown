@@ -88,6 +88,12 @@ export function PrefillPanel({
   const hasDelta = Object.values(delta).some(
     (points) => points.filter((p) => p.p50 !== null).length >= 2,
   );
+  // Truncation on the delta side, whether or not there is a chart to band. When
+  // there is not, this is the only thing standing between a fully cut-off
+  // stretch and a placeholder that calls it missing data.
+  const deltaCensored = Object.values(delta)
+    .flat()
+    .reduce((n, p) => n + p.censored, 0);
 
   // Both plots are pinned to the probes' extent — the wider of the two, since
   // the short probe runs every cycle — so a vertical through the pair means one
@@ -157,34 +163,56 @@ export function PrefillPanel({
           ariaLabel="Prefill cost per model: time to first token at 3800 input tokens minus time to first token at 34"
         />
       ) : (
-        // Three states, not two. Blaming the wide probe's hourly cadence on a
-        // fresh install — where NOTHING has been collected — names the wrong
-        // reason and sends the reader away for an hour over something the next
-        // cycle would have produced.
+        // Four states. Each names why there is no line, and the reasons are not
+        // interchangeable: nothing collected yet, the wide probe not round to
+        // its first run, its runs cut off, or simply not enough of them.
+        //
+        // The truncation branch is the one that must not fall through to the
+        // others. With every wide run timing out there IS no chart, so the
+        // censoring note below is not rendered — and prefillDelta goes to the
+        // trouble of keeping valueless points precisely so that truncation
+        // cannot pass as an absence of data. Saying "the line starts once a
+        // second wide probe has run" there would report a probe that has not
+        // run yet, when what happened is that every run was cut off.
         <NoChart height={CHART_HEIGHT}>
           {!hasProbes
             ? "Not enough data yet — first samples within a few minutes."
             : !hasWide
               ? "The wide probe runs hourly, so it takes an hour before there is a cost to plot."
-              : "First cost readings are in; the line starts once a second wide probe has run."}
+              : deltaCensored > 0
+                ? "Every wide probe over this window hit the timeout limits, so there is no cost to plot — a truncated stretch, not a quiet one."
+                : "First cost readings are in; the line starts once a second wide probe has run."}
         </NoChart>
       )}
-      <ul className="mt-3 flex flex-wrap gap-4">
-        {models.map((m) => (
-          <li key={m} className="flex items-center gap-2 text-label text-muted">
-            <span
-              className="inline-block h-2 w-4 rounded-sm"
-              style={{ background: colorForModel(m, models) }}
-              aria-hidden="true"
-            />
-            <span className="num">{m}</span>
-          </li>
-        ))}
-        <li className="text-label text-muted">
-          One point per wide probe, so hourly — sparser than the strip below. At
-          or under zero, the short baseline moved rather than prefill.
-        </li>
-      </ul>
+      {/* The swatches serve BOTH plots — colour follows the model in the strip
+          too — so they stay for as long as either is drawn. The line under them
+          describes the delta's cadence and its zero, so it goes when the delta
+          does: explaining the sampling of a plot that is not on the page is the
+          same caption-for-nothing the censoring note is withheld for. */}
+      {(hasDelta || hasProbes) && (
+        <ul className="mt-3 flex flex-wrap gap-4">
+          {models.map((m) => (
+            <li
+              key={m}
+              className="flex items-center gap-2 text-label text-muted"
+            >
+              <span
+                className="inline-block h-2 w-4 rounded-sm"
+                style={{ background: colorForModel(m, models) }}
+                aria-hidden="true"
+              />
+              <span className="num">{m}</span>
+            </li>
+          ))}
+          {hasDelta && (
+            <li className="text-label text-muted">
+              One point per wide probe, so hourly — sparser than the strip
+              below. At or under zero, the short baseline moved rather than
+              prefill.
+            </li>
+          )}
+        </ul>
+      )}
       {/* Only alongside a chart. The note explains shading, and shading with no
           plot under it to carry it is a caption for nothing. */}
       {hasDelta && <CensoredNote bands={deltaOption.censoredBands} />}

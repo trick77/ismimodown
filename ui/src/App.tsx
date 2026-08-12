@@ -369,11 +369,11 @@ export default function App() {
               unit="ms"
             />
             {/* Below the sum rather than among the parts. This panel does not
-              measure a share of the wait — it re-plots the first part against a
-              second, larger prompt — and sitting between the parts and the sum
-              it read as one more component the sum was made of. After it, the
-              question it answers is the one a reader actually arrives with:
-              given the wait above, what does a bigger prompt add to it? */}
+              measure a share of the wait — it charts what a second, larger
+              prompt ADDS to the first part — and sitting between the parts and
+              the sum it read as one more component the sum was made of. After
+              it, the question it answers is the one a reader actually arrives
+              with: given the wait above, what does a bigger prompt add to it? */}
             <PrefillPanel
               short={data?.series.ttft ?? null}
               wide={data?.series.ttft_wide ?? null}

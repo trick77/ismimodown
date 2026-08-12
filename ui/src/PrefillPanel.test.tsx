@@ -89,14 +89,38 @@ describe("PrefillPanel", () => {
 
   // A series of points that are all null is still a full-length series. Gated
   // on its LENGTH, the panel drew an empty grid with axes and no explanation.
-  it("shows the placeholder when every wide bucket was cut off", () => {
+  //
+  // And with no chart there is no censoring band and no note under it, so the
+  // placeholder is the ONLY thing that can say the runs were cut off. Calling
+  // it missing data would undo the reason prefillDelta keeps valueless points
+  // at all.
+  it("names truncation, not absence, when every wide bucket was cut off", () => {
     const dead = series({
       "mimo-v2.5": day(0).map((p) => ({ ...p, n: 0, censored: 2, p50: null })),
     });
     render(<PrefillPanel short={short} wide={dead} models={["mimo-v2.5"]} />);
-    expect(screen.getByText(/second wide probe/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Every wide probe over this window/),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/second wide probe/)).not.toBeInTheDocument();
     // The strip is still there — it is what says the short probe kept running.
     expect(screen.getAllByTestId("chart")).toHaveLength(1);
+  });
+
+  // The cadence-and-zero line describes the delta's plot. With no delta plot it
+  // explains a chart that is not on the page; the swatches stay, because colour
+  // follows the model in the strip too.
+  it("drops the delta's legend line but keeps the swatches when only the strip is drawn", () => {
+    render(<PrefillPanel short={short} wide={null} models={["mimo-v2.5"]} />);
+    expect(
+      screen.queryByText(/One point per wide probe/),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText("mimo-v2.5")).toBeInTheDocument();
+  });
+
+  it("drops the legend entirely when no chart is drawn at all", () => {
+    render(<PrefillPanel short={null} wide={null} models={["mimo-v2.5"]} />);
+    expect(screen.queryByText("mimo-v2.5")).not.toBeInTheDocument();
   });
 
   // One reading is not a line: with symbols off it renders as nothing at all.
