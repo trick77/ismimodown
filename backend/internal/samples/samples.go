@@ -133,12 +133,12 @@ func (s *Store) Save(ctx context.Context, c Cycle) (int64, error) {
 func insertInfer(ctx context.Context, tx *sql.Tx, cycleID int64, in probe.InferResult) error {
 	_, err := tx.ExecContext(ctx,
 		`INSERT INTO infer_probes (
-			cycle_id, model_id, probe,
+			cycle_id, model_id,
 			ttft_ms, ttfat_ms, total_ms, itl_p50_ms, itl_p95_ms, output_tps,
 			prompt_tokens, output_tokens, cached_tokens, reasoning_tokens,
 			question_id, ok, answer_ok, http_status, error_class, error_detail
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		cycleID, in.ModelID, in.Probe,
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		cycleID, in.ModelID,
 		// Timings are NULL on a failed run, never 0. A zero would be read as
 		// "instant" by every percentile and average downstream; NULL is
 		// correctly ignored. This is the storage half of the rule that failed
@@ -165,7 +165,7 @@ func insertInfer(ctx context.Context, tx *sql.Tx, cycleID int64, in probe.InferR
 		nullString(in.ErrorDetail),
 	)
 	if err != nil {
-		return fmt.Errorf("insert infer_probe %s/%s: %w", in.ModelID, in.Probe, err)
+		return fmt.Errorf("insert infer_probe %s: %w", in.ModelID, err)
 	}
 	return nil
 }

@@ -15,7 +15,7 @@ import { zoneLabel } from "./format";
 //
 // The disclaimer and the zone, and nothing else. A paragraph restating the
 // vantage and the cadence was cut and stays cut: the network panel names both
-// ends of the path, the cost panel says the cadence per probe kind, and the
+// ends of the path, the cost panel says the cadence, and the
 // panels that depend on the single-vantage caveat already carry it where it
 // applies. A footer that re-explains the page it sits under is padding.
 //

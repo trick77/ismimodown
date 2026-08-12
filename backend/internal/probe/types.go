@@ -1,21 +1,25 @@
 package probe
 
-// Probe kinds, matching the infer_probes CHECK constraint.
+// MaxTokens caps the answer.
 //
-// Named for their PROMPTS, never for their operation. Both run an inference —
-// which is what the table they land in is named for — so the pair is short and
-// wide. Calling one of them "infer" said nothing about it and implied the other
-// was some different sort of thing; migration 0003 renamed the value.
-const (
-	// ProbeShort is the ~20-token question, run every cycle.
-	ProbeShort = "short"
-	// ProbeWide is the ~4 000-token summarisation, run hourly. It exists for
-	// the two things the short probe structurally cannot see: prefill scaling
-	// (40 -> 4 000 tokens is a real gradient; at 40 alone there is no slope) and
-	// sustained decode (300 output tokens is ~7 s, long enough to watch
-	// throughput degrade).
-	ProbeWide = "wide"
-)
+// The questions are one-liners, so this is a runaway guard rather than a
+// budget: enough that a correct answer is never truncated into a wrong one,
+// small enough that a model which starts generating an essay is cut off rather
+// than billed for it.
+//
+// There was a second, ~4 000-token probe alongside this one, and it is worth
+// knowing why it is gone rather than rediscovering the idea. It existed to
+// measure prefill scaling — what a long prompt adds to time-to-first-token —
+// and fourteen days of production said the endpoint cannot support that
+// measurement: the cost is ~250 ms while queueing swings ~±1600 ms run to run,
+// so a single reading is noise and only a weekly aggregate resolves it, into a
+// number that never moves. See migration 0006.
+//
+// Lengthening THIS prompt is not the way to bring the idea back. It runs every
+// cycle rather than hourly, so above ~320 prompt tokens it costs more than the
+// probe that was removed, while adding ~0.064 ms of prefill per token to a
+// figure whose run-to-run spread is three orders of magnitude larger.
+const MaxTokens = 150
 
 type chatCompletionRequest struct {
 	Model    string    `json:"model"`
@@ -89,9 +93,8 @@ type TokenUsage struct {
 }
 
 type PromptTokenDetails struct {
-	// CachedTokens must stay near zero. On wide a rise means the cache-defeat
-	// nonce stopped working; on short it means the system message went missing
-	// and MiMo's own injected prompt is being served from cache.
+	// CachedTokens must stay near zero. A rise means the system message went
+	// missing and MiMo's own injected prompt is being served from cache.
 	CachedTokens int `json:"cached_tokens"`
 }
 
@@ -107,7 +110,6 @@ type CompletionTokenDetails struct {
 // and however far it got.
 type InferResult struct {
 	ModelID string
-	Probe   string
 
 	// TTFTMs is the first chunk carrying ANY delta; TTFATMs the first chunk
 	// carrying actual content.
@@ -135,7 +137,7 @@ type InferResult struct {
 	// solid, where gross tok/s over a ~1.5 s window is noisy. That reasoning
 	// assumes one token per chunk arriving smoothly. MEASURED, it does not hold:
 	// MiMo batches several tokens into a chunk and delivers chunks in bursts. A
-	// real wide run on mimo-v2.5 recorded itl_p50 = 0.0075 ms against
+	// real run on mimo-v2.5 recorded itl_p50 = 0.0075 ms against
 	// itl_p95 = 55.6 ms and 70.4 tok/s over a 4.4 s decode window — more than
 	// half the gaps were essentially zero, so the median collapsed while
 	// throughput was perfectly healthy.

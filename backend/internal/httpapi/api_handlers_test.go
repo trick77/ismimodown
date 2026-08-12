@@ -41,8 +41,7 @@ func seed(t *testing.T, store *samples.Store, n int, ttft float64) {
 				{Target: probe.TargetRefSGP, ConnectMs: 265, OK: true},
 			},
 			Infer: []probe.InferResult{{
-				ModelID: "mimo-v2.5", Probe: probe.ProbeShort,
-				TTFTMs: ttft, TotalMs: ttft + 800, ITLP50Ms: 24, OutputTPS: 41,
+				ModelID: "mimo-v2.5", TTFTMs: ttft, TotalMs: ttft + 800, ITLP50Ms: 24, OutputTPS: 41,
 				OK: true, AnswerOK: &yes, QuestionID: "capital-france",
 			}},
 		}); err != nil {
@@ -141,7 +140,6 @@ func TestSeriesIsBucketedAndPerModel(t *testing.T) {
 		Window  string                     `json:"window"`
 		BucketS int                        `json:"bucket_s"`
 		Metric  string                     `json:"metric"`
-		Probe   string                     `json:"probe"`
 		Models  map[string][]samples.Point `json:"models"`
 	}
 	if err := json.Unmarshal(getDashboard(t, h, "24h").Series.TTFT, &out); err != nil {
@@ -154,9 +152,6 @@ func TestSeriesIsBucketedAndPerModel(t *testing.T) {
 	}
 	if _, ok := out.Models["mimo-v2.5"]; !ok {
 		t.Errorf("series is missing mimo-v2.5: %v", out.Models)
-	}
-	if out.Probe != "short" {
-		t.Errorf("probe = %q; it must be echoed so a chart cannot mix the two", out.Probe)
 	}
 }
 
@@ -197,7 +192,7 @@ func TestNoPublicEndpointEmitsErrorDetail(t *testing.T) {
 			{Target: probe.TargetRefSGP, OK: true, ConnectMs: 265},
 		},
 		Infer: []probe.InferResult{{
-			ModelID: "mimo-v2.5", Probe: probe.ProbeShort, TotalMs: 500,
+			ModelID: "mimo-v2.5", TotalMs: 500,
 			OK: false, ErrorClass: probe.ErrClassHTTP, ErrorDetail: secret,
 		}},
 	}); err != nil {
@@ -255,7 +250,7 @@ func TestRequestShapeIsNotServed(t *testing.T) {
 			{Target: probe.TargetRefSGP, OK: true, ConnectMs: 265},
 		},
 		Infer: []probe.InferResult{{
-			ModelID: "mimo-v2.5", Probe: probe.ProbeShort, TTFTMs: 900,
+			ModelID: "mimo-v2.5", TTFTMs: 900,
 			OK: true, QuestionID: "capital-france",
 		}},
 	}); err != nil {
@@ -271,8 +266,7 @@ func TestRequestShapeIsNotServed(t *testing.T) {
 			{Target: probe.TargetRefSGP, OK: true, ConnectMs: 265},
 		},
 		Infer: []probe.InferResult{{
-			ModelID: "mimo-v2.5", Probe: probe.ProbeShort,
-			OK: false, ErrorClass: probe.ErrClassHTTP, HTTPStatus: 500,
+			ModelID: "mimo-v2.5", OK: false, ErrorClass: probe.ErrClassHTTP, HTTPStatus: 500,
 			ErrorDetail: "upstream unavailable", QuestionID: "capital-france",
 		}},
 	}); err != nil {
@@ -311,7 +305,7 @@ func TestErrorClassIsServedEvenThoughDetailIsNot(t *testing.T) {
 			{Target: probe.TargetRefSGP, OK: true, ConnectMs: 265},
 		},
 		Infer: []probe.InferResult{{
-			ModelID: "mimo-v2.5", Probe: probe.ProbeShort, TotalMs: 240000,
+			ModelID: "mimo-v2.5", TotalMs: 240000,
 			OK: false, ErrorClass: probe.ErrClassTimeout, ErrorDetail: "internal detail",
 		}},
 	}); err != nil {
@@ -514,8 +508,7 @@ func seedCost(t *testing.T, store *samples.Store, n int) {
 				{Target: probe.TargetRefSGP, ConnectMs: 265, OK: true},
 			},
 			Infer: []probe.InferResult{{
-				ModelID: "mimo-v2.5", Probe: probe.ProbeShort,
-				TTFTMs: 900, TotalMs: 1700, ITLP50Ms: 24, OutputTPS: 41,
+				ModelID: "mimo-v2.5", TTFTMs: 900, TotalMs: 1700, ITLP50Ms: 24, OutputTPS: 41,
 				Usage: probe.TokenUsage{PromptTokens: 1000, CompletionTokens: 200},
 				OK:    true, AnswerOK: &yes, QuestionID: "capital-france",
 			}},

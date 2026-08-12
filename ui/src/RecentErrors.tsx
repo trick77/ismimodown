@@ -178,7 +178,6 @@ export function RecentErrors({ failures }: { failures: Failure[] | null }) {
               <tr className="text-micro uppercase tracking-wider text-ghost">
                 <th className="py-2 pr-4 text-left font-medium">When</th>
                 <th className="py-2 pr-4 text-left font-medium">Model</th>
-                <th className="py-2 pr-4 text-left font-medium">Probe</th>
                 <th className="py-2 pr-4 text-left font-medium">Error</th>
                 <th className="py-2 text-right font-medium">Status</th>
               </tr>
@@ -199,7 +198,7 @@ export function RecentErrors({ failures }: { failures: Failure[] | null }) {
                 const mutedByFault = note !== null;
                 return (
                   <tr
-                    key={`${f.at}-${f.model_id}-${f.probe}-${i}`}
+                    key={`${f.at}-${f.model_id}-${i}`}
                     className="border-t border-border-soft align-top text-muted"
                   >
                     <td className="num py-2 pr-4 whitespace-nowrap">
@@ -208,7 +207,6 @@ export function RecentErrors({ failures }: { failures: Failure[] | null }) {
                       </time>
                     </td>
                     <td className="num py-2 pr-4">{f.model_id}</td>
-                    <td className="num py-2 pr-4">{f.probe}</td>
                     <td className="py-2 pr-4">
                       {/* Three colours, three claims.
 

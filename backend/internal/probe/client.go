@@ -79,16 +79,16 @@ func NewClient(cfg Config) *Client {
 // Request describes one probe run.
 type Request struct {
 	ModelID string
-	Probe   string
-	// Prompt is the user message. For wide it already carries the cache-defeat
-	// nonce ahead of the document.
+	// Prompt is the user message.
 	Prompt string
 	// MaxTokens caps the output. Verified honoured under this exact field name.
 	MaxTokens int
 	// QuestionID labels which bank entry produced Prompt, for the correctness canary.
 	QuestionID string
-	// Assert reports whether the answer is correct. Nil skips the check (wide
-	// has no single assertable answer).
+	// Assert reports whether the answer is correct. Every probe carries one —
+	// the question bank is the only source of prompts — and a nil Assert leaves
+	// the run ungraded, which reads downstream as "failed before an answer
+	// existed" rather than as "not checked".
 	Assert func(content string) bool
 }
 
@@ -99,7 +99,7 @@ type Request struct {
 // and an ErrorClass — a timeout is a recorded sample, never a dropped one, and
 // dropping it would make the availability strip lie by omission.
 func (c *Client) Run(ctx context.Context, req Request) (InferResult, error) {
-	res := InferResult{ModelID: req.ModelID, Probe: req.Probe, QuestionID: req.QuestionID}
+	res := InferResult{ModelID: req.ModelID, QuestionID: req.QuestionID}
 
 	// An unset cap is a caller bug, and a silent one: MaxCompletionTokens is
 	// `omitempty`, so zero drops the field entirely and the model runs to its
@@ -108,7 +108,7 @@ func (c *Client) Run(ctx context.Context, req Request) (InferResult, error) {
 	// response is not measuring what a 70-token one measures) and the cost
 	// model at the same time. Fail loudly rather than bill for it.
 	if req.MaxTokens <= 0 {
-		return res, fmt.Errorf("probe request for %s/%s has no output cap", req.ModelID, req.Probe)
+		return res, fmt.Errorf("probe request for %s has no output cap", req.ModelID)
 	}
 
 	body, err := json.Marshal(chatCompletionRequest{

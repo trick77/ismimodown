@@ -17,11 +17,11 @@ var testPrices = map[string]config.ModelPrice{
 
 // costRun builds one usage-carrying run. Token counts are the knobs; everything
 // else is a healthy run.
-func costRun(model, kind string, prompt, cached, output int) probe.InferResult {
+func costRun(model string, prompt, cached, output int) probe.InferResult {
 	yes := true
 	return probe.InferResult{
-		ModelID: model, Probe: kind,
-		TTFTMs: 900, TTFATMs: 900, TotalMs: 1700,
+		ModelID: model,
+		TTFTMs:  900, TTFATMs: 900, TotalMs: 1700,
 		ITLP50Ms: 24, ITLP95Ms: 30, OutputTPS: 41,
 		Usage: probe.TokenUsage{
 			PromptTokens:     prompt,
@@ -69,7 +69,7 @@ func TestCostPricesTheUncachedRemainder(t *testing.T) {
 	//   400 cached   @ $0.10/M = 0.00004
 	//   200 output   @ $10/M  = 0.002
 	//                          = 0.00264
-	saveAt(t, s, at, costRun("mimo-v2.5", probe.ProbeShort, 1000, 400, 200))
+	saveAt(t, s, at, costRun("mimo-v2.5", 1000, 400, 200))
 
 	got, err := s.Cost(context.Background(), w, testPrices, now)
 	if err != nil {
@@ -99,9 +99,9 @@ func TestCostAppliesTheCoefficientOnlyOffPeak(t *testing.T) {
 
 	// 10:00 UTC is full rate, 20:00 UTC is inside 16:00-24:00.
 	saveAt(t, s, time.Date(2026, 8, 4, 10, 0, 0, 0, time.UTC),
-		costRun("mimo-v2.5", probe.ProbeShort, 1000, 0, 0))
+		costRun("mimo-v2.5", 1000, 0, 0))
 	saveAt(t, s, time.Date(2026, 8, 4, 20, 0, 0, 0, time.UTC),
-		costRun("mimo-v2.5", probe.ProbeShort, 1000, 0, 0))
+		costRun("mimo-v2.5", 1000, 0, 0))
 
 	got, err := s.Cost(context.Background(), w, testPrices, now)
 	if err != nil {
@@ -141,9 +141,9 @@ func TestCostDecidesThePhasePerRunNotPerBucket(t *testing.T) {
 	now := time.Date(2026, 8, 4, 23, 0, 0, 0, time.UTC)
 
 	saveAt(t, s, time.Date(2026, 8, 4, 14, 0, 0, 0, time.UTC),
-		costRun("mimo-v2.5", probe.ProbeShort, 1000, 0, 0))
+		costRun("mimo-v2.5", 1000, 0, 0))
 	saveAt(t, s, time.Date(2026, 8, 4, 17, 0, 0, 0, time.UTC),
-		costRun("mimo-v2.5", probe.ProbeShort, 1000, 0, 0))
+		costRun("mimo-v2.5", 1000, 0, 0))
 
 	got, err := s.Cost(context.Background(), w, testPrices, now)
 	if err != nil {
@@ -157,32 +157,6 @@ func TestCostDecidesThePhasePerRunNotPerBucket(t *testing.T) {
 	}
 }
 
-func TestCostSplitsByProbe(t *testing.T) {
-	s := New(openTestDB(t))
-	w, _ := LookupWindow("24h")
-	at := time.Date(2026, 8, 4, 10, 0, 0, 0, time.UTC)
-	now := at.Add(time.Hour)
-
-	saveAt(t, s, at,
-		costRun("mimo-v2.5", probe.ProbeShort, 100, 0, 0),
-		costRun("mimo-v2.5", probe.ProbeWide, 10000, 0, 0))
-
-	got, err := s.Cost(context.Background(), w, testPrices, now)
-	if err != nil {
-		t.Fatalf("Cost: %v", err)
-	}
-	byProbe := map[string]CostGroup{}
-	for _, p := range got.Probes {
-		byProbe[p.Probe] = p.CostGroup
-	}
-	if want := 0.0001; !near(usd(t, byProbe[probe.ProbeShort].USD), want) {
-		t.Errorf("infer = %v, want %v", *byProbe[probe.ProbeShort].USD, want)
-	}
-	if want := 0.01; !near(usd(t, byProbe[probe.ProbeWide].USD), want) {
-		t.Errorf("wide = %v, want %v", *byProbe[probe.ProbeWide].USD, want)
-	}
-}
-
 // A failed run reports no usage — the usage chunk arrives last — but it was
 // still billed. It must be counted and named, never folded in as free.
 func TestCostCountsRunsItCannotPrice(t *testing.T) {
@@ -191,11 +165,11 @@ func TestCostCountsRunsItCannotPrice(t *testing.T) {
 	at := time.Date(2026, 8, 4, 10, 0, 0, 0, time.UTC)
 	now := at.Add(time.Hour)
 
-	failed := costRun("mimo-v2.5", probe.ProbeShort, 0, 0, 0)
+	failed := costRun("mimo-v2.5", 0, 0, 0)
 	failed.OK = false
 	failed.AnswerOK = nil
 	failed.ErrorClass = "ttft_timeout"
-	saveAt(t, s, at, costRun("mimo-v2.5", probe.ProbeShort, 1000, 0, 0), failed)
+	saveAt(t, s, at, costRun("mimo-v2.5", 1000, 0, 0), failed)
 
 	got, err := s.Cost(context.Background(), w, testPrices, now)
 	if err != nil {
@@ -233,8 +207,8 @@ func TestCostPricesAnUnknownModelAtZeroAndStillTotals(t *testing.T) {
 	// Only mimo-v2.5 is in testPrices. 1000 prompt @ $1/M = 0.001; the
 	// mimo-v2.5-pro run contributes nothing.
 	saveAt(t, s, at,
-		costRun("mimo-v2.5", probe.ProbeShort, 1000, 0, 0),
-		costRun("mimo-v2.5-pro", probe.ProbeShort, 1000, 0, 0))
+		costRun("mimo-v2.5", 1000, 0, 0),
+		costRun("mimo-v2.5-pro", 1000, 0, 0))
 
 	got, err := s.Cost(context.Background(), w, testPrices, now)
 	if err != nil {
@@ -263,13 +237,8 @@ func TestCostPricesAnUnknownModelAtZeroAndStillTotals(t *testing.T) {
 			t.Errorf("phase %q came back unpriced: %+v", p.Phase, p.CostGroup)
 		}
 	}
-	for _, p := range got.Probes {
-		if p.USD == nil || p.ListUSD == nil {
-			t.Errorf("probe %q came back unpriced: %+v", p.Probe, p.CostGroup)
-		}
-	}
-	if len(got.Phases) == 0 || len(got.Probes) == 0 {
-		t.Fatal("no phase or probe groups; the assertions above checked nothing")
+	if len(got.Phases) == 0 {
+		t.Fatal("no phase groups; the assertions above checked nothing")
 	}
 }
 
@@ -281,7 +250,7 @@ func TestCostSeriesIsBucketedAndOrdered(t *testing.T) {
 
 	for i := 0; i < 6; i++ {
 		saveAt(t, s, base.Add(time.Duration(i)*20*time.Minute),
-			costRun("mimo-v2.5", probe.ProbeShort, 1000, 0, 0))
+			costRun("mimo-v2.5", 1000, 0, 0))
 	}
 
 	got, err := s.Cost(context.Background(), w, testPrices, now)
@@ -335,7 +304,7 @@ func TestCostBucketsByTheTickNotTheJitter(t *testing.T) {
 			off = -off
 		}
 		saveAt(t, s, base.Add(time.Duration(i)*5*time.Minute+off),
-			costRun("mimo-v2.5", probe.ProbeShort, 1000, 0, 0))
+			costRun("mimo-v2.5", 1000, 0, 0))
 	}
 
 	got, err := s.Cost(context.Background(), w, testPrices, now)
@@ -426,7 +395,7 @@ func TestCostTreatsAZeroPriceAsAPrice(t *testing.T) {
 	w, _ := LookupWindow("24h")
 	at := time.Date(2026, 8, 4, 10, 0, 0, 0, time.UTC)
 	now := at.Add(time.Hour)
-	saveAt(t, s, at, costRun("mimo-v2.5", probe.ProbeShort, 1000, 0, 200))
+	saveAt(t, s, at, costRun("mimo-v2.5", 1000, 0, 200))
 
 	got, err := s.Cost(context.Background(), w,
 		map[string]config.ModelPrice{"mimo-v2.5": {}}, now)
@@ -448,8 +417,8 @@ func TestCostTreatsAZeroPromptAsMissingUsage(t *testing.T) {
 	now := at.Add(time.Hour)
 
 	saveAt(t, s, at,
-		costRun("mimo-v2.5", probe.ProbeShort, 1000, 0, 0),
-		costRun("mimo-v2.5", probe.ProbeShort, 0, 0, 0))
+		costRun("mimo-v2.5", 1000, 0, 0),
+		costRun("mimo-v2.5", 0, 0, 0))
 
 	got, err := s.Cost(context.Background(), w, testPrices, now)
 	if err != nil {
@@ -479,8 +448,7 @@ func TestCostOnAnEmptyWindowIsZeroNotUnknown(t *testing.T) {
 		t.Errorf("total = %v, want 0", v)
 	}
 	// Lists, never nulls: the client maps over both.
-	if got.Phases == nil || got.Probes == nil || got.Series == nil {
-		t.Errorf("a null list was served: phases=%v probes=%v series=%v",
-			got.Phases, got.Probes, got.Series)
+	if got.Phases == nil || got.Series == nil {
+		t.Errorf("a null list was served: phases=%v series=%v", got.Phases, got.Series)
 	}
 }

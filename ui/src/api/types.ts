@@ -12,7 +12,6 @@ export type Stats = {
 
 export type ModelSummary = {
   model_id: string;
-  probe: string;
   ttft: Stats;
   itl: Stats;
   tps: Stats;
@@ -30,7 +29,8 @@ export type ModelSummary = {
   // Must stay 0. Non-zero means reasoning came back on and every latency figure
   // in the window is measuring something else.
   max_reasoning_tokens: number;
-  // Must stay near 0 on wide, or the prefill numbers are cache lookups.
+  // Must stay near 0, or the system prompt went missing and MiMo's own
+  // injected one is being served from cache.
   max_cached_tokens: number;
 };
 
@@ -89,7 +89,6 @@ export type ModelSeries = {
   window: string;
   bucket_s: number;
   metric: string;
-  probe: string;
   models: Record<string, Point[]>;
 };
 
@@ -103,15 +102,13 @@ export type NetSeries = {
 export type Sample = {
   at: string;
   model_id: string;
-  probe: string;
   ttft_ms: number | null;
   total_ms: number | null;
   itl_p50_ms: number | null;
   output_tps: number | null;
   // What the run sent and what it generated. Null on a failure, like every
   // other measurement here — nothing was produced, which is not the same as
-  // zero. The input side is what tells the two probes apart: ~20 tokens on
-  // short, ~3800 on wide.
+  // zero.
   prompt_tokens: number | null;
   output_tokens: number | null;
   ok: boolean;
@@ -137,13 +134,12 @@ export type Sample = {
 export type Failure = {
   at: string;
   model_id: string;
-  probe: string;
   error_class: string | null;
   http_status: number | null;
   // false when the call SUCCEEDED and the answer was then graded wrong — a
   // 200, a body, and the wrong element in it. null on everything else: a
-  // failed run answered nothing to grade, and a wide probe is not graded at
-  // all. The card reads this BEFORE it reaches for the failure colour, because
+  // failed run answered nothing to grade. The card reads this BEFORE it
+  // reaches for the failure colour, because
   // the one thing a graded-wrong row cannot claim is that the endpoint was
   // down. Same shape and same reasoning as Cycle.answer_ok, which is what the
   // pulse strip paints amber on.
@@ -159,7 +155,6 @@ export type Failure = {
 
 export type SamplesResponse = {
   model_id: string;
-  probe: string;
   samples: Sample[];
 };
 
@@ -175,19 +170,13 @@ export type Cycle = {
 
 export type PulseResponse = {
   model_id: string;
-  probe: string;
   cycles: Cycle[];
 };
 
 // The five lines the page draws.
 //
-// Named fields rather than a map keyed by metric, because two of them ARE the
-// same metric: ttft on the short probe and on the wide one. The gap between
-// those two is the prefill signal, so a shape that could only hold one of them
-// would delete the thing wide exists to measure.
 export type DashboardSeries = {
   ttft: ModelSeries;
-  ttft_wide: ModelSeries;
   tps: ModelSeries;
   total: ModelSeries;
   network: NetSeries;
@@ -199,11 +188,10 @@ export type DashboardSeries = {
 // selected one against — 24h against 7d — chosen by the server rather than
 // asked for, because they are the page's question rather than a caller's.
 //
-// `pulse` is one group per model; `samples` is the whole model-and-probe cross
-// product, model-major with short before wide. Both arrive as groups rather
-// than pre-merged: mixing two models' TTFTs into one array is exactly what the
-// probe filter exists to prevent, so the merge stays here, where the component
-// that needs it can sort on the instant.
+// `pulse` and `samples` are both one group per model. They arrive as groups
+// rather than pre-merged: mixing two models' TTFTs into one array is exactly
+// what the per-model split exists to prevent, so the merge stays here, where
+// the component that needs it can sort on the instant.
 export type Dashboard = {
   window: string;
   generated_at: string;
@@ -269,7 +257,6 @@ export type CostBreakdown = {
   offpeak_coefficient: number;
   total: CostGroup;
   phases: ({ phase: "full" | "offpeak" } & CostGroup)[];
-  probes: ({ probe: string } & CostGroup)[];
   series: CostPoint[];
   bucket_s: number;
   // unpriced_runs is how many runs carry no usage at all — cut off before the

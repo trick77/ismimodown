@@ -34,8 +34,7 @@ func okNet() []probe.NetResult {
 func okInfer(model string, ttft float64) probe.InferResult {
 	yes := true
 	return probe.InferResult{
-		ModelID: model, Probe: probe.ProbeShort,
-		TTFTMs: ttft, TTFATMs: ttft, TotalMs: ttft + 800,
+		ModelID: model, TTFTMs: ttft, TTFATMs: ttft, TotalMs: ttft + 800,
 		ITLP50Ms: 24, ITLP95Ms: 30, OutputTPS: 41,
 		Usage: probe.TokenUsage{
 			PromptTokens: 34, CompletionTokens: 59,
@@ -133,8 +132,7 @@ func TestFailedRunStoresNullTimingsNotZeros(t *testing.T) {
 	id, err := s.Save(context.Background(), Cycle{
 		StartedAt: time.Now(), Net: okNet(),
 		Infer: []probe.InferResult{{
-			ModelID: "mimo-v2.5", Probe: probe.ProbeShort,
-			TotalMs: 240000, OK: false, ErrorClass: probe.ErrClassTimeout,
+			ModelID: "mimo-v2.5", TotalMs: 240000, OK: false, ErrorClass: probe.ErrClassTimeout,
 			ErrorDetail: "context deadline exceeded",
 		}},
 	})
@@ -192,8 +190,7 @@ func TestTimeoutDoesNotPoisonThePercentile(t *testing.T) {
 	if _, err := s.Save(ctx, Cycle{
 		StartedAt: time.Now().Add(10 * time.Minute), Net: okNet(),
 		Infer: []probe.InferResult{{
-			ModelID: "mimo-v2.5", Probe: probe.ProbeShort,
-			TotalMs: 240000, OK: false, ErrorClass: probe.ErrClassTimeout,
+			ModelID: "mimo-v2.5", TotalMs: 240000, OK: false, ErrorClass: probe.ErrClassTimeout,
 		}},
 	}); err != nil {
 		t.Fatalf("Save: %v", err)
@@ -395,16 +392,28 @@ func TestSaveIsAtomic(t *testing.T) {
 	db := openTestDB(t)
 	s := New(db)
 
-	// An invalid probe kind trips the CHECK constraint partway through.
+	// An invalid ping target trips the CHECK constraint partway through.
+	//
+	// This used to trip it on an invalid PROBE KIND, which failed inside the
+	// infer loop — after the cycle row, the net rows and the fault row were
+	// written — and so proved the rollback over the whole transaction. That
+	// column is gone with the wide probe (migration 0006), and nothing reaching
+	// insertInfer can fail any more: every remaining constraint on the table is
+	// satisfied by construction from Go's own types. So the failure is forced
+	// one step earlier, which still proves a refused Save leaves nothing behind
+	// but no longer exercises a partially-filled infer loop. If a constraint is
+	// ever added to infer_probes that a caller can violate, move this back.
+	bad := okNet()
+	bad = append(bad, probe.NetResult{Target: "not-a-target", OK: true})
 	_, err := s.Save(context.Background(), Cycle{
-		StartedAt: time.Now(), Net: okNet(),
+		StartedAt: time.Now(), Net: bad,
 		Infer: []probe.InferResult{
 			okInfer("mimo-v2.5", 900),
-			{ModelID: "mimo-v2.5-pro", Probe: "not-a-probe-kind", OK: true},
+			okInfer("mimo-v2.5-pro", 900),
 		},
 	})
 	if err == nil {
-		t.Fatal("expected Save to fail on an invalid probe kind")
+		t.Fatal("expected Save to fail on an invalid ping target")
 	}
 
 	for _, table := range []string{"cycles", "net_probes", "infer_probes", "cycle_fault"} {

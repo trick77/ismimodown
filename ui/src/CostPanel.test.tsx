@@ -33,22 +33,6 @@ const cost = (over: Partial<CostBreakdown> = {}): CostBreakdown => ({
       list_usd: 0.0648,
     },
   ],
-  probes: [
-    {
-      probe: "short",
-      runs: 576,
-      tokens: { prompt: 40320, cached: 0, output: 40320 },
-      usd: 0.0908,
-      list_usd: 0.0973,
-    },
-    {
-      probe: "wide",
-      runs: 48,
-      tokens: { prompt: 172800, cached: 0, output: 14400 },
-      usd: 0.0906,
-      list_usd: 0.0971,
-    },
-  ],
   series: [
     { t: NOW - 7200, usd: 0.0081, runs: 26 },
     { t: NOW - 3600, usd: 0.0065, runs: 26 },
@@ -63,21 +47,16 @@ const cost = (over: Partial<CostBreakdown> = {}): CostBreakdown => ({
 });
 
 describe("CostPanel", () => {
-  it("shows the window total and a figure per probe kind", () => {
+  it("shows the window total and the per-run figure", () => {
     render(<CostPanel cost={cost()} />);
 
     expect(screen.getByText("$0.18")).toBeInTheDocument();
     // The window, named: this is the total over the last 24h and not a rate
     // per 24h, and it follows whichever window the page is showing.
     expect(screen.getByText("Last 24h")).toBeInTheDocument();
-    // Per probe, not one mean over both: a wide run costs many short ones, and
-    // the average of the two describes no run that is ever sent.
-    expect(screen.getByText("Per short run")).toBeInTheDocument();
-    expect(screen.getByText("Per wide run")).toBeInTheDocument();
-    // 0.0908 over 576 runs. Two decimals would print $0.00 for it.
-    expect(screen.getByText("$0.000158")).toBeInTheDocument();
-    // 0.0906 over 48.
-    expect(screen.getByText("$0.00189")).toBeInTheDocument();
+    expect(screen.getByText("Per run")).toBeInTheDocument();
+    // 0.1814 over 624 runs. Two decimals would print $0.00 for it.
+    expect(screen.getByText("$0.000291")).toBeInTheDocument();
   });
 
   it("states the saving as list minus billed", () => {

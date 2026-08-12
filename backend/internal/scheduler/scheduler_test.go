@@ -80,7 +80,7 @@ func (f *fakeProber) Run(_ context.Context, req probe.Request) (probe.InferResul
 		return probe.InferResult{}, f.err
 	}
 	return probe.InferResult{
-		ModelID: req.ModelID, Probe: req.Probe, QuestionID: req.QuestionID,
+		ModelID: req.ModelID, QuestionID: req.QuestionID,
 		TTFTMs: 900, TotalMs: 1700, ITLP50Ms: 24, OK: true,
 	}, nil
 }
@@ -105,7 +105,7 @@ func (o *overlapProber) Run(_ context.Context, req probe.Request) (probe.InferRe
 
 	time.Sleep(o.delay)
 	return probe.InferResult{
-		ModelID: req.ModelID, Probe: req.Probe, QuestionID: req.QuestionID,
+		ModelID: req.ModelID, QuestionID: req.QuestionID,
 		TTFTMs: 900, TotalMs: 1700, ITLP50Ms: 24, OK: true,
 	}, nil
 }
@@ -150,9 +150,9 @@ func newTestScheduler(t *testing.T, prober Prober, pinger Pinger) (*Scheduler, *
 }
 
 // newSchedulerOn builds a scheduler against an EXISTING database and a movable
-// clock. Both matter for the wide cadence: the clock so a test can reach the
-// hour without sleeping, and the shared database so a second scheduler can be
-// stood up on the same data — which is all a restart is.
+// clock: the clock so a test can move time without sleeping, and the shared
+// database so a second scheduler can be stood up on the same data — which is
+// all a restart is.
 func newSchedulerOn(db *sql.DB, prober Prober, pinger Pinger, now *time.Time) *Scheduler {
 	return New(Deps{
 		Store:  samples.New(db),
@@ -164,42 +164,13 @@ func newSchedulerOn(db *sql.DB, prober Prober, pinger Pinger, now *time.Time) *S
 	})
 }
 
-// seedWideProbe writes a completed wide probe at `at`, so the cadence rule sees
-// one already on the clock. Tests that are not about the wide cadence use it to
-// keep wide out of their cycles.
-func seedWideProbe(t *testing.T, db *sql.DB, at time.Time) {
-	t.Helper()
-	if _, err := samples.New(db).Save(context.Background(), samples.Cycle{
-		StartedAt: at,
-		Net: []probe.NetResult{
-			{Target: probe.TargetMimoSGP, OK: true, ConnectMs: 170},
-			{Target: probe.TargetRefSGP, OK: true, ConnectMs: 265},
-		},
-		Infer: []probe.InferResult{{
-			ModelID: "mimo-v2.5", Probe: probe.ProbeWide, TTFTMs: 1200, OK: true,
-		}},
-	}); err != nil {
-		t.Fatalf("seed wide probe: %v", err)
-	}
-}
-
-func wideRuns(prober *fakeProber) int {
-	n := 0
-	for _, r := range prober.requests() {
-		if r.Probe == probe.ProbeWide {
-			n++
-		}
-	}
-	return n
-}
-
 // gradingProber returns one fixed graded result, so a test can drive the
-// wrong-answer path without a server.
+// answer-correctness paths without a real endpoint.
 type gradingProber struct{ res probe.InferResult }
 
 func (g *gradingProber) Run(_ context.Context, req probe.Request) (probe.InferResult, error) {
 	res := g.res
-	res.ModelID, res.Probe, res.QuestionID = req.ModelID, req.Probe, req.QuestionID
+	res.ModelID, res.QuestionID = req.ModelID, req.QuestionID
 	return res, nil
 }
 
@@ -228,7 +199,7 @@ func TestWrongAnswerLogsTheReply(t *testing.T) {
 	s, _ := newTestScheduler(t, prober, &fakePinger{})
 	buf := captureLogs(t)
 
-	if _, ok := s.runProbe(context.Background(), "mimo-v2.5", probe.ProbeShort, 7, time.Now()); !ok {
+	if _, ok := s.runProbe(context.Background(), "mimo-v2.5", 7, time.Now()); !ok {
 		t.Fatal("runProbe reported the run as skipped")
 	}
 
@@ -254,7 +225,7 @@ func TestLoggedReplyIsBounded(t *testing.T) {
 	s, _ := newTestScheduler(t, prober, &fakePinger{})
 	buf := captureLogs(t)
 
-	s.runProbe(context.Background(), "mimo-v2.5", probe.ProbeShort, 1, time.Now())
+	s.runProbe(context.Background(), "mimo-v2.5", 1, time.Now())
 
 	// Measured per line rather than over the buffer: the run now also emits its
 	// own "inference call" line, and widening a whole-buffer budget to absorb it
@@ -283,14 +254,14 @@ func TestOnlyWrongAnswersAreLogged(t *testing.T) {
 		res  probe.InferResult
 	}{
 		{"correct answer", probe.InferResult{OK: true, AnswerOK: &answerOK, Content: "Paris"}},
-		{"ungraded run", probe.InferResult{OK: true, Content: "a wide summary"}},
+		{"ungraded run", probe.InferResult{OK: true, Content: "an ungraded reply"}},
 		{"failed run", probe.InferResult{ErrorClass: probe.ErrClassHTTP, ErrorDetail: "502"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s, _ := newTestScheduler(t, &gradingProber{res: tc.res}, &fakePinger{})
 			buf := captureLogs(t)
 
-			s.runProbe(context.Background(), "mimo-v2.5", probe.ProbeShort, 1, time.Now())
+			s.runProbe(context.Background(), "mimo-v2.5", 1, time.Now())
 
 			if strings.Contains(buf.String(), "answer graded wrong") {
 				t.Errorf("logged a wrong answer for a %s: %s", tc.name, buf.String())
@@ -299,27 +270,23 @@ func TestOnlyWrongAnswersAreLogged(t *testing.T) {
 	}
 }
 
-// Every inference call leaves a line, whichever prompt it carried. "cycle
-// complete" names the model that went wide and counts the rest, so without this
-// a short run is invisible in the log while a wide one is not.
+// Every inference call leaves a line. "cycle complete" only counts the runs, so
+// without this an individual run is invisible in the log.
 func TestEveryInferenceCallIsLogged(t *testing.T) {
 	answerOK := true
-	for _, tc := range []struct {
-		kind string
-		res  probe.InferResult
-	}{
-		{probe.ProbeShort, probe.InferResult{OK: true, AnswerOK: &answerOK, TTFTMs: 900, TotalMs: 1700}},
-		{probe.ProbeWide, probe.InferResult{OK: true, TTFTMs: 2400, TotalMs: 9100}},
+	for name, res := range map[string]probe.InferResult{
+		"graded ok": {OK: true, AnswerOK: &answerOK, TTFTMs: 900, TotalMs: 1700},
+		"ungraded":  {OK: true, TTFTMs: 2400, TotalMs: 9100},
 	} {
-		t.Run(tc.kind, func(t *testing.T) {
-			s, _ := newTestScheduler(t, &gradingProber{res: tc.res}, &fakePinger{})
+		t.Run(name, func(t *testing.T) {
+			s, _ := newTestScheduler(t, &gradingProber{res: res}, &fakePinger{})
 			buf := captureLogs(t)
 
-			s.runProbe(context.Background(), "mimo-v2.5", tc.kind, 7, time.Now())
+			s.runProbe(context.Background(), "mimo-v2.5", 7, time.Now())
 
 			got := buf.String()
 			for _, want := range []string{
-				`"msg":"inference call"`, `"probe":"` + tc.kind + `"`,
+				`"msg":"inference call"`,
 				`"model":"mimo-v2.5"`, `"cycle":7`, `"ok":true`, `"level":"INFO"`,
 			} {
 				if !strings.Contains(got, want) {
@@ -343,7 +310,7 @@ func TestFailedInferenceCallLogsTheClassAtWarn(t *testing.T) {
 	s, _ := newTestScheduler(t, prober, &fakePinger{})
 	buf := captureLogs(t)
 
-	s.runProbe(context.Background(), "mimo-v2.5", probe.ProbeShort, 3, time.Now())
+	s.runProbe(context.Background(), "mimo-v2.5", 3, time.Now())
 
 	got := buf.String()
 	for _, want := range []string{
@@ -369,7 +336,7 @@ func TestLoggedErrorDetailIsRedactedAndBounded(t *testing.T) {
 	s, _ := newTestScheduler(t, prober, &fakePinger{})
 	buf := captureLogs(t)
 
-	s.runProbe(context.Background(), "mimo-v2.5", probe.ProbeShort, 1, time.Now())
+	s.runProbe(context.Background(), "mimo-v2.5", 1, time.Now())
 
 	got := buf.String()
 	if strings.Contains(got, key) {
@@ -390,25 +357,13 @@ func TestHealthyInferenceCallOmitsTheErrorFields(t *testing.T) {
 	s, _ := newTestScheduler(t, &gradingProber{res: probe.InferResult{OK: true}}, &fakePinger{})
 	buf := captureLogs(t)
 
-	s.runProbe(context.Background(), "mimo-v2.5", probe.ProbeShort, 1, time.Now())
+	s.runProbe(context.Background(), "mimo-v2.5", 1, time.Now())
 
 	for _, unwanted := range []string{"error_class", "error_detail"} {
 		if strings.Contains(buf.String(), unwanted) {
 			t.Errorf("healthy line carries %q: %s", unwanted, buf.String())
 		}
 	}
-}
-
-// wideOrder is the models that went wide, in the order they were dispatched. The
-// stagger is a statement about sequence, not just about counts.
-func wideOrder(prober *fakeProber) []string {
-	var out []string
-	for _, r := range prober.requests() {
-		if r.Probe == probe.ProbeWide {
-			out = append(out, r.ModelID)
-		}
-	}
-	return out
 }
 
 func TestRunCycleProbesEveryTargetAndModel(t *testing.T) {
@@ -440,235 +395,12 @@ func TestRunCycleProbesEveryTargetAndModel(t *testing.T) {
 	if nNet != len(wantTargets) {
 		t.Errorf("net_probes = %d, want %d", nNet, len(wantTargets))
 	}
-	// The first cycle carries wide because no wide sample exists yet — a fresh
-	// deploy should not show an empty prefill panel for an hour. One model at a
-	// time, so 2 infer plus 1 wide rather than a wide run each.
-	if nInfer != 3 {
-		t.Errorf("infer_probes = %d, want 3 on a wide cycle", nInfer)
+	// One run per model, every cycle.
+	if nInfer != 2 {
+		t.Errorf("infer_probes = %d, want one per model", nInfer)
 	}
 }
 
-// wide runs hourly PER MODEL, landing ON a cycle so it gets its own network
-// reading and its TTFT is decomposable exactly like infer's — and one model at a
-// time, so the fleet produces a wide run every WideInterval/N.
-func TestWideRunsHourlyPerModelStaggeredAcrossThem(t *testing.T) {
-	prober := &fakeProber{}
-	db := openTestDB(t)
-	now := time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC)
-	s := newSchedulerOn(db, prober, &fakePinger{}, &now)
-
-	// 13 cycles at the real cadence: one full hour plus one.
-	for i := 0; i < 13; i++ {
-		s.RunCycle(context.Background())
-		now = now.Add(CycleInterval)
-	}
-
-	inferCount := 0
-	for _, r := range prober.requests() {
-		if r.Probe == probe.ProbeShort {
-			inferCount++
-		}
-	}
-	if inferCount != 13*2 {
-		t.Errorf("infer runs = %d, want %d", inferCount, 13*2)
-	}
-	// Two models over 65 minutes: :00, :30 and :60, alternating. Each model is
-	// still an hour apart from ITSELF, which is what keeps the sample rate and
-	// the bill where they were.
-	want := []string{"mimo-v2.5", "mimo-v2.5-pro", "mimo-v2.5"}
-	if got := wideOrder(prober); !slices.Equal(got, want) {
-		t.Errorf("wide order = %v, want %v", got, want)
-	}
-}
-
-// No cycle may carry wide for more than one model. Two ~3800-token prefills
-// dispatched together contend on the endpoint and the uplink, and each measures
-// a share of the other's queueing — the same confound the within-model
-// sequencing exists to avoid, which does not stop being one because the runs are
-// aimed at different models.
-func TestWideNeverRunsTwoModelsInOneCycle(t *testing.T) {
-	prober := &fakeProber{}
-	db := openTestDB(t)
-	now := time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC)
-	s := newSchedulerOn(db, prober, &fakePinger{}, &now)
-
-	// A full day, so every slot boundary and both models' hours are crossed many
-	// times over.
-	for i := 0; i < 288; i++ {
-		before := wideRuns(prober)
-		s.RunCycle(context.Background())
-		if got := wideRuns(prober) - before; got > 1 {
-			t.Fatalf("cycle %d dispatched %d wide runs, want at most 1", i, got)
-		}
-		now = now.Add(CycleInterval)
-	}
-
-	// And the day buys the same number of wide runs it always did: one per model
-	// per hour, so the stagger costs nothing and hides nothing.
-	if got := wideRuns(prober); got != 48 {
-		t.Errorf("wide runs in a day = %d, want 48", got)
-	}
-	for _, model := range []string{"mimo-v2.5", "mimo-v2.5-pro"} {
-		n := 0
-		for _, m := range wideOrder(prober) {
-			if m == model {
-				n++
-			}
-		}
-		if n != 24 {
-			t.Errorf("%s went wide %d times in a day, want 24", model, n)
-		}
-	}
-}
-
-// THE regression: the cadence used to come from an in-memory counter, so every
-// process start replayed cycle zero and re-fired the hourly probe. A daemon
-// restarted three times during a deploy sent three ~3800-token probes per
-// model, and re-anchored the hour to the last restart.
-func TestWideCadenceSurvivesARestart(t *testing.T) {
-	db := openTestDB(t)
-	now := time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC)
-
-	first := &fakeProber{}
-	newSchedulerOn(db, first, &fakePinger{}, &now).RunCycle(context.Background())
-	if got := wideRuns(first); got != 1 {
-		t.Fatalf("wide runs before restart = %d, want 1 (one model at a time)", got)
-	}
-
-	// Restart: a brand new scheduler, zeroed counters, same database.
-	now = now.Add(CycleInterval)
-	restarted := &fakeProber{}
-	s := newSchedulerOn(db, restarted, &fakePinger{}, &now)
-	s.RunCycle(context.Background())
-
-	if got := wideRuns(restarted); got != 0 {
-		t.Errorf("wide runs = %d five minutes after a restart, want 0", got)
-	}
-
-	// And the next slot still arrives on schedule. Half an hour after the first
-	// wide run — not an hour — because the OTHER model is due, and its own hour
-	// is not what the restart could have disturbed.
-	now = now.Add(s.WideSlot() - CycleInterval)
-	s.RunCycle(context.Background())
-	if got := wideOrder(restarted); !slices.Equal(got, []string{"mimo-v2.5-pro"}) {
-		t.Errorf("wide order = %v a slot later, want [mimo-v2.5-pro]", got)
-	}
-}
-
-// Cycles are jittered, so the one nearest the hour is as likely to land just
-// before it as just after. Without slack that cycle misses and "hourly" becomes
-// every 65 minutes, drifting further each time.
-func TestWideAcceptsACycleThatLandsJustShortOfTheHour(t *testing.T) {
-	db := openTestDB(t)
-	now := time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC)
-	prober := &fakeProber{}
-	s := newSchedulerOn(db, prober, &fakePinger{}, &now)
-
-	// Both models first, a slot apart, so the model under test has a real
-	// timestamp to be measured against rather than the "never ran" shortcut.
-	s.RunCycle(context.Background())
-	now = now.Add(s.WideSlot())
-	s.RunCycle(context.Background())
-	if got := wideRuns(prober); got != 2 {
-		t.Fatalf("wide runs = %d after two slots, want 2", got)
-	}
-
-	// A minute shy of ITS hour: inside the slack, so it counts.
-	now = now.Add(WideInterval - s.WideSlot() - time.Minute)
-	s.RunCycle(context.Background())
-	if got := wideRuns(prober); got != 3 {
-		t.Errorf("wide runs = %d at 59 minutes, want 3 — the slack window must accept it", got)
-	}
-
-	// But the very next cycle must NOT: one full interval after a wide run is
-	// always outside the window, which is what keeps the slack from double-firing.
-	now = now.Add(CycleInterval)
-	s.RunCycle(context.Background())
-	if got := wideRuns(prober); got != 3 {
-		t.Errorf("wide runs = %d one cycle later, want 3 — the slack must not double-fire", got)
-	}
-}
-
-// A wide probe that was SENT counts against the hour even if nothing about it
-// reached the database. Reads that keep succeeding while writes fail — a full
-// disk, a read-only volume, a cycle abandoned mid-shutdown — would otherwise
-// leave the cadence reading a stale timestamp and fire the expensive probe
-// every five minutes, indefinitely.
-func TestWideDoesNotRefireWhenTheDispatchWasNeverPersisted(t *testing.T) {
-	db := openTestDB(t)
-	now := time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC)
-	prober := &fakeProber{}
-	s := newSchedulerOn(db, prober, &fakePinger{}, &now)
-
-	s.RunCycle(context.Background())
-	if got := wideRuns(prober); got != 1 {
-		t.Fatalf("wide runs = %d on the first cycle, want 1", got)
-	}
-
-	// Everything the cycle wrote is gone, exactly as if the write had failed.
-	if _, err := db.Exec(`DELETE FROM infer_probes`); err != nil {
-		t.Fatalf("clear infer_probes: %v", err)
-	}
-
-	for i := 0; i < 3; i++ {
-		now = now.Add(CycleInterval)
-		s.RunCycle(context.Background())
-	}
-	if got := wideRuns(prober); got != 1 {
-		t.Errorf("wide runs = %d within the slot, want 1 — an unpersisted dispatch still counts", got)
-	}
-
-	// The hour still arrives on schedule, and the model whose dispatch vanished
-	// is not owed a second one: the floor is the dispatch, not the row.
-	now = now.Add(WideInterval)
-	s.RunCycle(context.Background())
-	if got := wideRuns(prober); got != 2 {
-		t.Errorf("wide runs = %d an hour later, want 2", got)
-	}
-}
-
-// The two probes must never be aggregated: the gap between their TTFTs IS the
-// prefill signal, so wide has to carry the bigger cap and no question id.
-func TestWideAndInferRequestsDifferAsTheMeasurementRequires(t *testing.T) {
-	prober := &fakeProber{}
-	s, _ := newTestScheduler(t, prober, &fakePinger{})
-
-	s.RunCycle(context.Background()) // cycle 0 runs both
-
-	var sawInfer, sawWide bool
-	for _, r := range prober.requests() {
-		switch r.Probe {
-		case probe.ProbeShort:
-			sawInfer = true
-			if r.MaxTokens != probe.ShortMaxTokens {
-				t.Errorf("infer cap = %d, want %d", r.MaxTokens, probe.ShortMaxTokens)
-			}
-			if r.QuestionID == "" {
-				t.Error("infer must carry a question id; it is the correctness canary")
-			}
-			if r.Assert == nil {
-				t.Error("infer must carry an assertion")
-			}
-		case probe.ProbeWide:
-			sawWide = true
-			if r.MaxTokens != probe.WideMaxTokens {
-				t.Errorf("wide cap = %d, want %d", r.MaxTokens, probe.WideMaxTokens)
-			}
-			if len(r.Prompt) < 10000 {
-				t.Errorf("wide prompt is only %d chars; the prefill gradient needs the document", len(r.Prompt))
-			}
-			if r.Assert != nil {
-				t.Error("wide has no single assertable answer")
-			}
-		}
-	}
-	if !sawInfer || !sawWide {
-		t.Fatal("cycle 0 must run both probe kinds")
-	}
-}
-
-// The question rotates per cycle, so a per-question correctness rate is
-// meaningful rather than dominated by one unlucky entry.
 func TestQuestionRotatesBetweenCycles(t *testing.T) {
 	prober := &fakeProber{}
 	s, _ := newTestScheduler(t, prober, &fakePinger{})
@@ -678,9 +410,7 @@ func TestQuestionRotatesBetweenCycles(t *testing.T) {
 
 	seen := map[string]bool{}
 	for _, r := range prober.requests() {
-		if r.Probe == probe.ProbeShort {
-			seen[r.QuestionID] = true
-		}
+		seen[r.QuestionID] = true
 	}
 	if len(seen) < 2 {
 		t.Errorf("consecutive cycles asked the same question: %v", seen)
@@ -697,9 +427,7 @@ func TestBothModelsGetTheSameQuestionInACycle(t *testing.T) {
 
 	var ids []string
 	for _, r := range prober.requests() {
-		if r.Probe == probe.ProbeShort {
-			ids = append(ids, r.QuestionID)
-		}
+		ids = append(ids, r.QuestionID)
 	}
 	if len(ids) != 2 {
 		t.Fatalf("expected 2 infer runs, got %d", len(ids))
@@ -717,11 +445,6 @@ func TestBothModelsGetTheSameQuestionInACycle(t *testing.T) {
 func TestASecondCycleWaitsForTheFirstsProbeRatherThanSkippingIt(t *testing.T) {
 	prober := &fakeProber{block: make(chan struct{}), blockModel: "mimo-v2.5"}
 	s, db := newTestScheduler(t, prober, &fakePinger{})
-
-	// A wide probe ran a moment ago, so no cycle here is due one — two probes
-	// per cycle rather than three keeps the arithmetic below readable. The wide
-	// cadence has its own tests.
-	seedWideProbe(t, db, time.Now().UTC())
 
 	// A cycle that blocks inside its first probe.
 	first := make(chan struct{})
@@ -743,12 +466,11 @@ func TestASecondCycleWaitsForTheFirstsProbeRatherThanSkippingIt(t *testing.T) {
 	<-first
 	<-second
 
-	// Both cycles, both models. Counted on `short` alone, because the seeded
-	// cycle above contributes a `wide` row that is not either cycle's.
-	var shortRows int
-	db.QueryRow(`SELECT count(*) FROM infer_probes WHERE probe = 'short'`).Scan(&shortRows)
-	if shortRows != 4 {
-		t.Errorf("short rows = %d, want 4; a probe that waited must still be recorded", shortRows)
+	// Both cycles, both models.
+	var rows int
+	db.QueryRow(`SELECT count(*) FROM infer_probes`).Scan(&rows)
+	if rows != 4 {
+		t.Errorf("rows = %d, want 4; a probe that waited must still be recorded", rows)
 	}
 }
 
@@ -781,9 +503,8 @@ func TestTheDispatchSlotIsGlobalNotKeyed(t *testing.T) {
 // probe of a cycle, whose predecessor returned a whole CycleInterval ago.
 // Neither the select nor the gap consults ctx on that path, so acquire has to.
 //
-// The cost of getting it wrong is not just a wasted call: a wide dispatched into
-// a dead context is recorded by noteWideDispatch as sent, and the hour it was
-// meant for goes unmeasured.
+// The cost of getting it wrong is a call billed for a result nobody can store:
+// the cycle it belonged to is abandoned unpersisted.
 func TestACancelledContextIsNotAdmittedWhenNoGapIsOutstanding(t *testing.T) {
 	prober := &fakeProber{}
 	s, _ := newTestScheduler(t, prober, &fakePinger{})
@@ -818,8 +539,7 @@ func TestNoTwoInferenceCallsAreEverInFlightAtOnce(t *testing.T) {
 	// Long enough that an unguarded dispatch would visibly overlap, short enough
 	// that six of them are still a fast test.
 	prober := &overlapProber{delay: 20 * time.Millisecond}
-	s, db := newTestScheduler(t, prober, &fakePinger{})
-	seedWideProbe(t, db, time.Now().UTC()) // two probes per cycle, not three
+	s, _ := newTestScheduler(t, prober, &fakePinger{})
 
 	var wg sync.WaitGroup
 	for range 3 {
@@ -829,34 +549,13 @@ func TestNoTwoInferenceCallsAreEverInFlightAtOnce(t *testing.T) {
 	wg.Wait()
 
 	if got := prober.calls.Load(); got != 6 {
-		t.Fatalf("calls = %d, want 6 (a short per model across three cycles)", got)
+		t.Fatalf("calls = %d, want 6 (one per model across three cycles)", got)
 	}
 	if prober.overlapped.Load() {
 		t.Error("two inference calls were in flight at once; MiMo rate-limits the key, and the key is one")
 	}
 }
 
-// And the same invariant across the probe KINDS, which is the pair that actually
-// came back 429: one cycle, one model going wide, short and wide back to back.
-func TestTheWideAndShortOfOneModelNeverOverlap(t *testing.T) {
-	prober := &overlapProber{delay: 20 * time.Millisecond}
-	s, _ := newTestScheduler(t, prober, &fakePinger{})
-
-	// No seeded wide, so this cycle carries one: three calls, the widest a cycle
-	// gets.
-	s.RunCycle(context.Background())
-
-	if got := prober.calls.Load(); got != 3 {
-		t.Fatalf("calls = %d, want 3 (a short per model plus one wide)", got)
-	}
-	if prober.overlapped.Load() {
-		t.Error("a wide and a short were in flight at once against one model")
-	}
-}
-
-// DispatchGap is the half of the fix that serialising does not give: the two
-// 429s were a short and a wide that were already sequential, and back-to-back is
-// indistinguishable from simultaneous to a short-window limiter.
 func TestConsecutiveDispatchesAreSeparatedByTheGap(t *testing.T) {
 	var (
 		mu    sync.Mutex
@@ -880,10 +579,10 @@ func TestConsecutiveDispatchesAreSeparatedByTheGap(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	// Three calls, so two gaps. The first pays nothing: there is no previous
+	// Two calls, so one gap. The first pays nothing: there is no previous
 	// dispatch to be quiet after.
-	if len(waits) != 2 {
-		t.Fatalf("gaps waited = %d, want 2 (one before each call after the first)", len(waits))
+	if len(waits) != 1 {
+		t.Fatalf("gaps waited = %d, want 1 (one before each call after the first)", len(waits))
 	}
 	for i, d := range waits {
 		// The fake prober returns instantly, so the whole gap is still outstanding
@@ -908,15 +607,14 @@ func TestAProbeSlowerThanTheCycleStillLandsInItsOwnCycle(t *testing.T) {
 	started := now
 	s.RunCycle(context.Background())
 
-	// Three rows, all against the cycle stamped at the moment it STARTED — not at
-	// the moment each probe happened to come back.
+	// One row per model, all against the cycle stamped at the moment it STARTED —
+	// not at the moment each probe happened to come back.
 	rows := []struct {
 		startedAt string
 		model     string
-		probe     string
 	}{}
 	q, err := db.Query(`
-		SELECT c.started_at, i.model_id, i.probe
+		SELECT c.started_at, i.model_id
 		FROM infer_probes i JOIN cycles c ON c.id = i.cycle_id
 		ORDER BY i.id`)
 	if err != nil {
@@ -927,15 +625,14 @@ func TestAProbeSlowerThanTheCycleStillLandsInItsOwnCycle(t *testing.T) {
 		var r struct {
 			startedAt string
 			model     string
-			probe     string
 		}
-		if err := q.Scan(&r.startedAt, &r.model, &r.probe); err != nil {
+		if err := q.Scan(&r.startedAt, &r.model); err != nil {
 			t.Fatalf("scan: %v", err)
 		}
 		rows = append(rows, r)
 	}
-	if len(rows) != 3 {
-		t.Fatalf("infer rows = %d, want 3; a slow probe must not be dropped to keep the cadence", len(rows))
+	if len(rows) != 2 {
+		t.Fatalf("infer rows = %d, want 2; a slow probe must not be dropped to keep the cadence", len(rows))
 	}
 	for _, r := range rows {
 		got, err := time.Parse(time.RFC3339Nano, r.startedAt)
@@ -943,8 +640,8 @@ func TestAProbeSlowerThanTheCycleStillLandsInItsOwnCycle(t *testing.T) {
 			t.Fatalf("parse started_at %q: %v", r.startedAt, err)
 		}
 		if !got.Equal(started) {
-			t.Errorf("%s/%s is stamped %v, want the cycle's own start %v; the bucket is decided at cycle start",
-				r.model, r.probe, got, started)
+			t.Errorf("%s is stamped %v, want the cycle's own start %v; the bucket is decided at cycle start",
+				r.model, got, started)
 		}
 	}
 }
@@ -1074,8 +771,7 @@ func TestNextDelayReportsEverySlotAnOverrunAteNotJustTheLastOne(t *testing.T) {
 	s.deps.Now = func() time.Time { return now }
 	s.nextDelay() // anchor on 06:05
 
-	// The 06:05 cycle takes 16 minutes — two models at the 240 s ceiling plus a
-	// wide probe each. It runs through 06:10, 06:15 and 06:20.
+	// The 06:05 cycle takes 16 minutes. It runs through 06:10, 06:15 and 06:20.
 	now = time.Date(2026, 8, 4, 6, 21, 0, 0, time.UTC)
 	_, missed := s.nextDelay()
 
@@ -1141,8 +837,7 @@ func TestNoTicksMissedLogsNothing(t *testing.T) {
 // them buys sample density with 429s that publish as a MiMo outage.
 func TestASlowModelHoldsTheNextModelBackRatherThanRacingIt(t *testing.T) {
 	prober := &fakeProber{block: make(chan struct{}), blockModel: "mimo-v2.5"}
-	s, db := newTestScheduler(t, prober, &fakePinger{})
-	seedWideProbe(t, db, time.Now().UTC()) // keep this cycle to one probe per model
+	s, _ := newTestScheduler(t, prober, &fakePinger{})
 
 	done := make(chan struct{})
 	go func() { defer close(done); s.RunCycle(context.Background()) }()
@@ -1224,7 +919,7 @@ func TestCadenceDoesNotDriftOverManyCycles(t *testing.T) {
 	s.deps.Now = func() time.Time { return now }
 
 	const cycles = 200
-	const cycleDuration = 22 * time.Second // a realistic wide cycle
+	const cycleDuration = 22 * time.Second // a realistic cycle
 	start := now
 	for i := 0; i < cycles; i++ {
 		now = now.Add(cycleDuration) // the cycle runs

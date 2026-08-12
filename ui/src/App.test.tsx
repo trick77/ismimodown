@@ -21,7 +21,6 @@ const summary = (over: Record<string, unknown> = {}) => ({
   models: [
     {
       model_id: "mimo-v2.5",
-      probe: "short",
       ttft: { n: 288, sufficient: true, p50_ms: 916, p95_ms: 1400 },
       itl: { n: 288, sufficient: true, p50_ms: 24, p95_ms: 40 },
       tps: { n: 288, sufficient: true, p50_ms: 41, p95_ms: 60 },
@@ -53,7 +52,6 @@ const emptySeries = {
   window: "24h",
   bucket_s: 900,
   metric: "ttft",
-  probe: "short",
   models: {},
 };
 const emptyNet = {
@@ -86,7 +84,6 @@ const cost = () => ({
   ],
   probes: [
     {
-      probe: "short",
       runs: 576,
       tokens: { prompt: 40320, cached: 0, output: 40320 },
       usd: 0.0908,
@@ -104,13 +101,13 @@ const cost = () => ({
   generated_at: "2026-08-04T12:00:00Z",
 });
 
-// One group per model and probe, as the daemon composes them: model-major,
-// short before wide. Spelled out rather than echoed off the query, because
-// there is no query left to echo — the fan-out is the server's now, and a
-// fixture that collapsed it would hide a merge that dropped a group.
+// One group per model, as the daemon composes them. Spelled out rather than
+// echoed off the query, because there is no query left to echo — the fan-out is
+// the server's now, and a fixture that collapsed it would hide a merge that
+// dropped a group.
 const sampleGroups = (over: Record<string, unknown[]> = {}) => [
-  { model_id: "mimo-v2.5", probe: "short", samples: over["short"] ?? [] },
-  { model_id: "mimo-v2.5", probe: "wide", samples: over["wide"] ?? [] },
+  { model_id: "mimo-v2.5", samples: over["mimo-v2.5"] ?? [] },
+  { model_id: "mimo-v2.5-pro", samples: over["mimo-v2.5-pro"] ?? [] },
 ];
 
 // The whole page, in one body. Overrides stay per-part, so every call site
@@ -123,15 +120,12 @@ const dashboard = (overrides: Record<string, unknown> = {}) => ({
   baseline: overrides.baseline ?? overrides.summary ?? summary(),
   series: {
     ttft: overrides.ttft ?? emptySeries,
-    ttft_wide: overrides.ttftWide ?? emptySeries,
     tps: overrides.tps ?? emptySeries,
     total: overrides.total ?? emptySeries,
     network: overrides.net ?? emptyNet,
   },
   cost: overrides.cost ?? cost(),
-  pulse: overrides.pulse ?? [
-    { model_id: "mimo-v2.5", probe: "short", cycles: [] },
-  ],
+  pulse: overrides.pulse ?? [{ model_id: "mimo-v2.5", cycles: [] }],
   samples:
     overrides.samples ??
     sampleGroups(overrides.sampleRows as Record<string, unknown[]>),
@@ -225,7 +219,7 @@ describe("App", () => {
   // asserts the cross product. What is still this page's business, and what
   // this checks, is that it draws every group it is handed rather than the
   // first: the merge is the half of the bug that lives here.
-  it("asks for both probes and draws them in one table", async () => {
+  it("draws an ungraded run without dropping it", async () => {
     const row = (over: Record<string, unknown>) => ({
       at: "2026-08-04T12:00:00Z",
       model_id: "mimo-v2.5",
@@ -242,23 +236,22 @@ describe("App", () => {
       "fetch",
       mockFetch({
         sampleRows: {
-          short: [row({ probe: "short" })],
-          // Ungraded, as every wide run is, and sharing the short run's cycle.
-          wide: [row({ probe: "wide", answer_ok: null, ttft_ms: 4200 })],
+          "mimo-v2.5": [row({})],
+          // A run that failed before an answer existed, sharing the cycle.
+          "mimo-v2.5-pro": [
+            row({ model_id: "mimo-v2.5-pro", answer_ok: null, ttft_ms: 4200 }),
+          ],
         },
       }),
     );
     render(<App />);
 
-    expect(await screen.findByText("short")).toBeInTheDocument();
-    expect(screen.getByText("wide")).toBeInTheDocument();
+    expect(await screen.findByText("mimo-v2.5-pro")).toBeInTheDocument();
+    expect(screen.getByText("4.2 s")).toBeInTheDocument();
   });
 
   // The other half of the same omission: every request named the FIRST model,
   // so the second model's runs were absent from the page's only raw record.
-  // Once the wide probe alternates between models, half the fleet's wide runs
-  // land on the model that was never asked about — the table looked like it was
-  // missing runs that had happened.
   //
   // Same division as above: the daemon sends a group per model, and this is
   // where drawing only the first would still show up.
@@ -266,7 +259,6 @@ describe("App", () => {
     const row = (model: string, ttft: number) => ({
       at: "2026-08-04T12:00:00Z",
       model_id: model,
-      probe: "short",
       ttft_ms: ttft,
       total_ms: 1700,
       itl_p50_ms: 24,
@@ -281,12 +273,10 @@ describe("App", () => {
         samples: [
           {
             model_id: "mimo-v2.5",
-            probe: "short",
             samples: [row("mimo-v2.5", 916)],
           },
           {
             model_id: "mimo-v2.5-pro",
-            probe: "short",
             samples: [row("mimo-v2.5-pro", 242)],
           },
         ],
@@ -697,7 +687,6 @@ describe("the cost panel", () => {
 describe("the pulse strip", () => {
   const cycle = (model: string, over: Record<string, unknown> = {}) => ({
     model_id: model,
-    probe: "short",
     cycles: [
       {
         at: "2026-08-04T11:55:00Z",

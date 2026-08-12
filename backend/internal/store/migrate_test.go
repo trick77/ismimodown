@@ -291,3 +291,112 @@ func TestRenameMigrationRewritesExistingRows(t *testing.T) {
 		t.Errorf("cycles = %d, want 1 — 0005 must only drop its own table", n)
 	}
 }
+
+// 0006 both drops the column and DELETES the wide rows, and the second half is
+// what needs proving: a rebuild that keeps everything would leave 3800-token
+// timings averaged into percentiles that now assume ~20, with nothing in the
+// schema left to say which rows those are.
+//
+// Bulk rows alongside the explicit ids for the same reason 0003's test seeds
+// them: a mistyped WHERE in the INSERT...SELECT loses history silently, and a
+// handful of hand-written rows all survive a filter that a month of real ones
+// would not.
+func TestDropWideMigrationKeepsShortRowsAndDiscardsWide(t *testing.T) {
+	db, err := Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer db.Close()
+
+	migrateUpTo(t, db, "0006")
+
+	if _, err := db.Exec(
+		`INSERT INTO cycles (id, started_at) VALUES (1, '2026-08-04T06:00:00Z')`); err != nil {
+		t.Fatalf("seed cycle: %v", err)
+	}
+	// Explicit ids first, so the bulk rows below cannot claim them. The short
+	// row carries a value in every column the rebuild has to carry across.
+	for _, q := range []string{
+		`INSERT INTO infer_probes
+		   (id, cycle_id, model_id, probe, ttft_ms, ttfat_ms, total_ms, itl_p50_ms,
+		    itl_p95_ms, output_tps, prompt_tokens, output_tokens, cached_tokens,
+		    reasoning_tokens, question_id, ok, answer_ok, http_status, error_class,
+		    error_detail)
+		 VALUES (7, 1, 'mimo-v2.5', 'short', 912.0, 913.0, 1700.0, 24.0, 30.0, 41.0,
+		         34, 59, 0, 0, 'capital-france', 1, 1, 200, NULL, NULL)`,
+		`INSERT INTO infer_probes (id, cycle_id, model_id, probe, ttft_ms, ok)
+		 VALUES (8, 1, 'mimo-v2.5', 'wide', 2939.0, 1)`,
+	} {
+		if _, err := db.Exec(q); err != nil {
+			t.Fatalf("seed pre-drop row: %v", err)
+		}
+	}
+	const shortBulk, wideBulk = 4000, 1000
+	tx, err := db.Begin()
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	for i := 0; i < shortBulk; i++ {
+		if _, err := tx.Exec(
+			`INSERT INTO infer_probes (cycle_id, model_id, probe, ttft_ms, ok)
+			 VALUES (1, 'mimo-v2.5', 'short', 900.0, 1)`); err != nil {
+			t.Fatalf("seed bulk short %d: %v", i, err)
+		}
+	}
+	for i := 0; i < wideBulk; i++ {
+		if _, err := tx.Exec(
+			`INSERT INTO infer_probes (cycle_id, model_id, probe, ttft_ms, ok)
+			 VALUES (1, 'mimo-v2.5', 'wide', 2900.0, 1)`); err != nil {
+			t.Fatalf("seed bulk wide %d: %v", i, err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("commit bulk: %v", err)
+	}
+
+	if err := Migrate(db); err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
+
+	var n int
+	if err := db.QueryRow(`SELECT count(*) FROM infer_probes`).Scan(&n); err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if want := shortBulk + 1; n != want {
+		t.Errorf("rows = %d, want %d — every short row survives and no wide one does", n, want)
+	}
+
+	// The column is gone, not merely unused. A surviving column would let a
+	// later query filter on a value nothing writes.
+	if _, err := db.Query(`SELECT probe FROM infer_probes LIMIT 1`); err == nil {
+		t.Error("probe column still exists")
+	}
+
+	// Ids preserved: RecentSamples breaks ties within a cycle on (started_at,
+	// id), so renumbering would silently reorder history.
+	var ttft float64
+	var questionID string
+	var answerOK int
+	if err := db.QueryRow(
+		`SELECT ttft_ms, question_id, answer_ok FROM infer_probes WHERE id = 7`,
+	).Scan(&ttft, &questionID, &answerOK); err != nil {
+		t.Fatalf("id 7 did not survive: %v", err)
+	}
+	if ttft != 912.0 || questionID != "capital-france" || answerOK != 1 {
+		t.Errorf("row 7 = (%v, %q, %d), want (912, capital-france, 1) — columns shifted in the rebuild",
+			ttft, questionID, answerOK)
+	}
+	if err := db.QueryRow(`SELECT ttft_ms FROM infer_probes WHERE id = 8`).Scan(&ttft); err == nil {
+		t.Error("the wide row at id 8 survived")
+	}
+
+	// Both indexes, or every model-scoped query falls back to a scan.
+	for _, name := range []string{"idx_infer_probes_cycle", "idx_infer_probes_model"} {
+		var got string
+		if err := db.QueryRow(
+			`SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?`, name,
+		).Scan(&got); err != nil {
+			t.Errorf("index %s is missing after the rebuild: %v", name, err)
+		}
+	}
+}
