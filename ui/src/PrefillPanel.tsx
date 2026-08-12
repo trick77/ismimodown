@@ -65,18 +65,39 @@ export function PrefillPanel({
     }
   }
 
+  const hasProbes = probeOrder.length > 0;
   const hasWide = probeOrder.some((k) => k.includes("3800"));
-  const hasDelta = deltaOrder.length > 0;
   const bucketS = short?.bucket_s ?? wide?.bucket_s;
   const bucketMs = bucketS !== undefined ? bucketS * 1000 : undefined;
   const colorOf = (name: string) =>
     colorForModel(name.split(" · ")[0]!, models);
 
+  // Counted rather than taken from deltaOrder.length, which is the number of
+  // SERIES and not the number of readings. prefillDelta emits a point for every
+  // wide bucket whether or not there was anything to subtract — deliberately,
+  // so censoring survives — so a series can be full-length and entirely null,
+  // and a line needs two values to be a line at all. Gating on the array length
+  // drew an empty grid with axes and no explanation, in the two cases that
+  // actually happen: the first hour after a deploy, and a stretch where every
+  // wide probe timed out.
+  const readings = Object.values(delta)
+    .flat()
+    .filter((p) => p.p50 !== null).length;
+  const hasDelta = readings >= 2;
+
   // Both plots are pinned to the probes' extent — the wider of the two, since
   // the short probe runs every cycle — so a vertical through the pair means one
   // instant. Without it the delta's hourly cadence leaves its axis up to an hour
   // short of the strip's, and the strip stops describing the chart above it.
-  const xRange = timeExtent(probes) ?? undefined;
+  //
+  // Widened when everything sits in one bucket, which is a real state on a
+  // fresh database: a min equal to its max is a zero-width axis, and pinning
+  // one is worse than not pinning at all — ECharts pads a lone point itself.
+  const extent = timeExtent(probes);
+  const xRange: [number, number] | undefined =
+    extent && extent[0] === extent[1]
+      ? [extent[0], extent[1] + (bucketMs ?? 1)]
+      : (extent ?? undefined);
 
   const deltaOption = buildLineOption({
     series: delta,
@@ -132,10 +153,16 @@ export function PrefillPanel({
           ariaLabel="Prefill cost per model: time to first token at 3800 input tokens minus time to first token at 34"
         />
       ) : (
+        // Three states, not two. Blaming the wide probe's hourly cadence on a
+        // fresh install — where NOTHING has been collected — names the wrong
+        // reason and sends the reader away for an hour over something the next
+        // cycle would have produced.
         <NoChart height={CHART_HEIGHT}>
-          {hasWide
+          {!hasProbes
             ? "Not enough data yet — first samples within a few minutes."
-            : "The wide probe runs hourly, so it takes an hour before there is a cost to plot."}
+            : !hasWide
+              ? "The wide probe runs hourly, so it takes an hour before there is a cost to plot."
+              : "First cost readings are in; the line starts once a second wide probe has run."}
         </NoChart>
       )}
       <ul className="mt-3 flex flex-wrap gap-4">
@@ -154,15 +181,20 @@ export function PrefillPanel({
           or under zero, the short baseline moved rather than prefill.
         </li>
       </ul>
-      <CensoredNote bands={deltaOption.censoredBands} />
+      {/* Only alongside a chart. The note explains shading, and shading with no
+          plot under it to carry it is a caption for nothing. */}
+      {hasDelta && <CensoredNote bands={deltaOption.censoredBands} />}
 
-      {probeOrder.length > 0 && (
+      {hasProbes && (
         <div className="mt-5 border-t border-border pt-4">
           {/* The strip is what makes a rise above attributable. A gap widens
               the same whether the wide probe got slower or the short one got
-              faster, and only one of those is a prefill regression. The log
-              chip rides this row rather than the card header: after the
-              inversion it is the strip that can go log, never the chart. */}
+              faster, and only one of those is a prefill regression.
+              The two plots each carry their own log chip because their axes
+              decide independently — the strip goes log on the spread between
+              two probes an order of magnitude apart, the chart above on the
+              spread of the difference alone, and either can go without the
+              other. */}
           <div className="mb-2 flex flex-col items-start gap-2 sm:flex-row sm:justify-between sm:gap-4">
             <p className="text-label text-muted">
               For reference, the two probes the cost above is measured from —
@@ -176,10 +208,21 @@ export function PrefillPanel({
             height={REFERENCE_HEIGHT}
             ariaLabel="Time to first token for the short and wide probes, per model"
           />
-          <p className="mt-2 text-label text-muted">
-            dashed = wide probe (~3800 tok); faint = the short probe it is
-            measured against
+          <p className="mt-2 flex items-center gap-2 text-label text-muted">
+            <span
+              className="inline-block h-0 w-4 shrink-0 border-t-2 border-dashed border-muted"
+              aria-hidden="true"
+            />
+            <span>
+              dashed = wide probe (~3800 tok); faint = the short probe it is
+              measured against
+            </span>
           </p>
+          {/* The strip paints its own censoring bands, so it needs its own
+              note. The delta's count does not cover them: the delta is driven
+              off the wide side, so a bucket where only the short probe was cut
+              off is not in it at all — and that bucket still shades here. */}
+          <CensoredNote bands={probeOption.censoredBands} />
         </div>
       )}
     </Card>

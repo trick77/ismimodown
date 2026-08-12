@@ -12,10 +12,10 @@ vi.mock("./charts/EChart", () => ({
 const H = 3_600;
 const AUG4 = Date.UTC(2026, 7, 4) / 1000;
 
-const pt = (t: number, p50: number): Point => ({
+const pt = (t: number, p50: number | null, censored = 0): Point => ({
   t,
-  n: 12,
-  censored: 0,
+  n: p50 === null ? 0 : 12,
+  censored,
   p50,
   p95: p50,
 });
@@ -45,10 +45,15 @@ describe("PrefillPanel", () => {
     ).toBeInTheDocument();
   });
 
-  // The panel used to plot two probes an order of magnitude apart and switch
-  // axes on the spread — which is exactly what flattened the gap it existed to
-  // show. The badge now belongs to the strip, which can still go log; the chart
-  // above it never can.
+  it("keeps the dashed-line sample beside the convention it explains", () => {
+    const { container } = render(
+      <PrefillPanel short={short} wide={wide} models={["mimo-v2.5"]} />,
+    );
+    expect(container.querySelector(".border-dashed")).not.toBeNull();
+  });
+
+  // The two axes decide independently, so each plot carries its own badge.
+  // Here only the strip's spread forces one: the difference is constant.
   it("announces a log axis on the reference strip when the spread forces one", () => {
     const wideLog = series({ "mimo-v2.5": day(36_000) });
     render(
@@ -69,5 +74,50 @@ describe("PrefillPanel", () => {
     // The short probe still has data, so the strip is still drawn — one chart,
     // not two.
     expect(screen.getAllByTestId("chart")).toHaveLength(1);
+  });
+
+  // Nothing has been collected at all. Blaming the wide probe's hourly cadence
+  // here names the wrong reason and sends the reader away for an hour.
+  it("blames collection, not the wide cadence, when neither probe has data", () => {
+    render(<PrefillPanel short={null} wide={null} models={["mimo-v2.5"]} />);
+    expect(
+      screen.getByText(/first samples within a few minutes/),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/takes an hour/)).not.toBeInTheDocument();
+    expect(screen.queryAllByTestId("chart")).toHaveLength(0);
+  });
+
+  // A series of points that are all null is still a full-length series. Gated
+  // on its LENGTH, the panel drew an empty grid with axes and no explanation.
+  it("shows the placeholder when every wide bucket was cut off", () => {
+    const dead = series({
+      "mimo-v2.5": day(0).map((p) => ({ ...p, n: 0, censored: 2, p50: null })),
+    });
+    render(<PrefillPanel short={short} wide={dead} models={["mimo-v2.5"]} />);
+    expect(screen.getByText(/second wide probe/)).toBeInTheDocument();
+    // The strip is still there — it is what says the short probe kept running.
+    expect(screen.getAllByTestId("chart")).toHaveLength(1);
+  });
+
+  // One reading is not a line: with symbols off it renders as nothing at all.
+  it("shows the placeholder until a second wide probe has run", () => {
+    const one = series({ "mimo-v2.5": [pt(AUG4 + 9 * H, 2600)] });
+    render(<PrefillPanel short={short} wide={one} models={["mimo-v2.5"]} />);
+    expect(screen.getByText(/second wide probe/)).toBeInTheDocument();
+  });
+
+  // The delta is driven off the wide side, so a bucket where only the SHORT
+  // probe was cut off never reaches it — and that bucket still shades the strip.
+  it("gives the strip its own censoring note", () => {
+    // A censored bucket at an instant the wide probe never ran, so it cannot
+    // reach the delta and the delta's own band count stays 0. Before the strip
+    // had its own note, this shaded the strip with nothing to explain it.
+    const censoredShort = series({
+      "mimo-v2.5": [...day(900), pt(AUG4 + 9 * H + 450, null, 2)],
+    });
+    render(
+      <PrefillPanel short={censoredShort} wide={wide} models={["mimo-v2.5"]} />,
+    );
+    expect(screen.getByText(/probes here were cut off/)).toBeInTheDocument();
   });
 });
