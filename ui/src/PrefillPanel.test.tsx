@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { PrefillPanel } from "./PrefillPanel";
+import { PrefillPanel, noDeltaReason } from "./PrefillPanel";
 import type { ModelSeries, Point } from "./api/types";
 
 // jsdom cannot exercise a canvas, so the chart itself is stubbed; what this file
@@ -99,12 +99,34 @@ describe("PrefillPanel", () => {
       "mimo-v2.5": day(0).map((p) => ({ ...p, n: 0, censored: 2, p50: null })),
     });
     render(<PrefillPanel short={short} wide={dead} models={["mimo-v2.5"]} />);
-    expect(
-      screen.getByText(/Every wide probe over this window/),
-    ).toBeInTheDocument();
+    expect(screen.getByText(/a truncated stretch/)).toBeInTheDocument();
     expect(screen.queryByText(/second wide probe/)).not.toBeInTheDocument();
     // The strip is still there — it is what says the short probe kept running.
     expect(screen.getAllByTestId("chart")).toHaveLength(1);
+  });
+
+  // Two readings an order of magnitude apart set logScale while still being one
+  // short of a line, so the chip could sit over the placeholder.
+  it("keeps the log badge off the header when there is no chart under it", () => {
+    const both = ["mimo-v2.5", "mimo-v2.5-pro"];
+    const spread = series({
+      "mimo-v2.5": [pt(AUG4 + 9 * H, 2600)],
+      "mimo-v2.5-pro": [pt(AUG4 + 9 * H, 40_000)],
+    });
+    const shortBoth = series({
+      "mimo-v2.5": day(900),
+      "mimo-v2.5-pro": day(900),
+    });
+    const { container } = render(
+      <PrefillPanel short={shortBoth} wide={spread} models={both} />,
+    );
+    expect(screen.getByText(/second wide probe/)).toBeInTheDocument();
+    // Scoped to the header. The STRIP is drawn here and its own axis does go
+    // log on the same data, so its chip is correct and must survive; the
+    // header's is the one that would be labelling a placeholder.
+    expect(container.querySelector("header")?.textContent).not.toMatch(
+      /log scale/i,
+    );
   });
 
   // The cadence-and-zero line describes the delta's plot. With no delta plot it
@@ -162,6 +184,18 @@ describe("PrefillPanel", () => {
     expect(screen.getAllByTestId("chart")).toHaveLength(2);
   });
 
+  // A short probe that has not reported is the BASELINE missing, not the wide
+  // probe. Naming the wide one sends the reader to the wrong half.
+  it("names the short probe when it is the one missing", () => {
+    const wideOnly = series({ "mimo-v2.5": day(2600) });
+    render(
+      <PrefillPanel short={null} wide={wideOnly} models={["mimo-v2.5"]} />,
+    );
+    expect(
+      screen.getByText(/short probe is what the cost is measured against/),
+    ).toBeInTheDocument();
+  });
+
   // The delta is driven off the wide side, so a bucket where only the SHORT
   // probe was cut off never reaches it — and that bucket still shades the strip.
   it("gives the strip its own censoring note", () => {
@@ -175,5 +209,60 @@ describe("PrefillPanel", () => {
       <PrefillPanel short={censoredShort} wide={wide} models={["mimo-v2.5"]} />,
     );
     expect(screen.getByText(/probes here were cut off/)).toBeInTheDocument();
+  });
+});
+
+// The empty state has five outcomes and each names a different cause. Tested
+// directly, because the wrong cause attached to the right state is exactly the
+// failure this function was extracted to stop, and it is invisible from the
+// outside — every one of these renders the same grey placeholder.
+describe("noDeltaReason", () => {
+  const base = {
+    hasProbes: true,
+    hasWide: true,
+    hasShort: true,
+    deltaValues: 1,
+    wideCensored: 0,
+  };
+
+  it("blames collection when nothing has been probed", () => {
+    expect(noDeltaReason({ ...base, hasProbes: false })).toMatch(
+      /first samples within a few minutes/,
+    );
+  });
+
+  it("blames the hourly cadence when the wide probe has not run", () => {
+    expect(noDeltaReason({ ...base, hasWide: false })).toMatch(/takes an hour/);
+  });
+
+  it("blames the short probe when it is the missing half", () => {
+    expect(noDeltaReason({ ...base, hasShort: false })).toMatch(
+      /short probe is what the cost is measured against/,
+    );
+  });
+
+  // With no chart there is no band and no note, so this sentence is the only
+  // report of truncation there is.
+  it("reports truncation when no reading survived and the wide probe was cut off", () => {
+    expect(noDeltaReason({ ...base, deltaValues: 0, wideCensored: 3 })).toMatch(
+      /truncated stretch/,
+    );
+  });
+
+  // Censoring on the SHORT probe alone must not produce a claim about the wide
+  // one. This is why wideCensored is read off the wide series rather than off
+  // the delta, which sums both.
+  it("does not report truncation when no wide run was cut off", () => {
+    expect(noDeltaReason({ ...base, deltaValues: 0, wideCensored: 0 })).toMatch(
+      /has landed in a bucket the short probe also reported/,
+    );
+  });
+
+  // A reading exists; it is the SECOND that is missing. Reporting truncation
+  // here would describe a probe that succeeded.
+  it("asks for a second reading when one already landed, however censored", () => {
+    expect(noDeltaReason({ ...base, deltaValues: 1, wideCensored: 5 })).toMatch(
+      /second wide probe/,
+    );
   });
 });

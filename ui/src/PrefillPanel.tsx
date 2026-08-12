@@ -88,12 +88,23 @@ export function PrefillPanel({
   const hasDelta = Object.values(delta).some(
     (points) => points.filter((p) => p.p50 !== null).length >= 2,
   );
-  // Truncation on the delta side, whether or not there is a chart to band. When
-  // there is not, this is the only thing standing between a fully cut-off
-  // stretch and a placeholder that calls it missing data.
-  const deltaCensored = Object.values(delta)
+  // What the empty state has to tell apart. Gathered here and read by
+  // noDeltaReason, which is a function rather than a ternary chain because this
+  // has five outcomes and each one names a different cause — a chain of five
+  // conditions inline is how the wrong cause gets attached to the wrong state.
+  const hasShort = probeOrder.some((k) => k.includes("34 tok"));
+  const deltaValues = Object.values(delta)
     .flat()
-    .reduce((n, p) => n + p.censored, 0);
+    .filter((p) => p.p50 !== null).length;
+  // From the WIDE series, not from the delta's own censored counts. The delta
+  // sums both probes' censoring into one number, and a censored bucket can
+  // still carry a value, so that sum cannot support a claim about the wide
+  // probe being cut off: one lost short sample beside a perfectly good wide
+  // reading would have made it.
+  const wideCensored = models.reduce(
+    (n, m) => n + (wide?.models[m] ?? []).reduce((c, p) => c + p.censored, 0),
+    0,
+  );
 
   // Both plots are pinned to the probes' extent — the wider of the two, since
   // the short probe runs every cycle — so a vertical through the pair means one
@@ -155,7 +166,11 @@ export function PrefillPanel({
       // The card's chip belongs to the chart the card leads with. The strip
       // below carries its own, because the two axes decide independently and a
       // single chip could not say which plot it meant.
-      right={deltaOption.logScale ? <LogScaleChip /> : null}
+      // Gated on the chart existing, not only on its axis. deltaOption is built
+      // whatever the data, so an ungated chip stamped LOG SCALE over a
+      // placeholder — two readings an order of magnitude apart are enough to
+      // set logScale while being one short of a line.
+      right={hasDelta && deltaOption.logScale ? <LogScaleChip /> : null}
     >
       {hasDelta ? (
         <EChart
@@ -163,25 +178,14 @@ export function PrefillPanel({
           ariaLabel="Prefill cost per model: time to first token at 3800 input tokens minus time to first token at 34"
         />
       ) : (
-        // Four states. Each names why there is no line, and the reasons are not
-        // interchangeable: nothing collected yet, the wide probe not round to
-        // its first run, its runs cut off, or simply not enough of them.
-        //
-        // The truncation branch is the one that must not fall through to the
-        // others. With every wide run timing out there IS no chart, so the
-        // censoring note below is not rendered — and prefillDelta goes to the
-        // trouble of keeping valueless points precisely so that truncation
-        // cannot pass as an absence of data. Saying "the line starts once a
-        // second wide probe has run" there would report a probe that has not
-        // run yet, when what happened is that every run was cut off.
         <NoChart height={CHART_HEIGHT}>
-          {!hasProbes
-            ? "Not enough data yet — first samples within a few minutes."
-            : !hasWide
-              ? "The wide probe runs hourly, so it takes an hour before there is a cost to plot."
-              : deltaCensored > 0
-                ? "Every wide probe over this window hit the timeout limits, so there is no cost to plot — a truncated stretch, not a quiet one."
-                : "First cost readings are in; the line starts once a second wide probe has run."}
+          {noDeltaReason({
+            hasProbes,
+            hasWide,
+            hasShort,
+            deltaValues,
+            wideCensored,
+          })}
         </NoChart>
       )}
       {/* The swatches serve BOTH plots — colour follows the model in the strip
@@ -259,4 +263,57 @@ export function PrefillPanel({
       )}
     </Card>
   );
+}
+
+// noDeltaReason says WHY there is no line, for the five states that produce
+// none.
+//
+// Its own function, and exported, because the states are not interchangeable
+// and the reasons are not decoration: this panel is read by someone deciding
+// whether something is wrong, and "no data yet" and "every run was cut off"
+// point at opposite conclusions. Written as a chain of conditions inside the
+// JSX, the cases kept picking up each other's explanations.
+//
+// Ordered most-specific-cause first. Every branch below the first assumes the
+// ones above it did not fire.
+export function noDeltaReason({
+  hasProbes,
+  hasWide,
+  hasShort,
+  deltaValues,
+  wideCensored,
+}: {
+  hasProbes: boolean;
+  hasWide: boolean;
+  hasShort: boolean;
+  // How many delta buckets carry a value, across every model.
+  deltaValues: number;
+  // Runs the timeout ladder cut off on the WIDE probe alone — see where it is
+  // computed for why the delta's own censored count cannot answer this.
+  wideCensored: number;
+}): string {
+  if (!hasProbes) {
+    return "Not enough data yet — first samples within a few minutes.";
+  }
+  if (!hasWide) {
+    return "The wide probe runs hourly, so it takes an hour before there is a cost to plot.";
+  }
+  // The wide probe reported and the short one did not. Naming the wide probe
+  // here would send the reader to the wrong half: the cost is a difference, and
+  // it is the baseline that is missing.
+  if (!hasShort) {
+    return "The short probe is what the cost is measured against, and it has not reported yet — there is nothing to subtract from.";
+  }
+  // No reading at all. With no chart there is no censoring band and no note
+  // under it, so this sentence is the only thing that can report truncation —
+  // which is why prefillDelta keeps valueless points in the first place.
+  //
+  // Not "every wide probe", which the counts cannot support: a wide run can be
+  // cut off in a bucket where another succeeded without a short partner.
+  if (deltaValues === 0) {
+    return wideCensored > 0
+      ? "The wide probes over this window were cut off by the timeout limits, so there is no cost to plot — a truncated stretch, not a quiet one."
+      : "No wide probe has landed in a bucket the short probe also reported, so there is nothing to subtract yet.";
+  }
+  return "First cost readings are in; the line starts once a second wide probe has run.";
 }
