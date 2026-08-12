@@ -217,9 +217,9 @@ export const ELEVATED_WRONG_RECENT = 2;
 // THREE, not two, because a cycle is stamped with its START and only becomes
 // visible when it is SAVED. The budget a live daemon actually has is this minus
 // the running cycle's own duration, and a cycle whose probes time out costs up
-// to config.ProbeTimeout each — 240 s. At two
-// intervals a single timed-out wide cycle pushes the newest stored started_at
-// past the threshold and the banner announces "the probe itself may be down"
+// to config.ProbeTimeout each — 240 s. At two intervals a single cycle whose
+// probes all timed out pushes the newest stored started_at past the threshold
+// and the banner announces "the probe itself may be down"
 // during the exact incident it should be reporting as degraded, which is the
 // severity inversion this constant exists to avoid.
 export const STALE_AFTER_MS = 3 * 5 * 60 * 1000;

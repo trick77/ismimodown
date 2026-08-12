@@ -452,3 +452,27 @@ func TestCostOnAnEmptyWindowIsZeroNotUnknown(t *testing.T) {
 		t.Errorf("a null list was served: phases=%v series=%v", got.Phases, got.Series)
 	}
 }
+
+// The compatibility shim, pinned so it is not "tidied away" before the release
+// that makes it safe to remove.
+//
+// A browser holding the pre-removal bundle does cost.probes.map(...) with no
+// guard and refetches this payload across a deploy. A missing key throws inside
+// render, and with no error boundary React unmounts the whole page.
+func TestCostServesAnEmptyProbesArrayForOldClients(t *testing.T) {
+	s := New(openTestDB(t))
+	w, _ := LookupWindow("24h")
+	at := time.Date(2026, 8, 4, 10, 0, 0, 0, time.UTC)
+	saveAt(t, s, at, costRun("mimo-v2.5", 1000, 0, 200))
+
+	got, err := s.Cost(context.Background(), w, testPrices, at.Add(time.Hour))
+	if err != nil {
+		t.Fatalf("Cost: %v", err)
+	}
+	if got.Probes == nil {
+		t.Error("probes must marshal as [], never null — null throws in the old bundle too")
+	}
+	if len(got.Probes) != 0 {
+		t.Errorf("probes = %d entries, want none; it carries no data on purpose", len(got.Probes))
+	}
+}

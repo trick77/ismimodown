@@ -173,7 +173,7 @@ export type PulseResponse = {
   cycles: Cycle[];
 };
 
-// The five lines the page draws.
+// The four lines the page draws.
 //
 export type DashboardSeries = {
   ttft: ModelSeries;

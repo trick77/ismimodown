@@ -553,7 +553,7 @@ func round1(v float64) float64 {
 }
 
 // maxLoggedContent bounds the reply quoted into the log. The short probe caps
-// output at ShortMaxTokens, so a healthy reply is already well under this; the
+// output at probe.MaxTokens, so a healthy reply is already well under this; the
 // bound is for the reply that is not healthy, which is the whole reason the
 // line exists.
 const maxLoggedContent = 300

@@ -128,6 +128,22 @@ type CostBreakdown struct {
 	Total  CostGroup   `json:"total"`
 	Phases []PhaseCost `json:"phases"`
 	Series []CostPoint `json:"series"`
+
+	// Probes is a compatibility shim and always empty. DELETE IT ONE RELEASE
+	// AFTER THE ONE THAT INTRODUCED IT.
+	//
+	// It used to carry one group per probe kind. The UI that reads it does
+	// `cost.probes.map(...)` with no guard, and a browser holding that bundle
+	// keeps refetching this payload across a deploy — on the SSE cycle event
+	// and on its own interval. A missing key would throw inside render, and
+	// with no error boundary above it React unmounts the whole tree: a blank
+	// page, on a site whose entire job is to be up, for exactly the people
+	// watching it during a deploy. An empty array maps to nothing and renders
+	// nothing.
+	//
+	// The daemon serves its own UI from the same binary, so this only protects
+	// tabs that were already open. That is the audience that matters here.
+	Probes []struct{} `json:"probes"`
 	// BucketSeconds is the width of a Series bucket, so the client can size a
 	// mark without guessing from the gaps.
 	BucketSeconds int64 `json:"bucket_s"`
@@ -337,6 +353,9 @@ func (s *Store) Cost(ctx context.Context, w Window, prices map[string]config.Mod
 	// Allocated, so they marshal as [] and not null. The client maps over both,
 	// and a null there is one missing guard away from a blank page.
 	out.Phases = make([]PhaseCost, 0, 2)
+	// Allocated so it marshals as [] and not null — see Probes. A null would
+	// throw in the old bundle exactly as a missing key does.
+	out.Probes = []struct{}{}
 	for _, phase := range []string{PhaseFull, PhaseOffPeak} {
 		if g, ok := byPhase[phase]; ok {
 			out.Phases = append(out.Phases, PhaseCost{Phase: phase, CostGroup: *g})

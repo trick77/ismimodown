@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Point } from "../api/types";
+import { shouldUseLogScale } from "../format";
 import {
   buildCostOption,
   buildDecompositionOption,
@@ -557,7 +558,7 @@ describe("buildCostOption", () => {
 });
 describe("a series that can reach zero", () => {
   // ECharts does not refuse a non-positive value on a log axis, it DROPS the
-  // point — so a delta touching zero would come back as a line with holes that
+  // point — so a series touching zero would come back as a line with holes that
   // look exactly like buckets where nothing was measured.
   it("stays linear however wide the spread, when a value is not positive", () => {
     const opt = buildLineOption({
@@ -567,6 +568,29 @@ describe("a series that can reach zero", () => {
       unit: "ms",
     });
     expect(opt.logScale).toBe(false);
+  });
+
+  // THIS is the case that makes the guard load-bearing, and the reason the two
+  // above do not: dynamicRange FILTERS non-positives out and then measures what
+  // is left, so it only returns 1 when fewer than two positives survive. Give it
+  // two positives more than 20x apart and it reports a log-worthy spread while
+  // the series still holds a negative — which is precisely the point ECharts
+  // would drop. A reader checking whether this guard is dead code will look at
+  // the tests above, conclude it is, and delete it. It is not.
+  it("stays linear when the POSITIVE values alone would force a log axis", () => {
+    const values = [pt(1, -400), pt(2, 900), pt(3, 40_000)];
+    // The spread the axis would see if the negative were simply ignored.
+    expect(shouldUseLogScale(values.map((p) => p.p50))).toBe(true);
+
+    const opt = buildLineOption({
+      series: { a: values },
+      order: ["a"],
+      colorOf: () => "#fff",
+      unit: "ms",
+    });
+    expect(opt.logScale).toBe(false);
+    // And the point survives, which is the whole reason to stay linear.
+    expect(opt.series[0]!.data).toContainEqual([1000, -400]);
   });
 
   it("stays linear on an exact zero too", () => {

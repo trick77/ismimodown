@@ -794,10 +794,10 @@ func (s *Store) RecentSamples(ctx context.Context, modelID string, limit int) ([
 //
 // AnswerOK is what tells the block's two kinds of row apart. It is false on a
 // run that SUCCEEDED and was then graded wrong — a 200, a body, and the wrong
-// element in it — and nil on everything else: a failed run answered nothing to
-// grade, and a wide probe is not graded at all. The card must read it before it
-// reaches for the failure colour, because the one thing a graded-wrong row
-// cannot claim is that the endpoint was down.
+// element in it — and nil on everything else, which since migration 0006 means
+// only that the run failed before an answer existed. The card must read it
+// before it reaches for the failure colour, because the one thing a
+// graded-wrong row cannot claim is that the endpoint was down.
 type Failure struct {
 	At         time.Time `json:"at"`
 	ModelID    string    `json:"model_id"`

@@ -82,14 +82,9 @@ const cost = () => ({
       list_usd: 0.0648,
     },
   ],
-  probes: [
-    {
-      runs: 576,
-      tokens: { prompt: 40320, cached: 0, output: 40320 },
-      usd: 0.0908,
-      list_usd: 0.0973,
-    },
-  ],
+  // Served empty for one release so a browser holding the old bundle does not
+  // throw on cost.probes.map — see samples.CostBreakdown.Probes.
+  probes: [],
   series: [
     { t: Date.parse("2026-08-04T11:00:00Z") / 1000, usd: 0.008, runs: 26 },
   ],

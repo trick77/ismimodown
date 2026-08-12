@@ -529,10 +529,6 @@ export function buildLineOption({
                 ],
               }
             : undefined,
-        // Hung off the first series only, for the same reason markArea is:
-        // one rule, however many models are plotted. silent so it never takes
-        // the tooltip, and drawn in grid ink rather than a series hue — it is
-        // the axis speaking, not a measurement.
       };
     }),
     logScale: log,
@@ -655,10 +651,9 @@ const COST_SPAN_HHMM_MS = 48 * 3_600_000;
 // buildCostOption draws what each bucket of the window cost, with the
 // reduced-rate spans shaded behind it.
 //
-// One line, not one per model or per probe. The panel answers "what did this
-// cost", and a run's cadence is not a fact about its bill: the 5-minute short
-// runs and the hourly wide ones land in whichever bucket they happened in and
-// are summed there.
+// One line, not one per model. The panel answers "what did this cost", and a
+// run's cadence is not a fact about its bill: every run lands in whichever
+// bucket it happened in and is summed there.
 export function buildCostOption(
   points: { t: number; usd: number | null }[],
   spans: [number, number][],

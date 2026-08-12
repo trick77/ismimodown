@@ -368,7 +368,8 @@ func TestDropWideMigrationKeepsShortRowsAndDiscardsWide(t *testing.T) {
 
 	// The column is gone, not merely unused. A surviving column would let a
 	// later query filter on a value nothing writes.
-	if _, err := db.Query(`SELECT probe FROM infer_probes LIMIT 1`); err == nil {
+	var scrap any
+	if err := db.QueryRow(`SELECT probe FROM infer_probes LIMIT 1`).Scan(&scrap); err == nil {
 		t.Error("probe column still exists")
 	}
 

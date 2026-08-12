@@ -65,7 +65,7 @@ export function CostPanel({ cost }: { cost: CostBreakdown | null }) {
           on the same breakpoint: four columns inside a 600px card leaves each
           figure ~120px, and "$0.000141" needs more than that. Two by two until
           there is room for one row. */}
-      <div className="mb-5 grid grid-cols-2 gap-5 border-b border-border-soft pb-5 md:grid-cols-4">
+      <div className="mb-5 grid grid-cols-2 gap-5 border-b border-border-soft pb-5 md:grid-cols-3">
         <Money
           label={`Last ${cost.window}`}
           value={formatUSD(cost.total.usd)}
@@ -80,7 +80,9 @@ export function CostPanel({ cost }: { cost: CostBreakdown | null }) {
         <Money
           label="Per run"
           value={formatUSDPrecise(perRun(cost.total))}
-          hint={`${formatInt(cost.total.runs)} runs · ${PROBE_CADENCE}`}
+          // The run count is already on the tile to its left; repeating it
+          // here spends the line on a number the eye just read.
+          hint={PROBE_CADENCE}
         />
         <Money
           label="Saved off-peak"
