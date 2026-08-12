@@ -11,6 +11,7 @@ import {
   GridComponent,
   LegendComponent,
   MarkAreaComponent,
+  MarkLineComponent,
   TooltipComponent,
 } from "echarts/components";
 import { CanvasRenderer } from "echarts/renderers";
@@ -36,6 +37,11 @@ echarts.use([
   TooltipComponent,
   LegendComponent,
   MarkAreaComponent,
+  // MarkLineComponent draws the prefill delta's zero rule. Registered for the
+  // same reason MarkAreaComponent had to be: ECharts ignores an unregistered
+  // component's option key in silence, so the rule would simply never appear
+  // and nothing would say why.
+  MarkLineComponent,
   CanvasRenderer,
 ]);
 

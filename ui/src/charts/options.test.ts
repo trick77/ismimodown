@@ -628,3 +628,126 @@ describe("buildCostOption", () => {
     expect(o.series[0]!.markArea).toBeUndefined();
   });
 });
+
+describe("a pinned time axis", () => {
+  // Two plots stacked and meant to be read against each other. The prefill
+  // panel's delta is sampled at the wide probe's hourly cadence and its
+  // reference strip at the short probe's, so their own extents differ by up to
+  // an hour; unpinned, a vertical through the pair means two different
+  // instants.
+  it("holds the axis to the given range rather than the data's", () => {
+    const opt = buildLineOption({
+      series: { a: [pt(2_000, 1)] },
+      order: ["a"],
+      colorOf: () => "#fff",
+      unit: "ms",
+      xRange: [1_000_000, 9_000_000],
+    });
+    expect(opt.xAxis.min).toBe(1_000_000);
+    expect(opt.xAxis.max).toBe(9_000_000);
+  });
+
+  it("leaves the axis to ECharts when no range is given", () => {
+    const opt = buildLineOption({
+      series: { a: [pt(2_000, 1)] },
+      order: ["a"],
+      colorOf: () => "#fff",
+      unit: "ms",
+    });
+    expect(opt.xAxis.min).toBeUndefined();
+    expect(opt.xAxis.max).toBeUndefined();
+  });
+
+  // The format follows the pinned span too, or a strip whose own data spans
+  // less than 48h prints HH:mm under a chart printing dates.
+  it("picks the tick format from the pinned span", () => {
+    const opt = buildLineOption({
+      series: { a: [pt(Date.UTC(2026, 7, 4) / 1000, 1)] },
+      order: ["a"],
+      colorOf: () => "#fff",
+      unit: "ms",
+      xRange: [Date.UTC(2026, 6, 1), Date.UTC(2026, 7, 4)],
+    });
+    expect(opt.xAxis.axisLabel.formatter(Date.UTC(2026, 7, 4, 16))).toMatch(
+      /Aug/,
+    );
+  });
+});
+
+describe("a series that can reach zero", () => {
+  // ECharts does not refuse a non-positive value on a log axis, it DROPS the
+  // point — so a delta touching zero would come back as a line with holes that
+  // look exactly like buckets where nothing was measured.
+  it("stays linear however wide the spread, when a value is not positive", () => {
+    const opt = buildLineOption({
+      series: { a: [pt(1, -50), pt(2, 40_000)] },
+      order: ["a"],
+      colorOf: () => "#fff",
+      unit: "ms",
+    });
+    expect(opt.logScale).toBe(false);
+  });
+
+  it("stays linear on an exact zero too", () => {
+    const opt = buildLineOption({
+      series: { a: [pt(1, 0), pt(2, 40_000)] },
+      order: ["a"],
+      colorOf: () => "#fff",
+      unit: "ms",
+    });
+    expect(opt.logScale).toBe(false);
+  });
+
+  // The guard must not cost the log axis to the charts that have always had
+  // one: a null is a gap, not a value, and says nothing about the range.
+  it("still goes log when the only non-values are nulls", () => {
+    const opt = buildLineOption({
+      series: { a: [pt(1, 900), pt(2, null), pt(3, 40_000)] },
+      order: ["a"],
+      colorOf: () => "#fff",
+      unit: "ms",
+    });
+    expect(opt.logScale).toBe(true);
+  });
+});
+
+describe("the zero line", () => {
+  // On a series of DIFFERENCES, zero is not the floor of the plot — it is where
+  // the reading changes meaning: above it the long prompt cost something, at or
+  // below it the baseline moved instead.
+  it("hangs one rule at zero off the first series only", () => {
+    const opt = buildLineOption({
+      series: { a: [pt(1, 1)], b: [pt(1, 2)] },
+      order: ["a", "b"],
+      colorOf: () => "#fff",
+      unit: "ms",
+      zeroLine: true,
+    });
+    expect(opt.series[0]!.markLine!.data).toEqual([{ yAxis: 0 }]);
+    expect(opt.series[1]!.markLine).toBeUndefined();
+  });
+
+  it("draws no rule unless asked", () => {
+    const opt = buildLineOption({
+      series: { a: [pt(1, 1)] },
+      order: ["a"],
+      colorOf: () => "#fff",
+      unit: "ms",
+    });
+    expect(opt.series[0]!.markLine).toBeUndefined();
+  });
+
+  // A log axis has no zero to rule, and cannot acquire one: it only exists
+  // where every value is above it.
+  it("draws no rule on a log axis", () => {
+    const opt = buildLineOption({
+      series: { a: [pt(1, 900), pt(2, 40_000)] },
+      order: ["a"],
+      colorOf: () => "#fff",
+      unit: "ms",
+      zeroLine: true,
+    });
+    expect(opt.logScale).toBe(true);
+    expect(opt.series[0]!.markLine).toBeUndefined();
+  });
+});

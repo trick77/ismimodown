@@ -36,9 +36,20 @@ describe("PrefillPanel", () => {
   const short = series({ "mimo-v2.5": day(900) });
   const wide = series({ "mimo-v2.5": day(2600) });
 
-  // This panel plots two probes an order of magnitude apart, so it is the one
-  // most likely to switch axes — and it rendered no badge at all until now.
-  it("announces a log axis when the spread forces one", () => {
+  // The delta is the chart; the two probes are the reference strip beneath it.
+  it("draws the cost above and the probes it came from below", () => {
+    render(<PrefillPanel short={short} wide={wide} models={["mimo-v2.5"]} />);
+    expect(screen.getAllByTestId("chart")).toHaveLength(2);
+    expect(
+      screen.getByText(/For reference, the two probes/),
+    ).toBeInTheDocument();
+  });
+
+  // The panel used to plot two probes an order of magnitude apart and switch
+  // axes on the spread — which is exactly what flattened the gap it existed to
+  // show. The badge now belongs to the strip, which can still go log; the chart
+  // above it never can.
+  it("announces a log axis on the reference strip when the spread forces one", () => {
     const wideLog = series({ "mimo-v2.5": day(36_000) });
     render(
       <PrefillPanel short={short} wide={wideLog} models={["mimo-v2.5"]} />,
@@ -52,8 +63,11 @@ describe("PrefillPanel", () => {
   });
 
   // The wide probe runs hourly, so the panel exists before its subject does.
-  it("says the gap is not readable yet when the wide probe has no data", () => {
+  it("says the cost is not plottable yet when the wide probe has no data", () => {
     render(<PrefillPanel short={short} wide={null} models={["mimo-v2.5"]} />);
     expect(screen.getByText(/takes an hour/)).toBeInTheDocument();
+    // The short probe still has data, so the strip is still drawn — one chart,
+    // not two.
+    expect(screen.getAllByTestId("chart")).toHaveLength(1);
   });
 });
