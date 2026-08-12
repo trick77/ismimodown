@@ -717,8 +717,24 @@ export function buildDecompositionOption(
   };
 }
 
+// round is the tooltip's number, and the sibling of formatAxisMs — the two sit
+// on the same card and have to agree.
+//
+// The precision test is on the MAGNITUDE. Written as `v < 100` it was correct
+// for as long as every plotted value was a positive latency, and silently wrong
+// the moment one could go below zero: every negative satisfies `v < 100`, so
+// −1234.6 kept a decimal the axis had already dropped while +1234.6 rounded to
+// 1235. The prefill delta is the first series here that can be negative.
+//
+// U+2212 for the sign, not the hyphen toFixed emits, because the axis beside it
+// deliberately uses U+2212 and two minus signs on one card is a tell that one of
+// the two numbers came from somewhere else.
 function round(v: number): string {
-  return Number(v.toFixed(v < 100 ? 1 : 0)).toString();
+  const abs = Math.abs(v);
+  const digits = Number(abs.toFixed(abs < 100 ? 1 : 0)).toString();
+  // Number() has already collapsed a rounded −0.04 to "0", so a sign is only
+  // ever printed against a magnitude that survived rounding.
+  return v < 0 && digits !== "0" ? `−${digits}` : digits;
 }
 
 // The off-peak band. Green, because cheap reads as green before it reads as

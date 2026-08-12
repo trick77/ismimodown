@@ -70,7 +70,7 @@ describe("PrefillPanel", () => {
   // The wide probe runs hourly, so the panel exists before its subject does.
   it("says the cost is not plottable yet when the wide probe has no data", () => {
     render(<PrefillPanel short={short} wide={null} models={["mimo-v2.5"]} />);
-    expect(screen.getByText(/takes an hour/)).toBeInTheDocument();
+    expect(screen.getByText(/takes an hour to fill/)).toBeInTheDocument();
     // The short probe still has data, so the strip is still drawn — one chart,
     // not two.
     expect(screen.getAllByTestId("chart")).toHaveLength(1);
@@ -83,7 +83,7 @@ describe("PrefillPanel", () => {
     expect(
       screen.getByText(/first samples within a few minutes/),
     ).toBeInTheDocument();
-    expect(screen.queryByText(/takes an hour/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/takes an hour to fill/)).not.toBeInTheDocument();
     expect(screen.queryAllByTestId("chart")).toHaveLength(0);
   });
 
@@ -232,7 +232,11 @@ describe("noDeltaReason", () => {
   });
 
   it("blames the hourly cadence when the wide probe has not run", () => {
-    expect(noDeltaReason({ ...base, hasWide: false })).toMatch(/takes an hour/);
+    // Must not claim the probe has not run: a wide probe failing on anything
+    // but a timeout leaves the series just as empty as one that never started.
+    const reason = noDeltaReason({ ...base, hasWide: false });
+    expect(reason).toMatch(/takes an hour to fill/);
+    expect(reason).toMatch(/not completing/);
   });
 
   it("blames the short probe when it is the missing half", () => {

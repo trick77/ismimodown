@@ -452,6 +452,26 @@ describe("the tooltip", () => {
     expect(out).not.toContain("<img");
     expect(out).toContain("&lt;img");
   });
+
+  // The precision test is on the MAGNITUDE. Written against the raw value it
+  // was true for every negative, so a negative kept a decimal the axis had
+  // already dropped while the same magnitude positive rounded away.
+  it("rounds a negative to the same precision as its positive twin", () => {
+    const neg = fmt([{ value: [0, -1234.6], seriesName: "a" }]);
+    const pos = fmt([{ value: [0, 1234.6], seriesName: "a" }]);
+    expect(pos).toContain("1235 ms");
+    expect(neg).toContain("−1235 ms");
+  });
+
+  it("keeps the decimal on a small negative, as it does on a small positive", () => {
+    expect(fmt([{ value: [0, -12.5], seriesName: "a" }])).toContain("−12.5 ms");
+  });
+
+  // The same minus sign the axis prints. Two different minus signs on one card
+  // is a tell that one of the numbers came from somewhere else.
+  it("signs with U+2212, not a hyphen", () => {
+    expect(fmt([{ value: [0, -900], seriesName: "a" }])).not.toContain("-900");
+  });
 });
 
 describe("censoring bands", () => {

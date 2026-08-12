@@ -111,14 +111,19 @@ export function PrefillPanel({
   // instant. Without it the delta's hourly cadence leaves its axis up to an hour
   // short of the strip's, and the strip stops describing the chart above it.
   //
-  // Widened when everything sits in one bucket, which is a real state on a
-  // fresh database: a min equal to its max is a zero-width axis, and pinning
-  // one is worse than not pinning at all — ECharts pads a lone point itself.
+  // Padded by half a bucket at each end rather than pinned to the data exactly.
+  // ECharts pads a time axis itself; a pin does not, so the first and last
+  // points landed on the grid boundary with half their stroke and area fill
+  // clipped off. The padding is the same on both plots, so they stay aligned.
+  //
+  // It also covers the degenerate case — everything inside one bucket, a real
+  // state on a fresh database — where a min equal to its max is a zero-width
+  // axis, worse than not pinning at all.
   const extent = timeExtent(probes);
-  const xRange: [number, number] | undefined =
-    extent && extent[0] === extent[1]
-      ? [extent[0], extent[1] + (bucketMs ?? 1)]
-      : (extent ?? undefined);
+  const pad = (bucketMs ?? 0) / 2 || 1;
+  const xRange: [number, number] | undefined = extent
+    ? [extent[0] - pad, extent[1] + pad]
+    : undefined;
 
   const deltaOption = buildLineOption({
     series: delta,
@@ -295,8 +300,16 @@ export function noDeltaReason({
   if (!hasProbes) {
     return "Not enough data yet — first samples within a few minutes.";
   }
+  // Deliberately does NOT say the probe has not run yet, which is the obvious
+  // wording and is not knowable from here. Store.Series emits a bucket only for
+  // a run that succeeded or was censored, so a wide probe failing on anything
+  // that is not a timeout — a 5xx, a refusal on the 3800-token prompt — leaves
+  // the series just as empty as one that never started. Six hours of failures
+  // and a fresh deploy are the same props, and telling a reader who is deciding
+  // whether something is wrong that it simply has not run is the worse of the
+  // two mistakes. The wording covers both and dates itself.
   if (!hasWide) {
-    return "The wide probe runs hourly, so it takes an hour before there is a cost to plot.";
+    return "No wide-probe reading in this window yet. It runs hourly, so a fresh window takes an hour to fill; longer than that means its runs are not completing.";
   }
   // The wide probe reported and the short one did not. Naming the wide probe
   // here would send the reader to the wrong half: the cost is a difference, and
