@@ -80,10 +80,14 @@ export function PrefillPanel({
   // drew an empty grid with axes and no explanation, in the two cases that
   // actually happen: the first hour after a deploy, and a stretch where every
   // wide probe timed out.
-  const readings = Object.values(delta)
-    .flat()
-    .filter((p) => p.p50 !== null).length;
-  const hasDelta = readings >= 2;
+  //
+  // PER SERIES, not pooled across them. Two models are probed, so an hour after
+  // a deploy each has exactly one reading — two in total, which cleared a
+  // pooled threshold of two while neither model had a second point to draw a
+  // segment to. That is the deploy case this gate names, passing the gate.
+  const hasDelta = Object.values(delta).some(
+    (points) => points.filter((p) => p.p50 !== null).length >= 2,
+  );
 
   // Both plots are pinned to the probes' extent — the wider of the two, since
   // the short probe runs every cycle — so a vertical through the pair means one

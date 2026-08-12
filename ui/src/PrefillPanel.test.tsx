@@ -106,6 +106,38 @@ describe("PrefillPanel", () => {
     expect(screen.getByText(/second wide probe/)).toBeInTheDocument();
   });
 
+  // Two models, one reading each, an hour after a deploy. Counted in a single
+  // pool that is two readings and clears a threshold of two — while neither
+  // model has a second point to draw a segment to, so the chart is empty.
+  it("counts readings per model, not pooled across them", () => {
+    const both = ["mimo-v2.5", "mimo-v2.5-pro"];
+    const oneEach = series({
+      "mimo-v2.5": [pt(AUG4 + 9 * H, 2600)],
+      "mimo-v2.5-pro": [pt(AUG4 + 9 * H, 3100)],
+    });
+    const shortBoth = series({
+      "mimo-v2.5": day(900),
+      "mimo-v2.5-pro": day(1200),
+    });
+    render(<PrefillPanel short={shortBoth} wide={oneEach} models={both} />);
+    expect(screen.getByText(/second wide probe/)).toBeInTheDocument();
+  });
+
+  it("draws the chart once one model has two readings", () => {
+    const both = ["mimo-v2.5", "mimo-v2.5-pro"];
+    const uneven = series({
+      "mimo-v2.5": [pt(AUG4 + 9 * H, 2600), pt(AUG4 + 10 * H, 2700)],
+      "mimo-v2.5-pro": [pt(AUG4 + 9 * H, 3100)],
+    });
+    const shortBoth = series({
+      "mimo-v2.5": day(900),
+      "mimo-v2.5-pro": day(1200),
+    });
+    render(<PrefillPanel short={shortBoth} wide={uneven} models={both} />);
+    expect(screen.queryByText(/second wide probe/)).not.toBeInTheDocument();
+    expect(screen.getAllByTestId("chart")).toHaveLength(2);
+  });
+
   // The delta is driven off the wide side, so a bucket where only the SHORT
   // probe was cut off never reaches it — and that bucket still shades the strip.
   it("gives the strip its own censoring note", () => {
