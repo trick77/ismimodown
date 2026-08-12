@@ -23,6 +23,18 @@ import {
 // a literal 240 in seven files is a number that drifts apart silently.
 export const CHART_HEIGHT = 240;
 
+// The height of a plot that is REFERENCE rather than subject — kept because
+// another chart is not attributable without it, not because it is what the
+// reader came for.
+//
+// It was 96, which is where the idea stops working: the grid spends 44 px on
+// axis furniture whatever the plot's height, so 96 left 52 px of drawing, the
+// y-labels crushed into an illegible column and the two probes' lines lay on
+// top of each other. A strip you cannot read cannot say which probe moved,
+// which is the only reason it is on the page. 140 is the smallest height that
+// still separates them, and still half the chart above it.
+export const REFERENCE_HEIGHT = 140;
+
 // Series colour follows the MODEL, never its rank, so a model keeps its hue
 // when the ordering changes. Validated against the #1f1f1e surface: CVD
 // separation ΔE 26.8, normal-vision ΔE 31.8.
@@ -325,13 +337,43 @@ type LineOpts = {
   // right edge. Without it no bands are drawn — a band of unknown width is worse
   // than none, because it would misstate how much of the window was affected.
   bucketMs?: number;
+  // xRange pins the time axis instead of letting it fit the data.
+  //
+  // For charts stacked one above the other and meant to be read against each
+  // other. The prefill panel is the case: the delta above is sampled at the
+  // wide probe's hourly cadence and the reference strip below at the short
+  // probe's, so their own extents differ by up to an hour and the two grids
+  // land offset. A vertical line through both plots has to mean one instant,
+  // or the strip cannot say anything about the chart it sits under.
+  xRange?: [number, number];
+  // compact thins the y-axis for a plot drawn at REFERENCE_HEIGHT.
+  //
+  // ECharts picks its tick count from the axis range, not from how tall the
+  // axis actually is, so a short plot gets the same five gridlines as a full
+  // one and prints them a few pixels apart. Only the linear axis needs telling:
+  // a log axis here already has its ticks chosen by logAxis, sparsest ladder
+  // first.
+  compact?: boolean;
+  // zeroLine draws a rule at y = 0.
+  //
+  // For a series whose values are DIFFERENCES, where zero is not the bottom of
+  // the axis but the place the reading changes meaning: above it the wide
+  // prompt cost something, at or below it the short baseline moved instead —
+  // which is not a prefill regression, however wide the gap got.
+  zeroLine?: boolean;
 };
 
 // timeExtent is the first and last timestamp, in ms, across every series.
 //
 // The real data range rather than whatever ECharts settles on, because that is
 // what decides whether the axis can label ticks without a date.
-function timeExtent(series: Record<string, Point[]>): [number, number] | null {
+//
+// Exported because it is also how a caller works out the xRange to pin two
+// stacked plots to: the range has to come from ONE of the two series sets, and
+// deciding which is the caller's business.
+export function timeExtent(
+  series: Record<string, Point[]>,
+): [number, number] | null {
   let min = Infinity;
   let max = -Infinity;
   for (const points of Object.values(series)) {
@@ -373,13 +415,25 @@ export function buildLineOption({
   dashed,
   muted,
   bucketMs,
+  xRange,
+  compact = false,
+  zeroLine = false,
 }: LineOpts) {
   // The y-axis switches to log automatically when the window's dynamic range
   // exceeds 20x, because a linear axis collapses either the normal reading or
   // the spike. The caller stamps "LOG SCALE" on the plot when this is true — a
   // log axis read as linear is worse than no chart.
   const values = allValues(series);
-  const log = !forceLinear && shouldUseLogScale(values);
+  // A log axis cannot render a zero or a negative, and ECharts does not refuse
+  // them — it drops the points, leaving a line with holes in it that look
+  // exactly like buckets where nothing was measured. Nothing plotted here could
+  // reach zero while every series was a latency or a rate; the prefill delta
+  // can, being a DIFFERENCE, and a delta at or below zero is the one reading
+  // that says the baseline moved rather than prefill. So the guard lives with
+  // the axis rather than with the caller: any series that can go non-positive
+  // stays linear, whatever its spread.
+  const plottableOnLog = values.every((v) => v === null || v > 0);
+  const log = !forceLinear && plottableOnLog && shouldUseLogScale(values);
   // Fitted to the data rather than rounded out to decades — see logAxis.
   const fitted = log ? logAxis(values) : null;
 
@@ -392,7 +446,10 @@ export function buildLineOption({
   const bands = bucketMs ? censoredBands(series, bucketMs) : [];
   const names = order.filter((name) => series[name] !== undefined);
 
-  const extent = timeExtent(series);
+  // The pinned range wins where there is one, so that two stacked charts agree
+  // on the tick FORMAT as well as the tick positions: a strip whose own data
+  // spans less than 48h would print HH:mm under a chart printing dates.
+  const extent = xRange ?? timeExtent(series);
   // A bare HH:mm repeats itself once the plot spans more than two days, and a
   // reader cannot tell the Tuesday spike from the Thursday one.
   const spansDays = extent !== null && extent[1] - extent[0] > SPAN_HHMM_MS;
@@ -442,6 +499,10 @@ export function buildLineOption({
     },
     xAxis: {
       type: "time",
+      // Undefined rather than absent when unpinned, so ECharts fits the data as
+      // it always has — see xRange on LineOpts for when it is pinned.
+      min: xRange?.[0],
+      max: xRange?.[1],
       axisLine: { lineStyle: { color: GRID } },
       axisLabel: {
         color: AXIS,
@@ -472,6 +533,9 @@ export function buildLineOption({
       // ECharts falls back to its own nicing instead of being handed a bound.
       min: fitted?.min,
       max: fitted?.max,
+      // A hint, not a rule — ECharts still nices around it — and only on the
+      // linear axis, since a log one takes its ticks from logAxis. See compact.
+      splitNumber: compact && !log ? 2 : undefined,
       axisLine: { show: false },
       axisLabel: {
         color: AXIS,
@@ -550,6 +614,22 @@ export function buildLineOption({
                     { xAxis: to },
                   ]),
                 ],
+              }
+            : undefined,
+        // Hung off the first series only, for the same reason markArea is:
+        // one rule, however many models are plotted. silent so it never takes
+        // the tooltip, and drawn in grid ink rather than a series hue — it is
+        // the axis speaking, not a measurement.
+        // Never on a log axis, which has no zero to rule — and cannot have one,
+        // since the axis only exists when every value is above it.
+        markLine:
+          i === 0 && zeroLine && !log
+            ? {
+                silent: true,
+                symbol: "none",
+                label: { show: false },
+                lineStyle: { color: AXIS, width: 1, type: "solid" },
+                data: [{ yAxis: 0 }],
               }
             : undefined,
       };
@@ -637,8 +717,24 @@ export function buildDecompositionOption(
   };
 }
 
+// round is the tooltip's number, and the sibling of formatAxisMs — the two sit
+// on the same card and have to agree.
+//
+// The precision test is on the MAGNITUDE. Written as `v < 100` it was correct
+// for as long as every plotted value was a positive latency, and silently wrong
+// the moment one could go below zero: every negative satisfies `v < 100`, so
+// −1234.6 kept a decimal the axis had already dropped while +1234.6 rounded to
+// 1235. The prefill delta is the first series here that can be negative.
+//
+// U+2212 for the sign, not the hyphen toFixed emits, because the axis beside it
+// deliberately uses U+2212 and two minus signs on one card is a tell that one of
+// the two numbers came from somewhere else.
 function round(v: number): string {
-  return Number(v.toFixed(v < 100 ? 1 : 0)).toString();
+  const abs = Math.abs(v);
+  const digits = Number(abs.toFixed(abs < 100 ? 1 : 0)).toString();
+  // Number() has already collapsed a rounded −0.04 to "0", so a sign is only
+  // ever printed against a magnitude that survived rounding.
+  return v < 0 && digits !== "0" ? `−${digits}` : digits;
 }
 
 // The off-peak band. Green, because cheap reads as green before it reads as
