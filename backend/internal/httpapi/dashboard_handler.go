@@ -37,6 +37,16 @@ const (
 	dashboardNowWindow      = "24h"
 	dashboardBaselineWindow = "7d"
 
+	// The prefill figure's window, fixed for the same reason and a stronger
+	// one. Prefill cost is a CHARACTERISTIC of the endpoint — what a long
+	// prompt costs you here — not a property of the span a reader happened to
+	// select, and it needs MinPrefillPairs before it can say anything at all.
+	// The page defaults to 24h, which at an hourly wide probe holds 24 pairs
+	// however long the site has been up, so following the selector would have
+	// shown every first-time visitor a suppressed figure on a panel that has a
+	// perfectly good answer.
+	dashboardPrefillWindow = "7d"
+
 	// A day of cycles at the five-minute cadence, which is what the pulse strip
 	// draws.
 	dashboardPulseLimit = 288
@@ -98,6 +108,7 @@ type dashboardPayload struct {
 	Now         samples.Summary       `json:"now"`
 	Baseline    samples.Summary       `json:"baseline"`
 	Series      dashboardSeries       `json:"series"`
+	Prefill     dashboardPrefill      `json:"prefill"`
 	Cost        samples.CostBreakdown `json:"cost"`
 	Pulse       []any                 `json:"pulse"`
 	Samples     []any                 `json:"samples"`
@@ -118,6 +129,34 @@ type dashboardSeries struct {
 	TPS      any `json:"tps"`
 	Total    any `json:"total"`
 	Network  any `json:"network"`
+}
+
+// dashboardPrefill is the prefill figure and the period it is judged against.
+//
+// A figure and not a series, which is the whole shape of this block. The
+// per-run spread on the difference is ~6x the difference itself, so nothing at
+// one point per wide run carries a reading — only the aggregate over a window
+// does. See samples.Prefill for the fourteen days of production data that
+// settled it.
+//
+// Previous covers the SAME duration immediately before Current, so the two are
+// comparable without the client knowing anything about window lengths. It is
+// the change signal that used to be a line: "245 ms, unchanged from the
+// previous week" says what a nearly-flat curve was being asked to imply, and
+// says it at the resolution the data actually has.
+//
+// MinPairs travels with them so the client can explain a suppression rather
+// than just render one. A reader who is told the figure needs 150 pairs and
+// has 24 has learnt something about the probe cadence; a reader shown a blank
+// has learnt nothing.
+type dashboardPrefill struct {
+	// The window these figures cover, which is FIXED and therefore usually not
+	// the one the reader selected. Served so the panel can name it rather than
+	// leave a reader assuming the selector applies here too.
+	Window   string                `json:"window"`
+	MinPairs int                   `json:"min_pairs"`
+	Current  []samples.PrefillCost `json:"current"`
+	Previous []samples.PrefillCost `json:"previous"`
 }
 
 // buildDashboard runs every query one page load needs.
@@ -201,6 +240,30 @@ func (s *server) buildDashboard(ctx context.Context, window samples.Window, now 
 		return nil, err
 	}
 	out.Series.Network = net
+
+	// The FIXED prefill window, and the same span immediately before it. Both go
+	// through one function with different instants rather than a second query
+	// with an offset baked in — the half-open bound on PrefillCosts exists for
+	// exactly this.
+	prefillWindow, ok := samples.LookupWindow(dashboardPrefillWindow)
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", errUnknownWindow, dashboardPrefillWindow)
+	}
+	curPrefill, err := s.deps.Samples.PrefillCosts(ctx, s.deps.Models, prefillWindow, now)
+	if err != nil {
+		return nil, err
+	}
+	prevPrefill, err := s.deps.Samples.PrefillCosts(
+		ctx, s.deps.Models, prefillWindow, now.Add(-prefillWindow.Duration))
+	if err != nil {
+		return nil, err
+	}
+	out.Prefill = dashboardPrefill{
+		Window:   prefillWindow.Key,
+		MinPairs: samples.MinPrefillPairs,
+		Current:  curPrefill,
+		Previous: prevPrefill,
+	}
 
 	cost, err := s.deps.Samples.Cost(ctx, window, s.deps.Prices, now)
 	if err != nil {

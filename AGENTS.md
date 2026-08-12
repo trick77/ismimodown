@@ -54,7 +54,17 @@ deadlines; that moves `censored` and the percentiles for scheduling reasons.
 measured 0.0075 ms against 70 tok/s. Never lead a chart with it; `output_tps` is the robust one.
 
 **`probe` is a filter, never an aggregation.** Mixing `short` (40 tok) and `wide` (4k tok)
-destroys the prefill signal, which IS the gap between them.
+destroys the prefill signal, which IS the difference between them.
+
+**Prefill is measured CYCLE-PAIRED, never bucket-paired.** Subtract the short and wide runs
+of the SAME cycle (`JOIN ON cycle_id`). Across buckets the two runs are minutes apart and
+differ by queueing, which swings ~±1600 ms against a prefill cost of ~250 — 14 days of
+production paired by bucket gave a NEGATIVE median. Cycle-paired it is +245/+305 ms.
+
+**Prefill is a figure, never a series.** Per-run spread is ~6x the effect, so one point per
+wide run carries no reading; only a window aggregate does. Needs `MinPrefillPairs`, so 24h
+and 48h cannot support it at the hourly wide cadence. Publish the interval beside it and
+claim a change only when two periods' intervals do not overlap.
 
 **`error_detail` is operator-only** — no public endpoint serves it; a provider error body can
 echo request fragments. A test asserts this.

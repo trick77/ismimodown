@@ -32,6 +32,11 @@ type dashboardBody struct {
 			Targets map[string]json.RawMessage `json:"targets"`
 		} `json:"network"`
 	} `json:"series"`
+	Prefill struct {
+		MinPairs int                   `json:"min_pairs"`
+		Current  []samples.PrefillCost `json:"current"`
+		Previous []samples.PrefillCost `json:"previous"`
+	} `json:"prefill"`
 	Cost struct {
 		Window string `json:"window"`
 	} `json:"cost"`
@@ -616,5 +621,55 @@ func TestFailuresOnAttributedCyclesSayOK(t *testing.T) {
 	}
 	if got.Failures[0].Fault != probe.FaultOK {
 		t.Errorf("fault = %q, want %q — both probes answered", got.Failures[0].Fault, probe.FaultOK)
+	}
+}
+
+// The prefill block has to arrive for EVERY model and for BOTH periods, or the
+// panel silently loses a model or its comparison and reads as "no data" — which
+// is the one thing this dashboard must never say when it has data.
+func TestDashboardCarriesPrefillForEveryModelAndBothPeriods(t *testing.T) {
+	models := []string{"mimo-v2.5", "mimo-v2.5-pro"}
+	h, store := newAPIServer(t)
+	seed(t, store, 25, 900)
+	got := getDashboard(t, h, "7d")
+
+	if got.Prefill.MinPairs != samples.MinPrefillPairs {
+		t.Errorf("min_pairs = %d, want %d — the client explains a suppression with it",
+			got.Prefill.MinPairs, samples.MinPrefillPairs)
+	}
+	for _, period := range []struct {
+		name string
+		rows []samples.PrefillCost
+	}{
+		{"current", got.Prefill.Current},
+		{"previous", got.Prefill.Previous},
+	} {
+		if len(period.rows) != len(models) {
+			t.Fatalf("prefill.%s has %d models, want %d",
+				period.name, len(period.rows), len(models))
+		}
+		for i, m := range models {
+			if period.rows[i].ModelID != m {
+				t.Errorf("prefill.%s[%d] = %q, want %q",
+					period.name, i, period.rows[i].ModelID, m)
+			}
+		}
+	}
+}
+
+// A window with too few pairs must serve the figure as an explicit null, not as
+// zero and not by omitting the field. A client that receives 0 renders "prefill
+// is free", which is the opposite of insufficient data.
+func TestDashboardPrefillSuppressesRatherThanZeroes(t *testing.T) {
+	h, store := newAPIServer(t)
+	seed(t, store, 25, 900)
+	got := getDashboard(t, h, "24h")
+
+	c := got.Prefill.Current[0]
+	if c.Sufficient {
+		t.Fatalf("25 short-only cycles cannot support a prefill figure")
+	}
+	if c.P50 != nil || c.Lo != nil || c.Hi != nil || c.WideP50 != nil {
+		t.Error("every figure must be an explicit null when suppressed")
 	}
 }

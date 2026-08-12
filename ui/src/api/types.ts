@@ -179,6 +179,57 @@ export type PulseResponse = {
   cycles: Cycle[];
 };
 
+// What a ~3800-token prompt adds to time-to-first-token over a ~34-token one,
+// for one model over one window.
+//
+// A figure and not a series, and the reason is worth carrying to the client.
+// The difference was measured for a long time by plotting the two probes'
+// bucketed percentiles and reading the gap between them; fourteen days of
+// production data says the per-run spread on that difference is ~6x the
+// difference itself, so no chart at one point per wide run can carry a
+// reading. The window aggregate can. See backend/internal/samples/prefill.go.
+export type PrefillCost = {
+  model_id: string;
+  // Cycles where BOTH probes produced a TTFT. A cycle where either side failed
+  // cannot be subtracted, so this is the honest denominator.
+  pairs: number;
+  // False when pairs fell short of min_pairs. Every figure below is then null
+  // and must render as insufficient data, never as 0 ms.
+  sufficient: boolean;
+  p50_ms: number | null;
+  // The ~95% interval on p50_ms, from order statistics. Not decoration: the
+  // whole finding is that the point estimate alone is not readable, so a
+  // period-over-period claim has to check these for overlap before it says
+  // anything moved.
+  lo_ms: number | null;
+  hi_ms: number | null;
+  // The median absolute TTFT of the wide runs behind p50_ms, so the cost can be
+  // stated as a SHARE. ~250 ms inside a ~2600 ms wait is the useful reading —
+  // it says prompt size is not what makes this endpoint slow.
+  wide_p50_ms: number | null;
+  // Pairs lost to our own timeout ladder, excluded from the figures above. The
+  // same rule as everywhere else here: those are the SLOW ones, so the figure
+  // improves as truncation worsens, and it is published rather than folded in.
+  censored: number;
+};
+
+// The prefill figure and the period it is judged against.
+//
+// previous covers the same duration immediately before current, so the client
+// compares them without knowing anything about window lengths. This is the
+// change signal that used to be a line.
+export type DashboardPrefill = {
+  // The window these figures cover. FIXED at the server, so it is usually NOT
+  // the window the reader selected: prefill cost is a characteristic of the
+  // endpoint rather than of a selected span, and the 24h default cannot hold
+  // enough pairs to say anything. Named in the copy so nobody assumes the
+  // selector applies here.
+  window: string;
+  min_pairs: number;
+  current: PrefillCost[];
+  previous: PrefillCost[];
+};
+
 // The five lines the page draws.
 //
 // Named fields rather than a map keyed by metric, because two of them ARE the
@@ -211,6 +262,7 @@ export type Dashboard = {
   now: Summary;
   baseline: Summary;
   series: DashboardSeries;
+  prefill: DashboardPrefill;
   cost: CostBreakdown;
   pulse: PulseResponse[];
   samples: SamplesResponse[];

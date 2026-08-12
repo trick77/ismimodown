@@ -375,6 +375,7 @@ export default function App() {
               it, the question it answers is the one a reader actually arrives
               with: given the wait above, what does a bigger prompt add to it? */}
             <PrefillPanel
+              prefill={data?.prefill ?? null}
               short={data?.series.ttft ?? null}
               wide={data?.series.ttft_wide ?? null}
               models={models}
