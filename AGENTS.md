@@ -39,8 +39,8 @@ are not censoring: nothing was measured. Never fold censored runs back INTO the 
 `MIN_FAILURES_FOR_STATE`.** One cut-off run in 288 daily cycles is a rounding error, and an
 amber box about it sits on the card forever. Chart bands still draw it. Gate prose, never data.
 
-**ONE inference call in flight, process-wide, `DispatchGap` apart.** Not per model, not per
-probe: MiMo throttles the API key and there is one key. Concurrent models returned 429s that
+**ONE inference call in flight, process-wide, `DispatchGap` apart.** Not per model: MiMo
+throttles the API key and there is one key. Concurrent models returned 429s that
 publish as a MiMo outage (`rate_limited` is neither censoring nor availability-exempt). The gap
 covers a short-window limiter, which serialising alone does not. Never race the models back.
 
@@ -53,14 +53,10 @@ deadlines; that moves `censored` and the percentiles for scheduling reasons.
 **`itl_p50_ms` is a chunk gap, not inter-token latency.** MiMo batches into bursts — a real run
 measured 0.0075 ms against 70 tok/s. Never lead a chart with it; `output_tps` is the robust one.
 
-**`probe` is a filter, never an aggregation.** Mixing `short` (40 tok) and `wide` (4k tok)
-destroys the prefill signal, which IS the gap between them.
-
 **`error_detail` is operator-only** — no public endpoint serves it; a provider error body can
 echo request fragments. A test asserts this.
 
-**`cached_tokens` must stay near zero.** A rise on `wide` means the cache-defeat nonce broke;
-on `short`, the system prompt went missing.
+**`cached_tokens` must stay near zero.** A rise means the system prompt went missing.
 
 **`reasoning_tokens` must be 0.** Send both `{"thinking":{"type":"disabled"}}` and
 `enable_thinking:false`. This, not the `ttft_ms`/`ttfat_ms` delta, is the primary alarm —
@@ -95,14 +91,17 @@ repo has none.
 
 Two limiters, different questions. The request one guards `/api/*`. The 404 one gates EVERY
 route but charges only for a 404 — never 4xx at large, never a served response, and never an
-image miss (`.ico`/`.png`/`.svg`, `uncountedAssetExts`): a browser asks for those on its own. Charging a 429
+image miss, never `/.well-known`, and never an EXTENSIONLESS path (`isUncounted404`). What it
+charges is a non-image extension — `.php`, `.env`, `.bak` — i.e. a wordlist. Extensionless stays
+free because it always was (those paths were 200s until the soft-404 fix) and because charging
+it lets a crawler recrawling old soft-404 URLs gate itself off `/` and `/robots.txt`. Charging a 429
 or a 400 compounds the two into a limit neither was sized for, and charging a 200 puts a
 budget on the page load itself: one visit is a dozen asset requests.
 
 `banGate` is a third thing and NOT a limiter — no budget, no refill. An exploit path
 (`internal/httpapi/exploitpaths.go`) → instant 48h block, bare 403, in memory only. Match on
-`r.URL.Path` BEFORE the mux, never on response status: `spaHandler` answers unknown
-EXTENSIONLESS paths with a 200, so `/wp-admin` never 404s. Adding a path to the list → check it
+`r.URL.Path` BEFORE the mux, never on response status: a 403 on the first wordlist entry ends
+the visit, where waiting for the 404 budget lets the scanner walk five more. Adding a path → check it
 against `TestRealTrafficIsNotAnExploitPath` first; a false positive is a visitor blocked for
 two days.
 
@@ -141,6 +140,18 @@ limits. Keep all of them.
 
 See `DEPLOY.md`. Confirm all four ping targets FROM the probe box before trusting attribution —
 a dead SGP reference kills the edge-vs-uplink distinction silently.
+
+## Serving
+
+`web.spaHandler`: `/` serves the shell, EVERY other unknown path 404s. No SPA fallback — this
+site has one URL and no router, and serving the shell with a 200 for `/anything` made every wrong
+URL a duplicate of the one real page (a soft 404, which Bing reads as a signal about the host).
+Adding a client-side route → change `TestUnknownPathsAreNotFound` deliberately, and note that a
+404 now charges the 404 budget where the old 200 was free.
+
+No third-party origin in the CSP. Microsoft Clarity was the only one and is gone; re-adding any
+host means editing `contentSecurityPolicy` AND `TestNoThirdPartyOriginsInThePolicy`, which is the
+point of that test.
 
 ## Reference repos (read, never modify)
 
@@ -196,7 +207,7 @@ URLs on purpose) before touching it; never just widen it. The `<br>` in that hea
 bearing: left to wrap, the fallback broke a word later and measured WIDER than the real face.
 
 **Host and SEO strings move together:** `Host()` in `compose.yaml` (two routers — apex and the
-www 301), og:/twitter: URLs, `rel=canonical`, `robots.txt`, `sitemap.xml`, JSON-LD `@id`s, and
+www 308), og:/twitter: URLs, `rel=canonical`, `robots.txt`, `sitemap.xml`, JSON-LD `@id`s, and
 `.host` in `card.html`.
 
 **Comments in `ui/index.html` and `ui/public/` never ship.** `ui/build/strip-comments.ts` strips

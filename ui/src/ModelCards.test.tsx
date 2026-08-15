@@ -8,7 +8,6 @@ import { FAULT_OK } from "./api/types";
 function model(over: Partial<ModelSummary> = {}): ModelSummary {
   return {
     model_id: "mimo-v2.5",
-    probe: "short",
     ttft: { n: 288, sufficient: true, p50_ms: 916, p95_ms: 1400 },
     itl: { n: 288, sufficient: true, p50_ms: 24, p95_ms: 40 },
     tps: { n: 288, sufficient: true, p50_ms: 41, p95_ms: 60 },

@@ -82,7 +82,6 @@ type Stats struct {
 // ModelSummary is one model's state over a window.
 type ModelSummary struct {
 	ModelID string `json:"model_id"`
-	Probe   string `json:"probe"`
 
 	TTFT Stats `json:"ttft"`
 	ITL  Stats `json:"itl"`
@@ -136,8 +135,8 @@ type ModelSummary struct {
 	// MaxReasoningTokens must stay 0. Non-zero means thinking came back on and
 	// every latency figure in this window is measuring something else.
 	MaxReasoningTokens int `json:"max_reasoning_tokens"`
-	// MaxCachedTokens must stay near 0 on wide, or the prefill numbers have
-	// quietly become cache lookups.
+	// MaxCachedTokens must stay near 0, or the system prompt went missing and
+	// MiMo's own injected one is being served from cache.
 	MaxCachedTokens int `json:"max_cached_tokens"`
 }
 
@@ -239,7 +238,7 @@ const percentileSQL = `
 WITH vals AS (
 	SELECT %s AS v FROM infer_probes i
 	JOIN cycles c ON c.id = i.cycle_id
-	WHERE i.model_id = ? AND i.probe = ? AND i.ok = 1 AND %s IS NOT NULL
+	WHERE i.model_id = ? AND i.ok = 1 AND %s IS NOT NULL
 	  AND c.started_at >= ?
 ),
 ranked AS (
@@ -254,11 +253,11 @@ SELECT
 	MAX(CASE WHEN rn = MAX(1, (n * 95 + 99) / 100) THEN v END)
 FROM ranked`
 
-func (s *Store) stats(ctx context.Context, column, modelID, probeKind string, since time.Time) (Stats, error) {
+func (s *Store) stats(ctx context.Context, column, modelID string, since time.Time) (Stats, error) {
 	q := fmt.Sprintf(percentileSQL, column, column)
 	var n int
 	var p50, p95 sql.NullFloat64
-	if err := s.db.QueryRowContext(ctx, q, modelID, probeKind, rfc(since)).Scan(&n, &p50, &p95); err != nil {
+	if err := s.db.QueryRowContext(ctx, q, modelID, rfc(since)).Scan(&n, &p50, &p95); err != nil {
 		return Stats{}, err
 	}
 	st := Stats{N: n, Sufficient: n >= MinSamplesForPercentile}
@@ -276,7 +275,7 @@ func (s *Store) stats(ctx context.Context, column, modelID, probeKind string, si
 }
 
 // Summarize builds the dashboard state for a window.
-func (s *Store) Summarize(ctx context.Context, w Window, models []string, probeKind string, now time.Time) (Summary, error) {
+func (s *Store) Summarize(ctx context.Context, w Window, models []string, now time.Time) (Summary, error) {
 	since := now.Add(-w.Duration)
 	out := Summary{Window: w.Key, GeneratedAt: now.UTC()}
 
@@ -287,14 +286,14 @@ func (s *Store) Summarize(ctx context.Context, w Window, models []string, probeK
 
 	// Not scoped to `since`, unlike everything above and below it. See
 	// RecentCycle: the counts above describe the window, this describes now.
-	recent, err := s.RecentCycles(ctx, probeKind)
+	recent, err := s.RecentCycles(ctx)
 	if err != nil {
 		return Summary{}, err
 	}
 	out.Recent = recent
 
 	for _, model := range models {
-		ms, err := s.modelSummary(ctx, model, probeKind, since)
+		ms, err := s.modelSummary(ctx, model, since)
 		if err != nil {
 			return Summary{}, err
 		}
@@ -314,17 +313,17 @@ func (s *Store) Summarize(ctx context.Context, w Window, models []string, probeK
 	return out, nil
 }
 
-func (s *Store) modelSummary(ctx context.Context, modelID, probeKind string, since time.Time) (ModelSummary, error) {
-	ms := ModelSummary{ModelID: modelID, Probe: probeKind}
+func (s *Store) modelSummary(ctx context.Context, modelID string, since time.Time) (ModelSummary, error) {
+	ms := ModelSummary{ModelID: modelID}
 
 	var err error
-	if ms.TTFT, err = s.stats(ctx, "ttft_ms", modelID, probeKind, since); err != nil {
+	if ms.TTFT, err = s.stats(ctx, "ttft_ms", modelID, since); err != nil {
 		return ms, err
 	}
-	if ms.ITL, err = s.stats(ctx, "itl_p50_ms", modelID, probeKind, since); err != nil {
+	if ms.ITL, err = s.stats(ctx, "itl_p50_ms", modelID, since); err != nil {
 		return ms, err
 	}
-	if ms.TPS, err = s.stats(ctx, "output_tps", modelID, probeKind, since); err != nil {
+	if ms.TPS, err = s.stats(ctx, "output_tps", modelID, since); err != nil {
 		return ms, err
 	}
 
@@ -361,7 +360,7 @@ func (s *Store) modelSummary(ctx context.Context, modelID, probeKind string, sin
 	var maxReason, maxCached sql.NullInt64
 	var censored sql.NullInt64
 	censoredExpr, censoredArgs := censoredSQL("i")
-	args := []any{modelID, probeKind, rfc(since), probe.FaultUplink, probe.FaultRoute}
+	args := []any{modelID, rfc(since), probe.FaultUplink, probe.FaultRoute}
 	err = s.db.QueryRowContext(ctx, fmt.Sprintf(`
 		SELECT
 			count(*),
@@ -374,7 +373,7 @@ func (s *Store) modelSummary(ctx context.Context, modelID, probeKind string, sin
 		FROM infer_probes i
 		JOIN cycles c ON c.id = i.cycle_id
 		LEFT JOIN cycle_fault f ON f.cycle_id = c.id
-		WHERE i.model_id = ? AND i.probe = ? AND c.started_at >= ?
+		WHERE i.model_id = ? AND c.started_at >= ?
 		  AND (i.ok = 1 OR COALESCE(f.fault, '') NOT IN (?, ?))`, censoredExpr),
 		append(censoredArgs, args...)...,
 	).Scan(&ms.Attempts, &ms.Succeeded, &answered, &correct, &maxReason, &maxCached, &censored)
@@ -505,7 +504,7 @@ type Point struct {
 // MinSamplesForPercentile here would blank every short-window chart. The
 // headline figures keep the strict threshold; a chart point is a shape, not a
 // published number. Each point carries its own N so a client can weight it.
-func (s *Store) Series(ctx context.Context, column, modelID, probeKind string, w Window, now time.Time) ([]Point, error) {
+func (s *Store) Series(ctx context.Context, column, modelID string, w Window, now time.Time) ([]Point, error) {
 	if err := checkSeriesColumn(column); err != nil {
 		return nil, err
 	}
@@ -524,7 +523,7 @@ func (s *Store) Series(ctx context.Context, column, modelID, probeKind string, w
 			SELECT unixepoch(c.started_at) / %[1]d * %[1]d AS bucket, i.%[2]s AS v
 			FROM infer_probes i
 			JOIN cycles c ON c.id = i.cycle_id
-			WHERE i.model_id = ? AND i.probe = ? AND i.ok = 1 AND i.%[2]s IS NOT NULL
+			WHERE i.model_id = ? AND i.ok = 1 AND i.%[2]s IS NOT NULL
 			  AND c.started_at >= ?
 		),
 		ranked AS (
@@ -544,7 +543,7 @@ func (s *Store) Series(ctx context.Context, column, modelID, probeKind string, w
 			FROM infer_probes i
 			JOIN cycles c ON c.id = i.cycle_id
 			LEFT JOIN cycle_fault f ON f.cycle_id = c.id
-			WHERE i.model_id = ? AND i.probe = ? AND %[3]s
+			WHERE i.model_id = ? AND %[3]s
 			  AND c.started_at >= ?
 			  -- The SAME unattributable-cycle exclusion the summary applies to
 			  -- its censored count. A band on the chart is a claim about MiMo's
@@ -569,7 +568,7 @@ func (s *Store) Series(ctx context.Context, column, modelID, probeKind string, w
 		LEFT JOIN cens x ON x.bucket = b.bucket
 		ORDER BY b.bucket`, bucketSecs, column, censoredExpr)
 
-	args := []any{modelID, probeKind, rfc(since), modelID, probeKind}
+	args := []any{modelID, rfc(since), modelID}
 	args = append(args, censoredArgs...)
 	args = append(args, rfc(since), probe.FaultUplink, probe.FaultRoute)
 
@@ -678,7 +677,6 @@ func checkSeriesColumn(column string) error {
 type Sample struct {
 	At        time.Time `json:"at"`
 	ModelID   string    `json:"model_id"`
-	Probe     string    `json:"probe"`
 	TTFTMs    *float64  `json:"ttft_ms"`
 	TotalMs   *float64  `json:"total_ms"`
 	ITLP50Ms  *float64  `json:"itl_p50_ms"`
@@ -689,12 +687,10 @@ type Sample struct {
 	// tell those apart.
 	//
 	// The prompt side used to stay out on the grounds that it says what the run
-	// cost rather than what it produced, and that the cost panel already sums it. The
-	// sum is the wrong shape for this table: prompt_tokens is ~20 on short and
-	// ~3800 on wide, and that 200x step IS the difference between the two
-	// probes. Reading it off a daily total means reconstructing per-run input
-	// from an aggregate, on the one surface that promises nothing is aggregated
-	// away.
+	// cost rather than what it produced, and that the cost panel already sums it.
+	// The sum is the wrong shape for this table: reading per-run input off a
+	// daily total means reconstructing it from an aggregate, on the one surface
+	// that promises nothing is aggregated away.
 	//
 	// cached_tokens and reasoning_tokens still stay out. Both are invariants
 	// that must sit at zero rather than measurements that vary per run, and the
@@ -706,68 +702,11 @@ type Sample struct {
 	ErrorClass   *string `json:"error_class"`
 }
 
-// LastProbeAtByModel returns when a probe kind last RAN for each model. A model
-// that has never run it is absent from the map rather than present with a zero
-// time, so "never" stays distinguishable from "at the epoch".
-//
-// The scheduler asks this rather than counting cycles, because a counter only
-// knows about the process holding it: restart the daemon and a memory-resident
-// counter says "cycle zero" again, which re-fires the hourly probe on a daemon
-// that has been up for three minutes. The database remembers across restarts;
-// nothing else here does.
-//
-// Per MODEL, not one timestamp for the kind. The wide probe runs for one model
-// at a time and each model is due on its own hour, so a single MAX across all of
-// them would answer a question no longer being asked: it would report the OTHER
-// model's recent run and hold this one back indefinitely.
-//
-// Attempts, not successes: a failed wide probe still cost the endpoint the
-// request, and retrying it every five minutes until one succeeds is exactly the
-// behaviour this exists to prevent. Overruns are correctly absent either way:
-// the probe was never sent, so there is no attempt to find. They used to have a
-// `skipped_runs` row of their own and are now only logged; neither is read here.
-func (s *Store) LastProbeAtByModel(ctx context.Context, probeKind string) (map[string]time.Time, error) {
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT i.model_id, MAX(c.started_at)
-		FROM infer_probes i
-		JOIN cycles c ON c.id = i.cycle_id
-		WHERE i.probe = ?
-		GROUP BY i.model_id`, probeKind)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = rows.Close() }()
-
-	out := map[string]time.Time{}
-	for rows.Next() {
-		var model string
-		var at sql.NullString
-		if err := rows.Scan(&model, &at); err != nil {
-			return nil, err
-		}
-		// MAX over a grouped set cannot be NULL when the group exists, but the
-		// column is nullable and a scan that assumed otherwise would panic on a
-		// schema change rather than skip a row.
-		if !at.Valid {
-			continue
-		}
-		t, err := time.Parse(time.RFC3339Nano, at.String)
-		if err != nil {
-			return nil, err
-		}
-		out[model] = t
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
 // MaxSampleLimit clamps the raw-sample endpoint server-side.
 const MaxSampleLimit = 500
 
 // RecentSamples returns the most recent raw rows for a model.
-func (s *Store) RecentSamples(ctx context.Context, modelID, probeKind string, limit int) ([]Sample, error) {
+func (s *Store) RecentSamples(ctx context.Context, modelID string, limit int) ([]Sample, error) {
 	if limit <= 0 {
 		limit = 100
 	}
@@ -776,14 +715,14 @@ func (s *Store) RecentSamples(ctx context.Context, modelID, probeKind string, li
 	}
 
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT c.started_at, i.model_id, i.probe, i.ttft_ms, i.total_ms,
+		SELECT c.started_at, i.model_id, i.ttft_ms, i.total_ms,
 		       i.itl_p50_ms, i.output_tps, i.prompt_tokens, i.output_tokens,
 		       i.ok, i.answer_ok, i.error_class
 		FROM infer_probes i
 		JOIN cycles c ON c.id = i.cycle_id
-		WHERE i.model_id = ? AND i.probe = ?
+		WHERE i.model_id = ?
 		ORDER BY c.started_at DESC, i.id DESC
-		LIMIT ?`, modelID, probeKind, limit)
+		LIMIT ?`, modelID, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -800,7 +739,7 @@ func (s *Store) RecentSamples(ctx context.Context, modelID, probeKind string, li
 		// question_id is recorded but never selected here: it names what is
 		// being asked, and this row is served publicly.
 		var class sql.NullString
-		if err := rows.Scan(&at, &s.ModelID, &s.Probe, &ttft, &total, &itl, &tps,
+		if err := rows.Scan(&at, &s.ModelID, &ttft, &total, &itl, &tps,
 			&promptTokens, &outTokens, &okInt, &answerOK, &class); err != nil {
 			return nil, err
 		}
@@ -855,14 +794,13 @@ func (s *Store) RecentSamples(ctx context.Context, modelID, probeKind string, li
 //
 // AnswerOK is what tells the block's two kinds of row apart. It is false on a
 // run that SUCCEEDED and was then graded wrong — a 200, a body, and the wrong
-// element in it — and nil on everything else: a failed run answered nothing to
-// grade, and a wide probe is not graded at all. The card must read it before it
-// reaches for the failure colour, because the one thing a graded-wrong row
-// cannot claim is that the endpoint was down.
+// element in it — and nil on everything else, which since migration 0006 means
+// only that the run failed before an answer existed. The card must read it
+// before it reaches for the failure colour, because the one thing a
+// graded-wrong row cannot claim is that the endpoint was down.
 type Failure struct {
 	At         time.Time `json:"at"`
 	ModelID    string    `json:"model_id"`
-	Probe      string    `json:"probe"`
 	ErrorClass *string   `json:"error_class"`
 	HTTPStatus *int64    `json:"http_status"`
 	AnswerOK   *bool     `json:"answer_ok"`
@@ -936,7 +874,7 @@ func (s *Store) RecentFailures(ctx context.Context, models []string, since time.
 	// rather than `answer_ok IS NOT NULL AND answer_ok != 1` for that reason:
 	// the shorter form already means the right thing.
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT c.started_at, i.model_id, i.probe, i.error_class, i.http_status,
+		SELECT c.started_at, i.model_id, i.error_class, i.http_status,
 		       i.answer_ok, COALESCE(f.fault, '')
 		FROM infer_probes i
 		JOIN cycles c ON c.id = i.cycle_id
@@ -958,7 +896,7 @@ func (s *Store) RecentFailures(ctx context.Context, models []string, since time.
 		var class sql.NullString
 		var status sql.NullInt64
 		var answerOK sql.NullInt64
-		if err := rows.Scan(&at, &f.ModelID, &f.Probe, &class, &status, &answerOK, &f.Fault); err != nil {
+		if err := rows.Scan(&at, &f.ModelID, &class, &status, &answerOK, &f.Fault); err != nil {
 			return nil, err
 		}
 		f.At, _ = time.Parse(time.RFC3339Nano, at)
@@ -1005,7 +943,7 @@ type Pulse struct {
 
 // RecentPulse returns the most recent cycles for a model, projected down to the
 // strip's fields. Newest first, like RecentSamples — the client reverses.
-func (s *Store) RecentPulse(ctx context.Context, modelID, probeKind string, limit int) ([]Pulse, error) {
+func (s *Store) RecentPulse(ctx context.Context, modelID string, limit int) ([]Pulse, error) {
 	if limit <= 0 {
 		limit = 100
 	}
@@ -1017,9 +955,9 @@ func (s *Store) RecentPulse(ctx context.Context, modelID, probeKind string, limi
 		SELECT c.started_at, i.ttft_ms, i.ok, i.answer_ok, i.error_class
 		FROM infer_probes i
 		JOIN cycles c ON c.id = i.cycle_id
-		WHERE i.model_id = ? AND i.probe = ?
+		WHERE i.model_id = ?
 		ORDER BY c.started_at DESC, i.id DESC
-		LIMIT ?`, modelID, probeKind, limit)
+		LIMIT ?`, modelID, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -1066,7 +1004,7 @@ func (s *Store) RecentPulse(ctx context.Context, modelID, probeKind string, limi
 // denominator. This one REPORTS the attribution and lets the client decide —
 // so the uplink/route pairing lives in ui/src/verdict.ts instead, and both
 // classes have to be handled there.
-func (s *Store) RecentCycles(ctx context.Context, probeKind string) ([]RecentCycle, error) {
+func (s *Store) RecentCycles(ctx context.Context) ([]RecentCycle, error) {
 	// LEFT JOIN on both sides. A cycle whose fault row is missing must still
 	// appear — dropping it would make the gap look like a clean stretch — and so
 	// must one that recorded no inference run at all.
@@ -1080,8 +1018,8 @@ func (s *Store) RecentCycles(ctx context.Context, probeKind string) ([]RecentCyc
 		)
 		SELECT r.id, r.started_at, r.fault, i.model_id, i.ok, i.answer_ok
 		FROM recent r
-		LEFT JOIN infer_probes i ON i.cycle_id = r.id AND i.probe = ?
-		ORDER BY r.started_at DESC, r.id DESC`, RecentCycleCount, probeKind)
+		LEFT JOIN infer_probes i ON i.cycle_id = r.id
+		ORDER BY r.started_at DESC, r.id DESC`, RecentCycleCount)
 	if err != nil {
 		return nil, err
 	}

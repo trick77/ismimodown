@@ -34,7 +34,7 @@ export function formatMs(ms: number | null | undefined): string {
 // as a ladder, so it gets one break and no more — milliseconds below a second,
 // seconds above, however large.
 export function formatAxisMs(ms: number): string {
-  if (!Number.isFinite(ms) || ms < 0) {
+  if (!Number.isFinite(ms)) {
     return "";
   }
   // Zero is the baseline of a linear axis, not a duration. "0 ms" sitting
@@ -42,12 +42,26 @@ export function formatAxisMs(ms: number): string {
   if (ms === 0) {
     return "0";
   }
+  // A negative tick USED to return "", on the reasoning that a duration below
+  // zero is not a value this can label. That held while every series here was a
+  // latency or a rate. The prefill delta is a DIFFERENCE and reaches below zero
+  // — a delta under zero is the reading that says the short baseline moved
+  // rather than prefill, which the panel's copy sends the reader to look for —
+  // so the blank string printed a column of empty gridlines in exactly the
+  // region being pointed at. The sign is carried; the magnitude is formatted
+  // exactly as it is above zero.
+  //
+  // U+2212, not a hyphen: this sits in the same axis ladder as the em dashes
+  // and middots elsewhere on the page, and a hyphen reads as a list bullet at
+  // 10px.
+  const sign = ms < 0 ? "−" : "";
+  const abs = Math.abs(ms);
   // A decimal below 100 ms, as formatMs keeps one: a linear axis over a
   // few-millisecond handshake gets ticks half a millisecond apart, and rounding
   // those to whole milliseconds prints "1 ms" twice under two different lines.
-  return ms < 1000
-    ? `${round(ms, ms < 100 ? 1 : 0)} ms`
-    : `${round(ms / 1000, 2)} s`;
+  return abs < 1000
+    ? `${sign}${round(abs, abs < 100 ? 1 : 0)} ms`
+    : `${sign}${round(abs / 1000, 2)} s`;
 }
 
 export function formatPct(pct: number | null | undefined, digits = 1): string {

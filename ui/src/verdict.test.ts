@@ -19,7 +19,6 @@ const CYCLE_MS = 5 * 60 * 1000;
 function model(over: Partial<ModelSummary> = {}): ModelSummary {
   return {
     model_id: MODEL,
-    probe: "short",
     ttft: { n: 100, sufficient: true, p50_ms: 900, p95_ms: 1200 },
     itl: { n: 100, sufficient: true, p50_ms: 24, p95_ms: 40 },
     tps: { n: 100, sufficient: true, p50_ms: 41, p95_ms: 60 },

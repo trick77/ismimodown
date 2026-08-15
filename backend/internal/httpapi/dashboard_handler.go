@@ -107,17 +107,12 @@ type dashboardPayload struct {
 	Failures []samples.Failure `json:"failures"`
 }
 
-// dashboardSeries names the five lines the page draws.
-//
-// Named fields rather than a metric-keyed map because two of them are the same
-// metric — ttft on the short probe and on the wide one — and the gap between
-// those two IS the prefill signal. A map keyed by metric could not hold both.
+// dashboardSeries names the four lines the page draws.
 type dashboardSeries struct {
-	TTFT     any `json:"ttft"`
-	TTFTWide any `json:"ttft_wide"`
-	TPS      any `json:"tps"`
-	Total    any `json:"total"`
-	Network  any `json:"network"`
+	TTFT    any `json:"ttft"`
+	TPS     any `json:"tps"`
+	Total   any `json:"total"`
+	Network any `json:"network"`
 }
 
 // buildDashboard runs every query one page load needs.
@@ -166,7 +161,7 @@ func (s *server) buildDashboard(ctx context.Context, window samples.Window, now 
 		if !ok {
 			return nil, fmt.Errorf("%w: %s", errUnknownWindow, key)
 		}
-		sum, err := s.deps.Samples.Summarize(ctx, win, s.deps.Models, probe.ProbeShort, now)
+		sum, err := s.deps.Samples.Summarize(ctx, win, s.deps.Models, now)
 		if err != nil {
 			return nil, err
 		}
@@ -176,20 +171,15 @@ func (s *server) buildDashboard(ctx context.Context, window samples.Window, now 
 	out.Now = byWindow[dashboardNowWindow]
 	out.Baseline = byWindow[dashboardBaselineWindow]
 
-	// probe is a filter here, never an aggregation: mixing the short probe's
-	// TTFT with the wide one's would destroy the only thing wide exists to
-	// measure.
 	for _, spec := range []struct {
 		dst    *any
 		metric string
-		probe  string
 	}{
-		{&out.Series.TTFT, "ttft", probe.ProbeShort},
-		{&out.Series.TTFTWide, "ttft", probe.ProbeWide},
-		{&out.Series.TPS, "tps", probe.ProbeShort},
-		{&out.Series.Total, "total", probe.ProbeShort},
+		{&out.Series.TTFT, "ttft"},
+		{&out.Series.TPS, "tps"},
+		{&out.Series.Total, "total"},
 	} {
-		v, err := s.buildModelSeries(ctx, spec.metric, spec.probe, window, now)
+		v, err := s.buildModelSeries(ctx, spec.metric, window, now)
 		if err != nil {
 			return nil, err
 		}
@@ -209,7 +199,7 @@ func (s *server) buildDashboard(ctx context.Context, window samples.Window, now 
 	out.Cost = cost
 
 	for _, model := range s.deps.Models {
-		rows, err := s.deps.Samples.RecentPulse(ctx, model, probe.ProbeShort, dashboardPulseLimit)
+		rows, err := s.deps.Samples.RecentPulse(ctx, model, dashboardPulseLimit)
 		if err != nil {
 			return nil, err
 		}
@@ -217,30 +207,28 @@ func (s *server) buildDashboard(ctx context.Context, window samples.Window, now 
 			rows = []samples.Pulse{}
 		}
 		out.Pulse = append(out.Pulse, map[string]any{
-			"model_id": model, "probe": probe.ProbeShort, "cycles": rows,
+			"model_id": model, "cycles": rows,
 		})
 	}
 
-	// The whole model-and-probe cross product, model-major with short before
-	// wide. The raw table calls itself the unaggregated record, so anything
-	// missing here is missing from the one surface that promises nothing is.
+	// One group per model. The raw table calls itself the unaggregated record,
+	// so anything missing here is missing from the one surface that promises
+	// nothing is.
 	//
 	// Order is part of the contract: the client concatenates these groups and
 	// sorts on the instant, and a group arriving where another was expected
 	// would relabel rows rather than reorder them.
 	for _, model := range s.deps.Models {
-		for _, kind := range []string{probe.ProbeShort, probe.ProbeWide} {
-			rows, err := s.deps.Samples.RecentSamples(ctx, model, kind, dashboardSampleLimit)
-			if err != nil {
-				return nil, err
-			}
-			if rows == nil {
-				rows = []samples.Sample{}
-			}
-			out.Samples = append(out.Samples, map[string]any{
-				"model_id": model, "probe": kind, "samples": rows,
-			})
+		rows, err := s.deps.Samples.RecentSamples(ctx, model, dashboardSampleLimit)
+		if err != nil {
+			return nil, err
 		}
+		if rows == nil {
+			rows = []samples.Sample{}
+		}
+		out.Samples = append(out.Samples, map[string]any{
+			"model_id": model, "samples": rows,
+		})
 	}
 
 	// The bad runs last — failures and graded-wrong answers alike — and NOT
@@ -273,7 +261,7 @@ var errUnknownMetric = errors.New("unknown metric")
 var errUnknownWindow = errors.New("unknown window")
 
 // buildModelSeries is one metric across every model, bucketed for the window.
-func (s *server) buildModelSeries(ctx context.Context, metric, probeKind string, window samples.Window, now time.Time) (any, error) {
+func (s *server) buildModelSeries(ctx context.Context, metric string, window samples.Window, now time.Time) (any, error) {
 	// Through metricColumns rather than straight to a column name: the wire
 	// name is a stable contract, the column is an implementation detail a
 	// migration may rename, and this is the second gate in front of the SQL
@@ -284,7 +272,7 @@ func (s *server) buildModelSeries(ctx context.Context, metric, probeKind string,
 	}
 	out := map[string][]samples.Point{}
 	for _, model := range s.deps.Models {
-		pts, err := s.deps.Samples.Series(ctx, column, model, probeKind, window, now)
+		pts, err := s.deps.Samples.Series(ctx, column, model, window, now)
 		if err != nil {
 			return nil, err
 		}
@@ -296,7 +284,7 @@ func (s *server) buildModelSeries(ctx context.Context, metric, probeKind string,
 	}
 	return map[string]any{
 		"window": window.Key, "bucket_s": int(window.Bucket / time.Second),
-		"metric": metric, "probe": probeKind, "models": out,
+		"metric": metric, "models": out,
 	}, nil
 }
 

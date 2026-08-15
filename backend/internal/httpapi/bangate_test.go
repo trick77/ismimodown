@@ -75,11 +75,16 @@ func TestBanDoesNotAffectOtherCallers(t *testing.T) {
 	}
 }
 
-// The gap this closes. web.spaHandler answers an unknown EXTENSIONLESS path
-// with index.html and a 200, so /phpmyadmin and /wp-admin never produce the 404
-// that notFoundPenalty needs to charge for — a scanner walking them paid
-// nothing. Run against the real handler, because that 200 is the whole point.
-func TestExtensionlessExploitPathIsCaughtDespiteThe200(t *testing.T) {
+// An extensionless exploit path is answered by the gate, not by the mux.
+//
+// web.spaHandler used to serve index.html and a 200 for any unknown
+// extensionless path, which meant /phpmyadmin never produced a 404 for
+// notFoundPenalty to charge and this gate was the only thing seeing it at all.
+// It 404s now, so the gap is narrower — but the gate still has to answer first:
+// a 403 on the first wordlist entry ends the visit, where a 404 lets the
+// scanner walk four more before the budget catches up. Run against the real
+// handler, because the ordering is the point.
+func TestExtensionlessExploitPathIsBannedBeforeTheMux(t *testing.T) {
 	static, err := web.Handler()
 	if err != nil {
 		t.Fatalf("web.Handler: %v", err)
@@ -91,13 +96,15 @@ func TestExtensionlessExploitPathIsCaughtDespiteThe200(t *testing.T) {
 		Ban:     ban.New(48*time.Hour, 100),
 	})
 
-	// Confirm the premise first: an extensionless unknown path really is a 200.
-	if code := getFrom(t, h, "/admin", "9.9.9.9").Code; code != http.StatusOK {
-		t.Fatalf("/admin = %d, want 200; the premise of this test has changed", code)
+	// An extensionless unknown path that is NOT on the exploit list: a plain
+	// 404 from the mux, no ban.
+	if code := getFrom(t, h, "/admin", "9.9.9.9").Code; code != http.StatusNotFound {
+		t.Fatalf("/admin = %d, want 404", code)
 	}
 
+	// One that IS on it: 403 from the gate, and the mux never runs.
 	if code := getFrom(t, h, "/phpmyadmin", "8.8.8.8").Code; code != http.StatusForbidden {
-		t.Fatalf("/phpmyadmin = %d, want 403 — the 200 path must still ban", code)
+		t.Fatalf("/phpmyadmin = %d, want 403 from the gate, not a 404 from the mux", code)
 	}
 	if code := getFrom(t, h, "/", "8.8.8.8").Code; code != http.StatusForbidden {
 		t.Errorf("the caller = %d after the ban, want 403", code)

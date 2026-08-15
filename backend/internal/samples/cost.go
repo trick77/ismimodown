@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/trick77/ismimodown/internal/config"
-	"github.com/trick77/ismimodown/internal/probe"
 )
 
 // What this dashboard's own probing costs, priced from the usage MiMo reported
@@ -82,8 +81,7 @@ func (t Tokens) add(o Tokens) Tokens {
 // they are not added twice.
 func (t Tokens) Total() int64 { return t.Prompt + t.Output }
 
-// CostGroup is one priced slice of the window: a phase, a probe kind, or the
-// whole thing.
+// CostGroup is one priced slice of the window: a phase, or the whole thing.
 type CostGroup struct {
 	Runs   int    `json:"runs"`
 	Tokens Tokens `json:"tokens"`
@@ -117,17 +115,6 @@ type PhaseCost struct {
 	CostGroup
 }
 
-// ProbeCost is one probe kind's slice.
-//
-// Split out because the mean over both is a number that describes no run that
-// exists: a wide run carries a ~3.6k-token prompt and a short one carries 70, so
-// they differ by more than an order of magnitude. Per-probe is the coarsest
-// split that still yields a per-inference figure anyone can act on.
-type ProbeCost struct {
-	Probe string `json:"probe"`
-	CostGroup
-}
-
 // CostBreakdown is the cost panel of the dashboard payload.
 type CostBreakdown struct {
 	Window   string `json:"window"`
@@ -140,8 +127,23 @@ type CostBreakdown struct {
 
 	Total  CostGroup   `json:"total"`
 	Phases []PhaseCost `json:"phases"`
-	Probes []ProbeCost `json:"probes"`
 	Series []CostPoint `json:"series"`
+
+	// Probes is a compatibility shim and always empty. DELETE IT ONE RELEASE
+	// AFTER THE ONE THAT INTRODUCED IT.
+	//
+	// It used to carry one group per probe kind. The UI that reads it does
+	// `cost.probes.map(...)` with no guard, and a browser holding that bundle
+	// keeps refetching this payload across a deploy — on the SSE cycle event
+	// and on its own interval. A missing key would throw inside render, and
+	// with no error boundary above it React unmounts the whole tree: a blank
+	// page, on a site whose entire job is to be up, for exactly the people
+	// watching it during a deploy. An empty array maps to nothing and renders
+	// nothing.
+	//
+	// The daemon serves its own UI from the same binary, so this only protects
+	// tabs that were already open. That is the audience that matters here.
+	Probes []struct{} `json:"probes"`
 	// BucketSeconds is the width of a Series bucket, so the client can size a
 	// mark without guessing from the gaps.
 	BucketSeconds int64 `json:"bucket_s"`
@@ -216,7 +218,6 @@ func offPeakSpans(from, to int64) [][2]int64 {
 type costRow struct {
 	bucket  int64
 	modelID string
-	probe   string
 	offPeak bool
 	runs    int
 	tokens  Tokens
@@ -248,7 +249,6 @@ func (s *Store) Cost(ctx context.Context, w Window, prices map[string]config.Mod
 		       -- as a sawtooth in a series that sums. See cycleSeconds.
 		       ((unixepoch(c.started_at) + %[4]d) / %[5]d * %[5]d) / %[1]d * %[1]d AS bucket,
 		       i.model_id,
-		       i.probe,
 		       -- The billing phase, decided per run from its own timestamp
 		       -- against the UTC clock. Not from the bucket: a bucket can
 		       -- straddle the boundary, and rounding a run into the wrong phase
@@ -272,7 +272,7 @@ func (s *Store) Cost(ctx context.Context, w Window, prices map[string]config.Mod
 		  -- cannot tell "none" from "not reported". Pricing it would publish a
 		  -- free inference.
 		  AND COALESCE(i.prompt_tokens, 0) > 0
-		GROUP BY bucket, i.model_id, i.probe, offpeak
+		GROUP BY bucket, i.model_id, offpeak
 		ORDER BY bucket`,
 		bucketSecs, secondsPerDay, offPeakStartSecond, halfCycleSeconds, CycleSeconds),
 		since.UTC().Format(time.RFC3339Nano))
@@ -283,7 +283,6 @@ func (s *Store) Cost(ctx context.Context, w Window, prices map[string]config.Mod
 
 	var (
 		byPhase  = map[string]*CostGroup{}
-		byProbe  = map[string]*CostGroup{}
 		byBucket = map[int64]*CostPoint{}
 		order    []int64
 		total    CostGroup
@@ -297,7 +296,7 @@ func (s *Store) Cost(ctx context.Context, w Window, prices map[string]config.Mod
 	for rows.Next() {
 		var r costRow
 		var off int
-		if err := rows.Scan(&r.bucket, &r.modelID, &r.probe, &off,
+		if err := rows.Scan(&r.bucket, &r.modelID, &off,
 			&r.runs, &r.tokens.Prompt, &r.tokens.Cached, &r.tokens.Output); err != nil {
 			return CostBreakdown{}, fmt.Errorf("cost scan: %w", err)
 		}
@@ -328,7 +327,6 @@ func (s *Store) Cost(ctx context.Context, w Window, prices map[string]config.Mod
 		}
 		accumulate(&total, r, billed, list)
 		accumulate(groupFor(byPhase, phase), r, billed, list)
-		accumulate(groupFor(byProbe, r.probe), r, billed, list)
 
 		pt, ok := byBucket[r.bucket]
 		if !ok {
@@ -355,18 +353,12 @@ func (s *Store) Cost(ctx context.Context, w Window, prices map[string]config.Mod
 	// Allocated, so they marshal as [] and not null. The client maps over both,
 	// and a null there is one missing guard away from a blank page.
 	out.Phases = make([]PhaseCost, 0, 2)
-	out.Probes = make([]ProbeCost, 0, 2)
+	// Allocated so it marshals as [] and not null — see Probes. A null would
+	// throw in the old bundle exactly as a missing key does.
+	out.Probes = []struct{}{}
 	for _, phase := range []string{PhaseFull, PhaseOffPeak} {
 		if g, ok := byPhase[phase]; ok {
 			out.Phases = append(out.Phases, PhaseCost{Phase: phase, CostGroup: *g})
-		}
-	}
-	// The constants, not literals: this list is what fixes the order the panel
-	// names the probes in, and a string here that no row carries drops a whole
-	// probe from the cost card silently.
-	for _, kind := range []string{probe.ProbeShort, probe.ProbeWide} {
-		if g, ok := byProbe[kind]; ok {
-			out.Probes = append(out.Probes, ProbeCost{Probe: kind, CostGroup: *g})
 		}
 	}
 	out.Series = make([]CostPoint, 0, len(order))

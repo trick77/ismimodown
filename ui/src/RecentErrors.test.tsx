@@ -11,7 +11,6 @@ const NOW = new Date("2026-08-04T12:00:00Z");
 const failure = (over: Partial<Failure> = {}): Failure => ({
   at: "2026-08-04T11:58:00Z",
   model_id: "mimo-v2.5",
-  probe: "short",
   error_class: "http_error",
   http_status: 503,
   // null, not false: the call never completed, so there was no answer to
@@ -46,14 +45,13 @@ describe("RecentErrors", () => {
     vi.useRealTimers();
   });
 
-  it("draws the model, the probe, the class and the status", () => {
+  it("draws the model, the class and the status", () => {
     render(<RecentErrors failures={[failure()]} />);
 
     const cells = cellsOfFirstRow();
     expect(cells[1]).toBe("mimo-v2.5");
-    expect(cells[2]).toBe("short");
-    expect(cells[3]).toContain("http_error");
-    expect(cells[4]).toBe("503");
+    expect(cells[2]).toContain("http_error");
+    expect(cells[3]).toBe("503");
   });
 
   // "ttft_timeout" does not say "accepted, then queued", and that distinction
@@ -87,7 +85,7 @@ describe("RecentErrors", () => {
     );
 
     const cells = cellsOfFirstRow();
-    expect(cells[4]).toBe("—");
+    expect(cells[3]).toBe("—");
   });
 
   // The upstream's own words never reach this card — the type has no field for
@@ -98,7 +96,7 @@ describe("RecentErrors", () => {
     const headers = [...screen.getAllByRole("columnheader")].map(
       (th) => th.textContent,
     );
-    expect(headers).toEqual(["When", "Model", "Probe", "Error", "Status"]);
+    expect(headers).toEqual(["When", "Model", "Error", "Status"]);
   });
 
   // The availability arithmetic drops these rows because it is computing a
@@ -153,7 +151,7 @@ describe("RecentErrors", () => {
     render(<RecentErrors failures={[wrongAnswer()]} />);
 
     const cells = cellsOfFirstRow();
-    expect(cells[3]).toContain("wrong_answer");
+    expect(cells[2]).toContain("wrong_answer");
     expect(screen.getByText(/the answer did not/)).toBeInTheDocument();
   });
 
@@ -174,7 +172,7 @@ describe("RecentErrors", () => {
     render(<RecentErrors failures={[wrongAnswer()]} />);
 
     const cells = cellsOfFirstRow();
-    expect(cells[4]).toBe("200");
+    expect(cells[3]).toBe("200");
   });
 
   // One block, one timeline: the two kinds interleave in the order the server

@@ -28,8 +28,8 @@
 // deliberately. The cadence is a fact about our method rather than about what
 // the reader is looking at, and it had the shape of a freshness claim without
 // being one — the verdict banner below is what states whether the data is
-// current. It still gets said where it does work: per probe kind, beside the
-// price it drives (PROBE_HINTS in CostPanel.tsx). The vantage went with it: an
+// current. It still gets said where it does work: beside the per-run price it
+// drives (PROBE_CADENCE in CostPanel.tsx). The vantage went with it: an
 // arrow needs two ends, and nothing on this page acts on where we measure
 // from. The network panel names both ends of the path it draws, which is where
 // a reader who wants the geography finds it.

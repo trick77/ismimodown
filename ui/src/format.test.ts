@@ -87,9 +87,18 @@ describe("formatAxisMs", () => {
     expect(formatAxisMs(0)).toBe("0");
   });
 
+  // The prefill delta is a DIFFERENCE and goes below zero, where a blank tick
+  // left a column of empty gridlines under copy telling the reader to look
+  // there.
+  it("carries the sign on a negative tick, formatting the magnitude as usual", () => {
+    expect(formatAxisMs(-50)).toBe("−50 ms");
+    expect(formatAxisMs(-1500)).toBe("−1.5 s");
+    expect(formatAxisMs(-12.5)).toBe("−12.5 ms");
+  });
+
   it("renders nothing rather than a number for a value it cannot label", () => {
-    expect(formatAxisMs(-1)).toBe("");
     expect(formatAxisMs(NaN)).toBe("");
+    expect(formatAxisMs(Infinity)).toBe("");
   });
 });
 

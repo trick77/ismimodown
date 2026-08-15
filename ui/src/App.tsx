@@ -8,7 +8,6 @@ import { VerdictBanner } from "./VerdictBanner";
 import { ModelCards } from "./ModelCards";
 import { Decomposition } from "./Decomposition";
 import { SeriesPanel } from "./SeriesPanel";
-import { PrefillPanel } from "./PrefillPanel";
 import { NetworkPanel } from "./NetworkPanel";
 import { PulseStrip } from "./PulseStrip";
 import { RecentErrors } from "./RecentErrors";
@@ -367,17 +366,6 @@ export default function App() {
               series={data?.series.total ?? null}
               models={models}
               unit="ms"
-            />
-            {/* Below the sum rather than among the parts. This panel does not
-              measure a share of the wait — it re-plots the first part against a
-              second, larger prompt — and sitting between the parts and the sum
-              it read as one more component the sum was made of. After it, the
-              question it answers is the one a reader actually arrives with:
-              given the wait above, what does a bigger prompt add to it? */}
-            <PrefillPanel
-              short={data?.series.ttft ?? null}
-              wide={data?.series.ttft_wide ?? null}
-              models={models}
             />
             {/* Everything from here down rests on the handshake, so the panel
               that measures it comes first. Above, both of these forward-

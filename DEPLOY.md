@@ -17,8 +17,8 @@ with the dashboard embedded, plus one SQLite file.
   ```
 
 - **Two** DNS A records pointing at the host: `ismimodown.com` and
-  `www.ismimodown.com`. www exists only to 301 to the apex, but it needs its own
-  record and its own certificate — see below.
+  `www.ismimodown.com`. www exists only to redirect permanently (308) to the
+  apex, but it needs its own record and its own certificate — see below.
 - An ACME resolver named `letsencrypt` in Traefik's static config. The router
   labels name it explicitly:
 
@@ -86,14 +86,29 @@ never completed — check DNS first, then `docker compose logs traefik`.
 www must redirect permanently rather than serve:
 
 ```sh
-curl -sSI https://www.ismimodown.com/ | head -3   # 301, location: https://ismimodown.com/
+curl -sSI https://www.ismimodown.com/ | head -3   # 308, location: https://ismimodown.com/
 ```
+
+**308, not 301.** Traefik answers a permanent `redirectregex` with 308; both are
+permanent and both consolidate the two hostnames the same way for Google and
+Bing. The path is preserved, so `https://www.…/sitemap.xml` lands on the apex
+copy rather than on the apex root — that is the middleware working, and it is
+the thing to check if a redirect ever looks suspect.
 
 Response headers, after a Traefik reload picks up the new labels:
 
 ```sh
 curl -sSI https://ismimodown.com/ | \
   grep -Ei 'content-security-policy|x-content-type|x-frame|referrer|strict-transport'
+```
+
+One header is path-dependent: `Cross-Origin-Resource-Policy` is `same-origin`
+everywhere except `/og.png`, which is `cross-origin` because the link-preview
+card is the one response another origin is meant to embed.
+
+```sh
+curl -sSI https://ismimodown.com/og.png | grep -i cross-origin-resource
+# cross-origin-resource-policy: cross-origin
 ```
 
 CSP, `nosniff`, `X-Frame-Options` and `Referrer-Policy` come from the binary and
@@ -125,11 +140,22 @@ no honest request to protect. Four rules, in
 - **a handful of exact paths** — `/config.json`, `/credentials`,
   `/server-status`.
 
-The 404 budget (`notFoundPenalty`) is unchanged and still runs underneath: an
-ordinary wrong guess still just spends a token. Missing images are the exception
-— a 404 for `.ico`, `.png` or `.svg` costs nothing, since a browser asks for
-`/favicon.ico` and `/apple-touch-icon.png` on its own without the page naming
-them.
+The 404 budget (`notFoundPenalty`) runs underneath, and charges a narrower set
+than "any wrong guess". Three kinds of 404 cost nothing:
+
+- **Images** — `.ico`, `.png`, `.svg`. A browser asks for `/favicon.ico` and
+  `/apple-touch-icon.png` on its own, without the page naming them.
+- **`/.well-known/*`** — Chrome probes `/.well-known/traffic-advice` on
+  navigations and its devtools asks for an `appspecific` JSON file.
+- **Anything extensionless** — `/admin`, `/status`, `/about`. These returned
+  200 until the soft-404 fix, so they have never been charged; keeping them free
+  is what stops a search engine recrawling an old soft-404 URL from spending the
+  budget and being 429'd off `/` and `/robots.txt` next.
+
+What is left, and what the budget is really for, is a 404 with a non-image
+extension: `.php`, `.env`, `.bak`, `.sql`, `.aspx` — the shape of a wordlist,
+and nothing a browser asks for unprompted. Extensionless exploit names are not
+a gap: `banGate` answers those with a `403` on the first request.
 
 Going back to scanning while banned **resets the block to a fresh 48 hours** from
 that moment, so a scanner has to actually stop for two days to get back in.
@@ -185,26 +211,25 @@ came back on and every latency figure is measuring something else:
 ```sh
 docker compose exec ismimodown /usr/local/bin/ismimodown -healthcheck && echo healthy
 sqlite3 data/mimostats.db \
-  'SELECT model_id, probe, ttft_ms, reasoning_tokens, cached_tokens, answer_ok
+  'SELECT model_id, ttft_ms, reasoning_tokens, cached_tokens, answer_ok
    FROM infer_probes ORDER BY id DESC LIMIT 8'
 ```
 
-`cached_tokens` should also be at or near 0. On `wide` a rise means the
-cache-defeat nonce stopped working and the prefill numbers have quietly become
-cache lookups; on `short` it means the system message went missing and MiMo is
-serving its own injected prompt from cache.
+`cached_tokens` should also be at or near 0. A rise means the system message
+went missing and MiMo is serving its own injected prompt from cache.
 
-The `probe` column reads `short` from migration 0003 onward; databases last
-written by an older build hold `infer` there instead. That CHECK is why the
-rename is one-way.
+The `probe` column is gone from migration 0006 onward, and so are the `wide`
+rows it distinguished — see that migration for why the measurement they served
+could not be supported. **0006 deletes data and there is no way back.** Take the
+backup below before deploying a build that carries it.
 
-A pre-0003 binary on a migrated database boots clean — 0003 is already recorded
-— and then stores nothing at all. A cycle is written in ONE transaction, so the
-short probe's row failing the constraint takes the whole cycle down with it: the
-cycle row, both network readings and the wide run. The daemon logs `persist
-cycle failed` every five minutes while everything already collected stays on the
-dashboard, so it reads as a page that quietly stopped updating rather than as an
-outage. Roll forward, not back.
+An older binary on a migrated database boots clean — the migration is already
+recorded — and then stores nothing at all, because its INSERT names a column
+that no longer exists. A cycle is written in ONE transaction, so that failure
+takes the whole cycle with it: the cycle row and both network readings. The
+daemon logs `persist cycle failed` every five minutes while everything already
+collected stays on the dashboard, so it reads as a page that quietly stopped
+updating rather than as an outage. Roll forward, not back.
 
 ```sh
 docker compose logs ismimodown | grep 'persist cycle failed'
@@ -388,6 +413,32 @@ something is told to read them. Once the certificate is good:
 
 - Add `https://ismimodown.com/` as a property in Google Search Console and
   submit `/sitemap.xml`.
+- Do the same in **Bing Webmaster Tools**. Bing does not read Google's index and
+  will not find a site of this size on its own in any useful time; it was
+  missing from this list for a while and the site was absent from Bing while
+  ranking on Google, which is exactly the shape that symptom takes: indexed by
+  the engine that was told about the site, invisible to the one that was not.
+- Then check `bingbot` is not being throttled, because the two limiters in front
+  of the site can do that silently:
+
+  ```sh
+  docker compose logs ismimodown --since 168h | grep -E '"status":(403|429)' | head -50
+  ```
+
+  Match on the JSON field, not on the bare number: `grep 429` also hits a
+  `"dur":"429ms"` and any client address containing `4.29`.
+
+  The request log carries `method`, `path`, `status`, `dur` and `client` — and
+  deliberately no user-agent, so nothing in the line says "bingbot". Identify
+  the caller from `client`: reverse-DNS it (`dig -x`, which for a genuine
+  bingbot resolves under `search.msn.com`) or check it against Microsoft's
+  published bingbot ranges. A `429` or `403` against an address that resolves
+  that way means `notFoundPenalty` or `banGate` cut the crawler off — see the
+  two sections above. The 404 budget is five chargeable misses refilling at one
+  per 30s — images and `/.well-known` are free — and it gates *every* subsequent
+  request from that caller, `/` and `/robots.txt` included. Nothing in the app
+  knows what a crawler is, deliberately, so this is a log question rather than a
+  setting.
 - Re-scrape the link preview by pasting the URL into Slack or WhatsApp.
   WhatsApp and Telegram cache a card effectively forever, which is what the
   `?v=` on the og:image URL exists to defeat — bump it in the same commit as any

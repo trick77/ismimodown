@@ -226,7 +226,7 @@ func TestInferProbeRequiresACycle(t *testing.T) {
 	db := openTestDB(t)
 
 	_, err := db.Exec(
-		`INSERT INTO infer_probes (cycle_id, model_id, probe, ok) VALUES (999, 'mimo-v2.5', 'short', 1)`)
+		`INSERT INTO infer_probes (cycle_id, model_id, ok) VALUES (999, 'mimo-v2.5', 1)`)
 	if err == nil {
 		t.Fatal("expected a foreign-key violation inserting an infer_probe for a nonexistent cycle")
 	}
@@ -249,7 +249,7 @@ func TestDeletingACycleCascades(t *testing.T) {
 		args []any
 	}{
 		{`INSERT INTO net_probes (cycle_id, target, dns_ms, connect_ms, ok) VALUES (?, 'mimo_sgp', 3.4, 166.3, 1)`, []any{id}},
-		{`INSERT INTO infer_probes (cycle_id, model_id, probe, ttft_ms, ok, answer_ok) VALUES (?, 'mimo-v2.5', 'short', 912.0, 1, 1)`, []any{id}},
+		{`INSERT INTO infer_probes (cycle_id, model_id, ttft_ms, ok, answer_ok) VALUES (?, 'mimo-v2.5', 912.0, 1, 1)`, []any{id}},
 		{`INSERT INTO cycle_fault (cycle_id, fault) VALUES (?, 'ok')`, []any{id}},
 	} {
 		if _, err := db.Exec(stmt.q, stmt.args...); err != nil {
@@ -288,7 +288,7 @@ func TestCheckConstraintsRejectUnknownEnums(t *testing.T) {
 	}{
 		// Not 'mimo_ams': 0004 admitted that one. A region nobody probes.
 		{"unknown ping target", `INSERT INTO net_probes (cycle_id, target, ok) VALUES (?, 'mimo_tokyo', 1)`},
-		{"unknown probe kind", `INSERT INTO infer_probes (cycle_id, model_id, probe, ok) VALUES (?, 'mimo-v2.5', 'narrow', 1)`},
+		{"out-of-range ok flag", `INSERT INTO infer_probes (cycle_id, model_id, ok) VALUES (?, 'mimo-v2.5', 2)`},
 		{"unknown fault", `INSERT INTO cycle_fault (cycle_id, fault) VALUES (?, 'gremlins')`},
 	}
 	for _, tc := range cases {

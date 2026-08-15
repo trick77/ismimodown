@@ -3,12 +3,10 @@ package scheduler
 
 import (
 	"context"
-	"errors"
 	"log/slog"
 	"math"
 	"slices"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"time"
 	"unicode/utf8"
@@ -52,9 +50,9 @@ const MinInterval = time.Minute
 // and the start of the next, anywhere in the process.
 //
 // Serialising the calls — see RunCycle — only answers a CONCURRENCY limit. The
-// 429s that motivated both were a short and a wide against mimo-v2.5 in one
-// cycle, which were already strictly sequential: the second went out the
-// instant the first came back. Nothing in a 429 says which kind of limiter
+// 429s that motivated both were two probes against mimo-v2.5 in one cycle,
+// which were already strictly sequential: the second went out the instant the
+// first came back. Nothing in a 429 says which kind of limiter
 // produced it, and against a short-window request or token budget back-to-back
 // is indistinguishable from simultaneous. This is the half of the fix that
 // covers that case.
@@ -63,41 +61,16 @@ const MinInterval = time.Minute
 // cycle: the ladder already allows a cycle to overrun on latency alone, and
 // this adds (probes-1) * DispatchGap on top of that, every cycle, including the
 // healthy ones. Two seconds against a 5-minute interval is under 1.5% of the
-// budget for the three probes a wide cycle runs, and it is the whole of a
-// plausible per-second limit's window.
+// budget for the probes a cycle runs, and it is the whole of a plausible
+// per-second limit's window.
 const DispatchGap = 2 * time.Second
-
-// WideInterval is how often the wide probe runs FOR ONE MODEL. Landing it ON a
-// cycle rather than on its own timer is deliberate — it gets its own network
-// reading, so its TTFT is decomposable exactly like the short probe's.
-//
-// Across models the runs are staggered rather than simultaneous: see wideModel.
-// Each model still sees a full WideInterval between its own wide runs, so the
-// per-model sample rate and the daily bill are exactly what they were when both
-// models went wide together.
-const WideInterval = time.Hour
-
-// WideSlack is how early a cycle may claim the hourly slot.
-//
-// Cycles land every CycleInterval, jittered, so the one nearest the hour mark
-// is as likely to fall a little BEFORE it as after. Without slack that cycle
-// misses, the next one is a full interval later, and "hourly" quietly becomes
-// every 65 minutes — drifting further every time it happens.
-//
-// The slack can never double-fire as long as it stays below
-// WideInterval-CycleInterval: the cycle after a wide run is only one
-// CycleInterval past it, which is nowhere near the WideInterval-WideSlack
-// threshold. Half a cycle sits far inside that bound and is deliberately
-// conservative — it is sized to cover the jitter around the hour mark, not to
-// use up the available room.
-const WideSlack = CycleInterval / 2
 
 // OverrunSlotLimit is where a run of dropped slots stops being an overrun and
 // starts being the wall clock moving.
 //
 // A cycle's length is bounded by the probe ladder: with the probes serialised a
-// wide cycle costs at most short per model plus one wide, which is minutes even
-// at the top of the timeout ladder — not hours.
+// cycle costs at most one run per model, which is minutes even at the top of
+// the timeout ladder — not hours.
 // A catch-up longer than that is not an overrun at all — it is an NTP step, a
 // suspended host or a restored VM snapshot, and calling it "the previous cycle
 // was still running" is simply wrong.
@@ -157,40 +130,13 @@ type Scheduler struct {
 	// cycleCount drives the question rotation, which is deterministic and
 	// reproducible from the cycle number alone.
 	//
-	// It does NOT drive the wide cadence any more. This counter is
-	// memory-resident, so it restarts at zero with the process — fine for a
-	// rotation, where starting over just repeats a question, and wrong for a
-	// billed hourly probe, where it re-fires on every restart. See wideModel.
+	// Memory-resident, so it restarts at zero with the process. That is fine
+	// for a rotation, where starting over just repeats a question sooner than
+	// it would have come round.
 	cycleCount atomic.Int64
 
-	// lastWideNano is an in-memory FLOOR on the wide cadence: the cycle time of
-	// the most recent wide probe this process actually dispatched, whether or
-	// not it was ever persisted.
-	//
-	// The database stays the source of truth across restarts — that is the whole
-	// point of wideModel — but it only knows about probes that were written. A
-	// daemon whose writes fail (full disk, read-only volume, a cycle abandoned
-	// mid-shutdown) keeps reading a stale timestamp, and once that is an hour
-	// old EVERY five-minute cycle fires the ~3800-token probe for every model.
-	// wideModel already refuses to spend on a database it cannot read; this
-	// closes the same hole on the write side.
-	lastWideNano atomic.Int64
-
-	// lastWideByModel is the same floor, per model: the cycle time of the most
-	// recent wide probe this process dispatched FOR THAT MODEL.
-	//
-	// Two floors rather than one, because the stagger is two rules and they fail
-	// differently. lastWideNano bounds how close together any two wide runs may
-	// be — the global slot — and this bounds how often one model's own wide run
-	// comes round. A single global floor would let an unwritable database starve
-	// whichever model is not next in line; a single per-model floor would let two
-	// models go wide in the same cycle, which is the contention the stagger
-	// exists to remove.
-	wideMu          sync.Mutex
-	lastWideByModel map[string]time.Time
-
-	// slot admits ONE inference call at a time, process-wide. Not keyed by model
-	// and not by probe kind: MiMo throttles the API KEY, and the key is one.
+	// slot admits ONE inference call at a time, process-wide. Not keyed by
+	// model: MiMo throttles the API KEY, and the key is one.
 	//
 	// It was keyed by model+probe, on the reasoning that a global lock would let
 	// mimo-v2.5-pro's bad day suppress mimo-v2.5's samples and manufacture a
@@ -236,9 +182,8 @@ func New(deps Deps) *Scheduler {
 		deps.Wait = sched.Sleep
 	}
 	return &Scheduler{
-		deps:            deps,
-		slot:            make(chan struct{}, 1),
-		lastWideByModel: map[string]time.Time{},
+		deps: deps,
+		slot: make(chan struct{}, 1),
 	}
 }
 
@@ -303,9 +248,8 @@ func (s *Scheduler) logMissedTicks(missed []time.Time) {
 // every gap, and the error compounds in the worst possible direction: a slow
 // cycle pushes the next one later, so the probe samples LESS often exactly when
 // the endpoint is struggling and the data matters most. Measured on real
-// cycles that is 281 cycles/day for a typical cycle and 268 for one carrying
-// wide, against a design figure of 288 — and unbounded once a model starts
-// taking minutes.
+// cycles that is 281 cycles/day against a design figure of 288 — and unbounded
+// once a model starts taking minutes.
 //
 // Anchoring to epoch-aligned ticks removes the drift entirely: a cycle that
 // overruns its slot simply lands on the next one, and the cadence never walks.
@@ -366,134 +310,6 @@ func (s *Scheduler) nextDelay() (time.Duration, []time.Time) {
 	return d, missed
 }
 
-// WideSlot is the gap between consecutive wide runs across ALL models.
-//
-// One model at a time, WideInterval apart per model, means the fleet produces a
-// wide run every WideInterval/N. With two models that is every thirty minutes,
-// alternating; with three, every twenty.
-//
-// Running both models wide in the SAME cycle was the earlier behaviour and it
-// put two ~3800-token prefills on the endpoint and the uplink simultaneously,
-// each measuring a share of the other's queueing. That is the confound the
-// within-model sequencing already exists to avoid, and it does not stop being
-// one because the two runs are aimed at different models. Staggering removes it
-// without costing a single sample: the per-model cadence, the run count and the
-// bill are unchanged, and the wide CYCLES get cheaper, because one now carries
-// short+wide for one model instead of for every model.
-func (s *Scheduler) WideSlot() time.Duration {
-	if n := len(s.deps.Models); n > 1 {
-		return WideInterval / time.Duration(n)
-	}
-	// One model — or none — is its own stagger. Falling through to a division
-	// by zero would be the only way this function could fail.
-	return WideInterval
-}
-
-// wideModel answers WHICH model, if any, should carry the wide probe this cycle.
-// The empty string means no model does.
-//
-// Two rules, and both must hold:
-//
-//   - The global slot. No two wide runs may be closer together than WideSlot,
-//     whichever models they belong to. This is what keeps the prefills apart.
-//   - The model's own hour. A model is a candidate only once WideInterval has
-//     passed since ITS last wide run, so staggering never raises anyone's rate.
-//
-// Among the candidates the one idle longest wins, which is what makes the
-// rotation self-correcting: a model that missed its slot to an overrun or a
-// failed lookup is first in line at the next one rather than waiting a full
-// turn. Ties — including a fresh deploy where nobody has ever run — go to
-// Models order, so the sequence is reproducible.
-//
-// The question is asked of the DATABASE, not of a counter. cycleCount lives in
-// memory, so it says "cycle zero" again after every restart — and cycle zero is
-// a wide cycle, by design, so the prefill panel is not empty for an hour after a
-// fresh deploy. Those two facts together meant a daemon restarted three times
-// during a deploy sent three ~3800-token probes per model, and re-anchored the
-// hourly clock to the last restart. The intent was always "at most one per hour
-// per model"; this states it directly.
-//
-// No wide sample at all still fires immediately, which is the fresh-deploy case
-// the old cycle-zero rule existed to serve — for ONE model, with the rest
-// following a slot apart.
-//
-// A failed lookup skips the probe rather than running it. The wide probe is the
-// expensive one and the daemon is billed for it, so the safe direction when the
-// database cannot answer is to wait five minutes and ask again — a missed hourly
-// reading is a gap in a chart, while the other direction is an unbounded spend
-// on a database that stays broken.
-func (s *Scheduler) wideModel(ctx context.Context, now time.Time) string {
-	last, err := s.deps.Store.LastProbeAtByModel(ctx, probe.ProbeWide)
-	if err != nil {
-		// A cancelled context is a shutdown, not a fault: the cycle is about to
-		// be abandoned anyway, and logging it at ERROR trains the reader to
-		// ignore the level that should mean something.
-		if !errors.Is(err, context.Canceled) {
-			slog.Error("wide cadence lookup failed; skipping the wide probe this cycle", "err", err)
-		}
-		return ""
-	}
-	// Dispatches this process made but could not store still count. See
-	// lastWideByModel.
-	s.wideMu.Lock()
-	for model, at := range s.lastWideByModel {
-		if cur, ok := last[model]; !ok || at.After(cur) {
-			last[model] = at
-		}
-	}
-	s.wideMu.Unlock()
-
-	// The global slot, taken from the newest wide run of any model — including
-	// one this process sent for a model no longer configured, which still
-	// occupied the endpoint.
-	newest := time.Time{}
-	for _, at := range last {
-		if at.After(newest) {
-			newest = at
-		}
-	}
-	if nano := s.lastWideNano.Load(); nano != 0 {
-		if at := time.Unix(0, nano).UTC(); at.After(newest) {
-			newest = at
-		}
-	}
-	if !newest.IsZero() && now.Sub(newest) < s.WideSlot()-WideSlack {
-		return ""
-	}
-
-	// The model's own hour. A zero time means never, which is older than any
-	// real timestamp and therefore first in line.
-	pick, pickAt := "", time.Time{}
-	for _, model := range s.deps.Models {
-		at := last[model]
-		if !at.IsZero() && now.Sub(at) < WideInterval-WideSlack {
-			continue
-		}
-		if pick == "" || at.Before(pickAt) {
-			pick, pickAt = model, at
-		}
-	}
-	return pick
-}
-
-// noteWideDispatch records that a wide probe was actually sent for `model` at
-// `at`, monotonically so concurrent cycles cannot walk either floor backwards.
-func (s *Scheduler) noteWideDispatch(model string, at time.Time) {
-	v := at.UnixNano()
-	for {
-		cur := s.lastWideNano.Load()
-		if v <= cur || s.lastWideNano.CompareAndSwap(cur, v) {
-			break
-		}
-	}
-
-	s.wideMu.Lock()
-	defer s.wideMu.Unlock()
-	if cur, ok := s.lastWideByModel[model]; !ok || at.After(cur) {
-		s.lastWideByModel[model] = at
-	}
-}
-
 // RunCycle executes exactly one cycle: three pings, then one inference run per
 // model, then a single atomic write.
 //
@@ -526,10 +342,6 @@ func (s *Scheduler) RunCycle(ctx context.Context) {
 		cycle.Net = append(cycle.Net, s.deps.Pinger.Ping(ctx, t.target, t.host))
 	}
 
-	// At most ONE model goes wide in a cycle, and which one rotates. See
-	// wideModel.
-	wideFor := s.wideModel(ctx, started)
-
 	// EVERY inference call in this process is serialised, across models as well as
 	// within one, and DispatchGap separates consecutive calls. The loop below is
 	// plainly sequential; the slot in runProbe is what actually enforces it.
@@ -553,8 +365,9 @@ func (s *Scheduler) RunCycle(ctx context.Context) {
 	// outage on a page whose entire job is reporting MiMo outages. A confounded
 	// sample is worse than a slow one; a fabricated outage is worse than both.
 	//
-	// So a cycle costs the sum again, and the worst case is real: three probes at
-	// the 240 s ceiling is twelve minutes against a five-minute interval. That is
+	// So a cycle costs the sum again, and the worst case is real: one probe per
+	// model at the 240 s ceiling is eight minutes against a five-minute
+	// interval. That is
 	// accepted rather than capped, because every alternative costs a sample. In
 	// particular, deriving each probe's deadline from the cycle's remaining budget
 	// would hold the cadence AND keep every row — but the effective timeout would
@@ -573,13 +386,8 @@ func (s *Scheduler) RunCycle(ctx context.Context) {
 	// dispatched, so nothing here contends with the measurement the residual is
 	// subtracted against. They stay sequential for their own reason — see above.
 	for _, model := range s.deps.Models {
-		if res, ok := s.runProbe(ctx, model, probe.ProbeShort, n, started); ok {
+		if res, ok := s.runProbe(ctx, model, n, started); ok {
 			cycle.Infer = append(cycle.Infer, res)
-		}
-		if model == wideFor {
-			if res, ok := s.runProbe(ctx, model, probe.ProbeWide, n, started); ok {
-				cycle.Infer = append(cycle.Infer, res)
-			}
 		}
 	}
 
@@ -587,11 +395,11 @@ func (s *Scheduler) RunCycle(ctx context.Context) {
 	// order. It is one comparison per row and it pins the invariant the readers
 	// depend on to the write path rather than to the shape of a loop somebody
 	// might reorder later.
+	//
+	// One key now that there is one run per model. It used to break ties on the
+	// probe kind as well, which is the sort of tie that stops existing quietly.
 	slices.SortFunc(cycle.Infer, func(a, b probe.InferResult) int {
-		if c := strings.Compare(a.ModelID, b.ModelID); c != 0 {
-			return c
-		}
-		return strings.Compare(a.Probe, b.Probe)
+		return strings.Compare(a.ModelID, b.ModelID)
 	})
 
 	// Shutdown mid-cycle: do not persist a half-measured cycle whose missing
@@ -609,10 +417,7 @@ func (s *Scheduler) RunCycle(ctx context.Context) {
 
 	slog.Info("cycle complete",
 		"cycle", n, "cycle_id", cycleID,
-		// The model that went wide, not a boolean: with the runs staggered, which
-		// one it was is the thing a reader chasing an odd wide reading needs, and
-		// "true" no longer says it.
-		"net", len(cycle.Net), "infer", len(cycle.Infer), "wide", wideFor)
+		"net", len(cycle.Net), "infer", len(cycle.Infer))
 
 	if s.deps.OnCycle != nil {
 		s.deps.OnCycle(cycleID)
@@ -627,39 +432,28 @@ func (s *Scheduler) RunCycle(ctx context.Context) {
 // rather than adding a zero-valued row. A cycle cut short by shutdown is
 // abandoned unpersisted a few lines later anyway.
 func (s *Scheduler) runProbe(
-	ctx context.Context, model, kind string, n int64, started time.Time,
+	ctx context.Context, model string, n int64, started time.Time,
 ) (probe.InferResult, bool) {
 	if !s.acquire(ctx) {
-		slog.Info("probe abandoned during shutdown", "model", model, "probe", kind, "cycle", n)
+		slog.Info("probe abandoned during shutdown", "model", model, "cycle", n)
 		return probe.InferResult{}, false
 	}
 	defer s.release()
 
-	// Recorded on DISPATCH, not on the decision and not on the write: a wide
-	// abandoned in acquire never left the process and must still be retried next
-	// cycle, while one that was sent has been billed whether or not the cycle it
-	// belonged to survived to be persisted.
-	if kind == probe.ProbeWide {
-		s.noteWideDispatch(model, started)
-	}
-
-	req := probe.Request{ModelID: model, Probe: kind}
-	if kind == probe.ProbeWide {
-		req.Prompt = probe.WidePrompt()
-		req.MaxTokens = probe.WideMaxTokens
-	} else {
-		q := probe.Pick(n)
-		req.Prompt = q.Prompt()
-		req.MaxTokens = probe.ShortMaxTokens
-		req.QuestionID = q.ID
-		req.Assert = q.Assert
+	q := probe.Pick(n)
+	req := probe.Request{
+		ModelID:    model,
+		Prompt:     q.Prompt(),
+		MaxTokens:  probe.MaxTokens,
+		QuestionID: q.ID,
+		Assert:     q.Assert,
 	}
 
 	res, err := s.deps.Prober.Run(ctx, req)
 	if err != nil {
 		// Only a caller bug reaches here — transport failures come back as a
 		// result. Do not store it: an unbuildable request measured nothing.
-		slog.Error("probe request rejected", "err", err, "model", model, "probe", kind)
+		slog.Error("probe request rejected", "err", err, "model", model)
 		return probe.InferResult{}, false
 	}
 
@@ -677,26 +471,24 @@ func (s *Scheduler) runProbe(
 	// and it is already on the result and stored nowhere.
 	if res.AnswerOK != nil && !*res.AnswerOK {
 		slog.Warn("answer graded wrong",
-			"model", model, "probe", kind, "cycle", n,
+			"model", model, "cycle", n,
 			"question_id", req.QuestionID,
 			"finish_reason", res.FinishReason,
 			"content", truncate(res.Content, maxLoggedContent))
 	}
 
-	logInferenceCall(ctx, model, kind, n, req, res)
+	logInferenceCall(ctx, model, n, req, res)
 	return res, true
 }
 
-// logInferenceCall emits one line per inference call — every call, not only the
-// wide one.
+// logInferenceCall emits one line per inference call.
 //
-// "cycle complete" names the model that went wide and reduces the short runs to
-// a count, so a wide run is identifiable in the log and a short run is not. That
-// asymmetry is backwards for failures: a short probe that timed out, took a 401,
-// or came back at four seconds becomes a row in infer_probes with an
-// error_class, and nothing at all in the container log — which is the first
-// place an operator looks and the only place available without sqlite3 on the
-// volume.
+// "cycle complete" reduces the runs to a count, so without this no individual
+// run is identifiable in the log. That is backwards for failures: a probe that
+// timed out, took a 401, or came back at four seconds becomes a row in
+// infer_probes with an error_class, and nothing at all in the container log —
+// which is the first place an operator looks and the only place available
+// without sqlite3 on the volume.
 //
 // The level carries the verdict, so `level=WARN` alone finds the bad runs
 // without knowing which fields to read. error_class and error_detail are
@@ -716,7 +508,7 @@ func (s *Scheduler) runProbe(
 // an HTML error page would otherwise put a full document on one line. The stored
 // column is untouched.
 func logInferenceCall(
-	ctx context.Context, model, kind string, n int64, req probe.Request, res probe.InferResult,
+	ctx context.Context, model string, n int64, req probe.Request, res probe.InferResult,
 ) {
 	lvl := slog.LevelInfo
 	if !res.OK {
@@ -724,7 +516,7 @@ func logInferenceCall(
 	}
 
 	attrs := []any{
-		"model", model, "probe", kind, "cycle", n,
+		"model", model, "cycle", n,
 		"ok", res.OK,
 		"http_status", res.HTTPStatus,
 		"ttft_ms", round1(res.TTFTMs),
@@ -736,9 +528,8 @@ func logInferenceCall(
 		"reasoning_tokens", res.Usage.CompletionTokenDetails.ReasoningTokens,
 		"finish_reason", res.FinishReason,
 	}
-	// Only the short probe carries one, and an empty key on every wide line
-	// would read as a question that went missing rather than one that never
-	// existed.
+	// Guarded rather than assumed: an empty key would read as a question that
+	// went missing rather than one that was never set.
 	if req.QuestionID != "" {
 		attrs = append(attrs, "question_id", req.QuestionID)
 	}
@@ -762,7 +553,7 @@ func round1(v float64) float64 {
 }
 
 // maxLoggedContent bounds the reply quoted into the log. The short probe caps
-// output at ShortMaxTokens, so a healthy reply is already well under this; the
+// output at probe.MaxTokens, so a healthy reply is already well under this; the
 // bound is for the reply that is not healthy, which is the whole reason the
 // line exists.
 const maxLoggedContent = 300
@@ -812,8 +603,7 @@ func (s *Scheduler) acquire(ctx context.Context) bool {
 	// outright when d <= 0 — which is the ordinary case for the FIRST probe of a
 	// cycle, whose predecessor returned a whole CycleInterval ago. Cancel during
 	// the pings and every probe of that cycle would otherwise be dispatched into
-	// a dead context, one of them possibly a wide that noteWideDispatch would
-	// then record as sent.
+	// a dead context and billed for nothing.
 	if ctx.Err() != nil {
 		<-s.slot
 		return false

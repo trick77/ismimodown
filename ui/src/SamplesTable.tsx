@@ -20,23 +20,23 @@ import {
 //
 // The cap counts ROWS, but what a reader takes from it is a stretch of TIME,
 // and those two only track each other while the row rate is fixed. Two models
-// at 12 short runs an hour each, plus a wide run an hour each, is ~26 rows an
-// hour, so 20 rows is ~45 minutes with one wide run in it — where the same cap
-// covered ~90 minutes when the table held a single model. That halving is the
-// price of showing every call, and it is the one being paid: the card answers
-// "what happened just now", and the pulse strip above is what covers the day.
+// at 12 runs an hour each is ~24 rows an hour, so 20 rows is ~50 minutes —
+// where the same cap covered ~90 minutes when the table held a single model.
+// That is the price of showing every call, and it is the one being paid: the
+// card answers "what happened just now", and the pulse strip above covers the
+// day.
 //
-// The daemon supplies dashboardSampleLimit rows per model and probe, which is
-// four times this in total, so the slice below does real work rather than being
-// the no-op it was when the table fetched one series.
+// The daemon supplies dashboardSampleLimit rows per model, which is twice this
+// in total, so the slice below does real work rather than being the no-op it
+// was when the table fetched one series.
 //
 // Keep the two numbers equal. A supply below this cap would not error — it
 // would quietly shorten how far back the table reaches, which is the one thing
 // the paragraph above exists to keep visible.
 const ROWS = 20;
 
-// newestFirst merges one array of samples per model and probe kind into the
-// single ordering the table draws.
+// newestFirst merges one array of samples per model into the single ordering
+// the table draws.
 //
 // Ordered on the parsed instant, never on the timestamp as text. The daemon
 // stamps cycles with Go's RFC3339Nano, which DROPS trailing zeros from the
@@ -45,15 +45,13 @@ const ROWS = 20;
 // lands in an earlier field today and the bug cannot fire; the cadence is not
 // something this function should have to know.
 //
-// The tie-break is not cosmetic, and it grew with the table. Every run in a
-// cycle is stamped with that CYCLE'S instant rather than its own, so an ordinary
-// cycle puts two rows on the same timestamp and a wide cycle puts three. That
-// holds however the daemon dispatches them — the runs are serialised now, and
-// the rows still tie, because the stamp was never the dispatch time. Probe
-// alone stopped being a total order the moment the second model arrived — the
-// two short runs would tie and swap places between renders, on a table a reader
-// is scanning down. Model, then probe: both sorts are stable and total, so a run
-// sits in the same place on every load.
+// The tie-break is not cosmetic. Every run in a cycle is stamped with that
+// CYCLE'S instant rather than its own, so a cycle puts one row per model on the
+// same timestamp. That holds however the daemon dispatches them — the runs are
+// serialised, and the rows still tie, because the stamp was never the dispatch
+// time. Without a second key the two would swap places between renders, on a
+// table a reader is scanning down. Model is stable and total, so a run sits in
+// the same place on every load.
 export function newestFirst(perGroup: Sample[][]): Sample[] {
   // Parsed once per sample rather than twice per comparison: the merge runs on
   // every stream event, and Date.parse is the expensive part of the sort.
@@ -62,8 +60,7 @@ export function newestFirst(perGroup: Sample[][]): Sample[] {
     .map((s) => ({ s, t: Date.parse(s.at) }))
     .sort((a, b) => {
       if (b.t !== a.t) return b.t - a.t;
-      const byModel = a.s.model_id.localeCompare(b.s.model_id);
-      return byModel !== 0 ? byModel : a.s.probe.localeCompare(b.s.probe);
+      return a.s.model_id.localeCompare(b.s.model_id);
     })
     .map(({ s }) => s);
 }
@@ -78,17 +75,14 @@ export function newestFirst(perGroup: Sample[][]): Sample[] {
 // carry them, and closing that gap properly means giving each chart its own
 // tabular alternative, not making this table longer than anyone reads.
 //
-// EVERY inference call inside that span, though — both models, both probes.
-// The table's whole claim is that nothing is aggregated away, and it was
-// quietly dropping three quarters of the runs: the hourly wide probe was never
-// requested, and every request named the first model, so the page's only raw
-// record showed one probe of one model on a page about two of each.
+// EVERY inference call inside that span, though — both models. The table's
+// whole claim is that nothing is aggregated away, and it was quietly dropping
+// half the runs: every request named the first model, so the page's only raw
+// record showed one model on a page about two.
 //
-// Three consequences are shown rather than hidden. Every run in a cycle carries
-// the cycle's instant, so When repeats down the column and Model and Probe
-// beside it are what tell the rows apart. Wide has no single assertable answer,
-// so it is never graded and its Answer cell is a dash. And In jumps ~200x
-// between the probes — that step IS the difference between them, not an anomaly.
+// One consequence is shown rather than hidden: every run in a cycle carries the
+// cycle's instant, so When repeats down the column and Model beside it is what
+// tells the rows apart.
 //
 // Tokens sits between Total and Throughput because that is the order the four
 // columns explain each other in: how long the run took, what went in, what came
@@ -135,7 +129,7 @@ export function SamplesTable({ perGroup }: { perGroup: Sample[][] }) {
   // housekeeping, while what a reader needs to know is which runs are here.
   // Dropping it removes the hedge and the thing being hedged together.
   const subtitle =
-    "The most recent inference calls — every model, short and wide, unaggregated. Failed runs show their error class.";
+    "The most recent inference calls — every model, unaggregated. Failed runs show their error class.";
   return (
     <Card title="Raw cycles" subtitle={subtitle}>
       {rows.length > 0 ? (
@@ -164,7 +158,6 @@ export function SamplesTable({ perGroup }: { perGroup: Sample[][] }) {
                     on the card still saying so. */}
                 <th className="py-2 pr-4 text-left font-medium">When</th>
                 <th className="py-2 pr-4 text-left font-medium">Model</th>
-                <th className="py-2 pr-4 text-left font-medium">Probe</th>
                 <th className="py-2 pr-4 text-right font-medium">TTFT</th>
                 <th className="py-2 pr-4 text-right font-medium">Total</th>
                 <th className="py-2 pr-4 text-right font-medium">In</th>
@@ -177,7 +170,7 @@ export function SamplesTable({ perGroup }: { perGroup: Sample[][] }) {
             <tbody>
               {rows.map((s, i) => (
                 <tr
-                  key={`${s.at}-${s.model_id}-${s.probe}-${i}`}
+                  key={`${s.at}-${s.model_id}-${i}`}
                   className="border-t border-border-soft text-muted"
                 >
                   <td className="num py-2 pr-4">
@@ -191,7 +184,6 @@ export function SamplesTable({ perGroup }: { perGroup: Sample[][] }) {
                     </time>
                   </td>
                   <td className="num py-2 pr-4">{s.model_id}</td>
-                  <td className="num py-2 pr-4">{s.probe}</td>
                   <td className="num py-2 pr-4 text-right">
                     {formatMs(s.ttft_ms)}
                   </td>

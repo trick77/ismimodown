@@ -33,16 +33,16 @@ func recovery(next http.Handler) http.Handler {
 //
 // The site loads almost nothing from anywhere else: the SPA, its fonts and its
 // icons are all embedded in the binary and served same-origin, and every fetch
-// goes to this origin's /api. So the policy is 'self' throughout with exactly
-// one exception — anything else that trips it is a regression.
+// goes to this origin's /api. So the policy is 'self' throughout, with no
+// exception at all — anything that trips it is a regression.
 //
-// The exception is Microsoft Clarity (heatmaps and session replay), which loads
-// its tag from www.clarity.ms and beacons to the *.clarity.ms shard it is
-// load-balanced onto plus c.bing.com. Those origins are named on script-src and
-// connect-src only, not on default-src: every other directive here is set
-// explicitly, so widening the fallback would be a wildcard nobody reads. Clarity
-// hands out an inline <script> to paste into <head>; ui/src/clarity.ts injects
-// the tag from the bundle instead, precisely so that 'unsafe-inline' stays off.
+// Microsoft Clarity used to be the one exception — its tag from
+// www.clarity.ms, its beacons to *.clarity.ms and c.bing.com — and it went
+// when ui/src/clarity.ts did. Nothing third-party is named here now, so an
+// origin appearing in this policy again is a decision rather than a leftover.
+// Name it on script-src or connect-src explicitly if it ever comes back, never
+// by widening default-src: every other directive below is set explicitly, so a
+// fallback wildcard would be one nobody reads.
 //
 // 'unsafe-inline' for styles is the one concession, and it is unavoidable:
 // ECharts positions its tooltip by writing inline style on a div it creates,
@@ -56,11 +56,11 @@ func recovery(next http.Handler) http.Handler {
 // form-action and base-uri are 'none' because this page has no form and no
 // <base> — declaring that costs nothing and closes two redirection tricks.
 const contentSecurityPolicy = "default-src 'self'; " +
-	"script-src 'self' https://www.clarity.ms; " +
+	"script-src 'self'; " +
 	"style-src 'self' 'unsafe-inline'; " +
 	"img-src 'self' data:; " +
 	"font-src 'self'; " +
-	"connect-src 'self' https://*.clarity.ms https://c.bing.com; " +
+	"connect-src 'self'; " +
 	"object-src 'none'; " +
 	"base-uri 'none'; " +
 	"form-action 'none'; " +
@@ -102,9 +102,40 @@ func securityHeaders(next http.Handler) http.Handler {
 		// Access-Control-Allow-Origin anywhere — the API is public to read in a
 		// browser tab, not to embed in someone else's page.
 		h.Set("Cross-Origin-Opener-Policy", "same-origin")
-		h.Set("Cross-Origin-Resource-Policy", "same-origin")
+		h.Set("Cross-Origin-Resource-Policy", corpFor(r.URL.Path))
 		next.ServeHTTP(w, r)
 	})
+}
+
+// ogCardPath is the link-preview card, and the ONE response on this site meant
+// to be loaded by another origin.
+const ogCardPath = "/og.png"
+
+// corpFor picks the Cross-Origin-Resource-Policy for a path.
+//
+// same-origin everywhere except the og card. CORP is what a browser consults
+// before letting one origin's page load another origin's subresource, so
+// same-origin on /og.png tells every browser to refuse the picture that exists
+// for exactly that purpose: the card named by og:image and twitter:image in
+// index.html, drawn by ui/scripts/gen-og.sh, cache-busted with ?v= precisely so
+// other people's clients re-fetch it.
+//
+// It is not the whole story, which is why this went unnoticed. The big preview
+// surfaces — Slack, Discord, X, WhatsApp, Telegram, iMessage — fetch the image
+// server-side and re-host or proxy it, and a server-side fetch does not consult
+// CORP at all. What breaks is a client that hotlinks the URL into a page: some
+// Mastodon and RSS web clients, and any site embedding the card in an <img>.
+//
+// cross-origin rather than dropping the header: the card is a public picture
+// with nothing in it that is not already on the page, and an explicit value
+// says that on purpose rather than leaving a default to be inferred. Everything
+// else — the HTML, the API, the icons, the manifest — stays same-origin, since
+// none of it has any business being embedded elsewhere.
+func corpFor(p string) string {
+	if p == ogCardPath {
+		return "cross-origin"
+	}
+	return "same-origin"
 }
 
 // statusRecorder wraps http.ResponseWriter to capture the response status code.
@@ -161,11 +192,18 @@ func (rec *statusRecorder) Unwrap() http.ResponseWriter {
 // for those would compound the two limiters into something far harsher than
 // either was sized for.
 //
-// The 404s an honest browser makes without being asked to are mostly icons —
-// /favicon.ico above all, since the page ships /icon.svg and no .ico, so every
-// first visit misses once — and those are exempt outright, see
-// uncountedAssetExts below. The budget still has to absorb the rest: robots.txt,
-// a source map, and whatever a stale shell requests across a deploy.
+// What is exempt is in isUncounted404 below, with the reasoning for each: image
+// misses, /.well-known, and every extensionless path. Taken together those are
+// the 404s that software makes without a person asking it to — /favicon.ico on
+// a first visit, Chrome's /.well-known probes, a crawler recrawling a URL the
+// old soft 404 taught it existed — and none of them were ever charged, because
+// until web.spaHandler stopped serving the shell for them they were not 404s at
+// all.
+//
+// So what this limiter actually meters is a 404 with a non-image extension:
+// .php, .env, .bak, .sql, .aspx. That is the shape of most of a wordlist, it is
+// exactly what was metered before the soft 404 went away, and it is nothing a
+// browser asks for on its own.
 //
 // A nil limiter disables it, so tests and callers that want no such limit need
 // wire nothing.
@@ -203,7 +241,7 @@ func notFoundPenalty(l *ratelimit.Limiter, next http.Handler) http.Handler {
 
 		rec := &statusRecorder{ResponseWriter: w}
 		next.ServeHTTP(rec, r)
-		if rec.status == http.StatusNotFound && !isUncountedAsset(r.URL.Path) {
+		if rec.status == http.StatusNotFound && !isUncounted404(r.URL.Path) {
 			l.Charge(key, 1)
 		}
 	})
@@ -240,6 +278,45 @@ func isUncountedAsset(p string) bool {
 	return uncountedAssetExts[strings.ToLower(path.Ext(p))]
 }
 
+// isUncounted404 reports whether a 404 for this path should be free at all:
+// an icon by extension, anything under /.well-known, or any EXTENSIONLESS path.
+//
+// The /.well-known half is the same carve-out isDotPath already makes in
+// exploitpaths.go, for the same reason — it is the one dotted prefix a browser
+// or an operator has a real reason to ask for, and this binary serves nothing
+// under it, so every such request is a miss made by software the visitor did
+// not instruct. Charging for those puts a visitor's own browser into a budget
+// sized for wrong guesses.
+//
+// The extensionless half exists because those paths did not 404 at all until
+// web.spaHandler stopped serving the shell for them, so they have NEVER been
+// charged. Keeping them free is therefore not a concession — it holds this
+// limiter exactly where it has always been while the status code moves. What
+// the status code change breaks if they are charged: a search engine holding
+// any extensionless URL indexed from the soft-404 era recrawls it after a
+// deploy, six of those inside ~2.5 minutes exhausts the burst, and the gate
+// then 429s that caller on EVERYTHING — /, /robots.txt, /sitemap.xml — which
+// is precisely the crawler lockout the soft-404 fix set out to prevent.
+//
+// What it costs: an extensionless wordlist walk is unmetered. That is the
+// status quo rather than a new hole, and banGate still answers the exploit
+// names in such a list with a 403 on the first request, before the mux.
+//
+// Reuses normalisePath so /.WELL-KNOWN/ and /.well-known/../.well-known/x are
+// the same request here as they are to the ban gate. Anything with an
+// extension that is not an image — .php, .env, .bak, .sql — is charged exactly
+// as before, which is the shape most of a wordlist has.
+func isUncounted404(p string) bool {
+	if isUncountedAsset(p) {
+		return true
+	}
+	if path.Ext(p) == "" {
+		return true
+	}
+	clean := normalisePath(p)
+	return clean == wellKnown || strings.HasPrefix(clean, wellKnown+"/")
+}
+
 // banGate blocks callers that have asked for something only an exploit scan
 // asks for, and keeps blocking them for the store's TTL.
 //
@@ -250,10 +327,14 @@ func isUncountedAsset(p string) bool {
 // /wp-admin/install.php — one is already the whole evidence — so metering it is
 // the wrong instrument.
 //
-// It matches the path on the way IN, before the mux. Deriving the trigger from
-// the response status the way notFoundPenalty does would silently miss half the
-// list: web.spaHandler serves index.html with a 200 for any unknown path
-// WITHOUT a file extension, so /phpmyadmin, /wp-admin and /actuator never 404.
+// It matches the path on the way IN, before the mux, rather than deriving the
+// trigger from the response status the way notFoundPenalty does. That used to
+// be load-bearing in the strongest sense — web.spaHandler answered any
+// extensionless unknown path with index.html and a 200, so /phpmyadmin,
+// /wp-admin and /actuator never produced a 404 to react to. It no longer is:
+// those all 404 today. Matching the path is still the right instrument, because
+// a 403 on the first wordlist entry costs the scanner its whole visit, where
+// waiting for the 404 budget to drain lets it walk five more paths first.
 //
 // The response is a bare 403, not the 429 the limiter writes. A 429 with
 // Retry-After is a negotiation — it tells the caller the request was legitimate
