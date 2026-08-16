@@ -12,9 +12,7 @@ key pasted there cannot travel. Same treatment for any NEW config value a public
 
 ## Git
 
-Feature branch per phase, never commit to master. Conventional commits. PRs against THIS
-repo, never a fork/upstream. Commit as `trick77@users.noreply.github.com`. Default branch
-`master`, never `main`.
+Feature branch per phase. Conventional commits. (Branching, commit identity and default branch follow the global rules.)
 
 ## Measurement invariants — break these and the numbers lie silently
 
@@ -76,9 +74,7 @@ reasoning. `Save` requires the SGP pair so a cycle can never be attributed witho
 
 ## Backend
 
-`backend/`, module `github.com/trick77/ismimodown`. stdlib `net/http` with Go 1.22+ method
-routing, `Deps` struct DI, `slog` with `err` as the error key, `config.Load()` from `BACKEND_*`
-env only. SQLite via pure-Go `ncruces/go-sqlite3`, WAL, `CGO_ENABLED=0`, `STRICT` tables.
+`slog` with `err` as the error key. `config.Load()` reads `BACKEND_*` env only. SQLite stays pure-Go (`ncruces/go-sqlite3`, `CGO_ENABLED=0`, WAL, `STRICT` tables).
 
 Eight env vars, and that is the whole surface: API key, addr, log level, DB path, base URL,
 SGP reference host, AMS reference host, probe user agent. Probe shape — models, prices, system
@@ -89,21 +85,9 @@ exception and stay settable; both MiMo edges are fixed.
 Do NOT add a dependabot ignore for `ncruces/go-sqlite3` — peeq pins it for sqlite-vec, this
 repo has none.
 
-Two limiters, different questions. The request one guards `/api/*`. The 404 one gates EVERY
-route but charges only for a 404 — never 4xx at large, never a served response, and never an
-image miss, never `/.well-known`, and never an EXTENSIONLESS path (`isUncounted404`). What it
-charges is a non-image extension — `.php`, `.env`, `.bak` — i.e. a wordlist. Extensionless stays
-free because it always was (those paths were 200s until the soft-404 fix) and because charging
-it lets a crawler recrawling old soft-404 URLs gate itself off `/` and `/robots.txt`. Charging a 429
-or a 400 compounds the two into a limit neither was sized for, and charging a 200 puts a
-budget on the page load itself: one visit is a dozen asset requests.
+Two limiters, different questions. The request one guards `/api/*`. The 404 one gates every route but charges ONLY a 404 with a non-image extension (`.php`, `.env`, `.bak` — a wordlist). Never charge 4xx at large, a served response, an image miss, `/.well-known`, or an extensionless path (`isUncounted404`): extensionless was always free (those were 200s until the soft-404 fix), and charging it lets a crawler recrawling old soft-404 URLs gate itself off `/` and `/robots.txt`. Charging a 429 or 400 compounds the two limiters into one neither was sized for; charging a 200 budgets the page load itself, since one visit is a dozen asset requests.
 
-`banGate` is a third thing and NOT a limiter — no budget, no refill. An exploit path
-(`internal/httpapi/exploitpaths.go`) → instant 48h block, bare 403, in memory only. Match on
-`r.URL.Path` BEFORE the mux, never on response status: a 403 on the first wordlist entry ends
-the visit, where waiting for the 404 budget lets the scanner walk five more. Adding a path → check it
-against `TestRealTrafficIsNotAnExploitPath` first; a false positive is a visitor blocked for
-two days.
+`banGate` is NOT a limiter — no budget, no refill. Exploit path (`internal/httpapi/exploitpaths.go`) → instant 48h block, bare 403, in memory only. Match `r.URL.Path` BEFORE the mux, never on response status: a 403 on the first wordlist entry ends the visit, where waiting for the 404 budget lets the scanner walk five more. Adding a path → check `TestRealTrafficIsNotAnExploitPath` first; a false positive blocks a visitor for two days.
 
 Segments match at ANY depth, not as a leading prefix — scanners prepend a guess at the install
 root (`/blog/wp-includes/…`, `/2018/wp-includes/…`). Safe only because this app has NO dynamic
@@ -143,21 +127,15 @@ a dead SGP reference kills the edge-vs-uplink distinction silently.
 
 ## Serving
 
-`web.spaHandler`: `/` serves the shell, EVERY other unknown path 404s. No SPA fallback — this
-site has one URL and no router, and serving the shell with a 200 for `/anything` made every wrong
-URL a duplicate of the one real page (a soft 404, which Bing reads as a signal about the host).
-Adding a client-side route → change `TestUnknownPathsAreNotFound` deliberately, and note that a
-404 now charges the 404 budget where the old 200 was free.
+`web.spaHandler`: `/` serves the shell, EVERY other unknown path 404s. No SPA fallback — one URL, no router, and serving the shell as a 200 for `/anything` made every wrong URL a duplicate of the real page (a soft 404, which Bing reads as a signal about the host). Adding a client-side route → change `TestUnknownPathsAreNotFound` deliberately, and note a 404 now charges the 404 budget where the old 200 was free.
 
 No third-party origin in the CSP. Microsoft Clarity was the only one and is gone; re-adding any
 host means editing `contentSecurityPolicy` AND `TestNoThirdPartyOriginsInThePolicy`, which is the
 point of that test.
 
-## Reference repos (read, never modify)
+## Reference repos — read, never modify
 
-`../peeq` — backend patterns, Makefile, hack/, workflows, compose shape, filter-pill CSS
-`../music` — UI stack (React 19 + Vite + TS + Tailwind v4), `@theme` tokens, `ui.tsx`
-`../loom` — MiMo client: `internal/llm/{client,types,session,stream}.go`
+`../peeq` backend patterns and repo shape · `../music` UI stack and `@theme` tokens · `../loom` MiMo client (`internal/llm/`).
 
 ## Naming
 
@@ -185,21 +163,9 @@ five minutes". The interval is a deployment detail that can change; code, commen
 
 ## Conventions
 
-`.yaml` never `.yml`. English UI, 24-hour clock, times in the READER's zone — never pin
-`timeZone` in `format.ts`; the footer names the resolved zone. Chart axes too: ECharts has no
-per-axis timezone, so stamp `axisLabel`/tooltip via `format.ts`, never leave them on ECharts'
-own formatting. Swiss orthography in German text: `ss` never `ß`. Anything visual → Safari
-(`open -a Safari …`), never Chrome.
+English UI, 24-hour clock, times in the READER's zone — never pin `timeZone` in `format.ts`; the footer names the resolved zone. Chart axes too: ECharts has no per-axis timezone, so stamp `axisLabel`/tooltip via `format.ts`, never leave them on ECharts' own formatting.
 
-**The link-preview card never carries a measurement.** `ui/public/og.png` is committed, drawn
-from `ui/assets/og/card.html` by `ui/scripts/gen-og.sh` — re-run and commit after editing the
-source. A preview is scraped once and cached by the messenger (Slack ~30 min, WhatsApp and
-Telegram effectively forever), so any number baked in freezes and is then shown as current.
-Bump `?v=` on the og:/twitter: image URLs in the same commit, or a messenger that already
-scraped the page never re-fetches and the redraw reaches nobody. WhatsApp crops it SQUARE to
-the middle 630px; keep the heading and every lede line inside that band. The script asserts
-both, and the og: URLs hardcode the `Host()` from `compose.yaml` — change them together, plus
-the `.host` line card.html prints into the picture.
+**The link-preview card never carries a measurement.** Messengers scrape a preview once and cache it (Slack ~30 min, WhatsApp and Telegram effectively forever), so a baked-in number freezes and still reads as current. `ui/public/og.png` is committed, drawn from `ui/assets/og/card.html` by `ui/scripts/gen-og.sh` — re-run and commit after editing the source, and bump `?v=` on the og:/twitter: image URLs in the same commit or a messenger that already scraped never re-fetches. WhatsApp crops SQUARE to the middle 630px; keep the heading and every lede line inside that band. The script asserts both. The og: URLs hardcode `Host()` from `compose.yaml` — change them together, plus the `.host` line card.html prints into the picture.
 
 The card's heading width band in `gen-og.sh` is calibrated to the real render (527px) against
 the font-fallback render (481px) — only 46px apart. Re-measure BOTH (break the `@font-face`
@@ -210,8 +176,4 @@ bearing: left to wrap, the fallback broke a word later and measured WIDER than t
 www 308), og:/twitter: URLs, `rel=canonical`, `robots.txt`, `sitemap.xml`, JSON-LD `@id`s, and
 `.host` in `card.html`.
 
-**Comments in `ui/index.html` and `ui/public/` never ship.** `ui/build/strip-comments.ts` strips
-them at build time — `<!-- -->` from html/svg/xml, whole `#` lines from `robots.txt` (a trailing
-`# why` after a directive stays, so do not write one). So keep writing
-them next to what they explain; do NOT thin them out for the reader's sake, and do NOT put a
-path, a script name or a `compose.yaml` reference anywhere OUTSIDE a comment in those files.
+**Comments in `ui/index.html` and `ui/public/` never ship** — `ui/build/strip-comments.ts` strips them at build time (`<!-- -->` from html/svg/xml, whole `#` lines from `robots.txt`; a trailing `# why` after a directive survives, so never write one). Keep writing them next to what they explain, never thin them for the reader, and never put a path, script name or `compose.yaml` reference OUTSIDE a comment in those files.
