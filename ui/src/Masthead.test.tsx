@@ -35,6 +35,19 @@ describe("Masthead", () => {
     expect(screen.queryByText(/singapore/i)).not.toBeInTheDocument();
   });
 
+  // The subtitle names the two models the page measures. Hardcoded here and in
+  // Masthead.tsx, sourced from DefaultModels in backend/internal/config/config.go
+  // — this test is what fails when a model is added or renamed there and the
+  // header keeps advertising the old pair.
+  it("names both models it measures", () => {
+    // Given / When
+    render(<Masthead />);
+
+    // Then
+    expect(screen.getByText("mimo-v2.5")).toBeInTheDocument();
+    expect(screen.getByText("mimo-v2.5-pro")).toBeInTheDocument();
+  });
+
   // The one link off this page, and the one place a reader can go do something
   // about a bad verdict. Asserted with target and rel because opening the
   // vendor's console over the dashboard is how a live page gets closed mid
