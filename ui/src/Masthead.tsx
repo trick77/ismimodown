@@ -8,8 +8,17 @@
 // index.html's <title>, its static <h1>, and the og card — reword one, reword
 // all four.
 //
-// The scope shows itself — two model cards, one endpoint — so it is not also
-// spelled out in prose here.
+// The subtitle names the two models. The cards below carry the same two IDs, so
+// this is a repeat — but a reader arriving from a search result decides in the
+// first screenful whether this page is about the model they run, and the cards
+// sit under the verdict banner and the pulse strip. The endpoint stays implicit:
+// there is one, and the sentence already says "the API endpoint".
+//
+// The IDs are hardcoded, and DefaultModels in backend/internal/config/config.go
+// is where they actually come from — add or rename a model there and this line
+// has to move with it. Not read from the API: the header renders before the
+// first fetch resolves, and a subtitle that pops a clause in half a second
+// later is worse than one that can go stale on a release we control.
 //
 // The eyebrow names the two layers the page measures: the inference itself, and
 // the network path the request takes to reach it. That is the page's whole
@@ -107,13 +116,28 @@ export function Masthead() {
         Is <span className="text-accent-strong">Xiaomi MiMo</span> down?
       </h1>
       {/* No longer "for Xiaomi MiMo": the heading above names it, and repeating
-          it one line later was the first thing the eye caught. Nothing here is
-          accented either — the heading carries the one accent in this block,
+          it one line later was the first thing the eye caught. The "for" that
+          is back names the two MODEL IDs, which the heading does not carry —
+          the vendor is said once, the scope once, neither twice. Nothing here
+          is accented either — the heading carries the one accent in this block,
           and a second one directly under it split the emphasis in two. */}
+      {/* The IDs are mono, like every other identifier and figure on the page,
+          and a shade smaller than the serif around them — the mono face runs
+          wider at the same size and set flush it read as the loudest thing in
+          the sentence, which is the heading's job.
+
+          whitespace-nowrap because the hyphen is a break opportunity: at 1280px
+          the line broke after it and the first ID read as "mimo-" / "v2.5"
+          across two lines, which is a different string. */}
       <p className="mt-4 max-w-[52ch] font-serif text-[clamp(1rem,2vw,1.3rem)] leading-snug text-ink-dim">
-        Latency, throughput, availability and answer correctness — separating
-        how long it takes to <em>reach</em> the API endpoint from what happens
-        once you are there.
+        Latency, throughput, availability and answer correctness for{" "}
+        <span className="num whitespace-nowrap text-[0.92em]">mimo-v2.5</span>{" "}
+        and{" "}
+        <span className="num whitespace-nowrap text-[0.92em]">
+          mimo-v2.5-pro
+        </span>{" "}
+        — separating how long it takes to <em>reach</em> the API endpoint from
+        what happens once you are there.
       </p>
     </header>
   );
