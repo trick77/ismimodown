@@ -248,6 +248,85 @@ export function logAxis(
   return { min, max, ticks };
 }
 
+// SMOOTHED_SUFFIX marks a series as the smoothed twin of a measurement rather
+// than a measurement of its own. The tooltip filters on it: hovering a chart
+// with two models must report two numbers, and a rolling median is not a
+// reading anything was ever measured at.
+export const SMOOTHED_SUFFIX = " trend";
+
+// SMOOTH_DIVISOR sets the rolling window as a fraction of the points on screen.
+//
+// A fraction rather than a fixed duration, because the bucket width already
+// varies by an order of magnitude across the windows (2h on 7d, 6h on 3mo) and
+// a constant number of hours would smooth 7d into a straight line while barely
+// touching 3mo. An eighth leaves roughly eight bends in the smoothed line —
+// enough to show where a change began, too few to be read as a shape.
+const SMOOTH_DIVISOR = 8;
+
+// smoothWindow is the odd bucket count the rolling median runs over.
+//
+// Odd so the window is CENTRED: an even one sits half a bucket to one side, and
+// the smoothed line would lag the data it is drawn over by a constant amount.
+export function smoothWindow(pointCount: number): number {
+  return Math.max(5, (pointCount / SMOOTH_DIVISOR) | 0 | 1);
+}
+
+// MIN_COVERAGE is how much of a window has to be measured for its median to be
+// drawn, as a fraction of the window.
+//
+// A centred median over a window that is mostly holes is a median of two
+// buckets pretending to speak for eight, and it lands wherever those two
+// happened to be. Below the threshold the smoothed line takes a gap, like the
+// raw line under it.
+const MIN_COVERAGE = 0.5;
+// Under any coverage rule, three points is the fewest a median can be taken
+// from and still be a median rather than a reading.
+const MIN_SAMPLES = 3;
+
+// rollingMedian is the smoothed twin of a series: a centred rolling median over
+// `window` buckets, in the same [ms, value] pair shape as the raw line.
+//
+// Median rather than mean, because this page's own spikes are what a mean would
+// carry into the smoothed line: one 56-second timeout in an eight-bucket window
+// drags the average above every reading in it, and the smoothed line then bends
+// around an outlier that the raw line already shows perfectly well.
+//
+// The ENDS are kept rather than trimmed, over a shrinking half-window. Trimmed,
+// the smoothed line would stop short of the right edge — which is the end a
+// status page is read from, and a trend that stops half a window before "now"
+// is the one part of it nobody can use.
+export function rollingMedian(
+  pairs: [number, number | null][],
+  window: number,
+): [number, number | null][] {
+  const half = window >> 1;
+  return pairs.map(([t], i) => {
+    const slice = pairs
+      .slice(Math.max(0, i - half), i + half + 1)
+      .map(([, v]) => v)
+      .filter((v): v is number => v !== null && Number.isFinite(v));
+    const needed = Math.max(MIN_SAMPLES, Math.ceil(window * MIN_COVERAGE));
+    if (slice.length < needed) {
+      return [t, null];
+    }
+    const sorted = [...slice].sort((a, b) => a - b);
+    const mid = sorted.length >> 1;
+    const value =
+      sorted.length % 2 === 1
+        ? sorted[mid]!
+        : (sorted[mid - 1]! + sorted[mid]!) / 2;
+    return [t, value];
+  });
+}
+
+// How far the measurement recedes once a smoothed line is drawn over it.
+//
+// Low enough that the two cannot be confused for a pair of equals, high enough
+// that a spike still reads as a spike: below about a quarter the raw line
+// disappears into the gridlines on the log panels, where its own excursions are
+// compressed to begin with.
+const RAW_UNDER_SMOOTH_OPACITY = 0.35;
+
 // The censoring band colour. The fault amber, not a series hue: a stretch where
 // measurements were cut off is not a measurement.
 const CENSORED = "#c98500";
@@ -309,6 +388,12 @@ type LineOpts = {
   // right edge. Without it no bands are drawn — a band of unknown width is worse
   // than none, because it would misstate how much of the window was affected.
   bucketMs?: number;
+  // smoothed draws a rolling median over each series and drops the raw line to a
+  // hairline behind it. Opt-in, and off by default, because the wire chart
+  // shares this builder: there the reader is comparing an edge against its
+  // reference at a given instant, not asking where the last month went, and a
+  // second line per host would put eight lines on a four-line plot.
+  smoothed?: boolean;
 };
 
 // timeExtent is the first and last timestamp, in ms, across every series.
@@ -355,6 +440,7 @@ export function buildLineOption({
   unit,
   forceLinear = false,
   bucketMs,
+  smoothed = false,
 }: LineOpts) {
   // The y-axis switches to log automatically when the window's dynamic range
   // exceeds 20x, because a linear axis collapses either the normal reading or
@@ -393,6 +479,18 @@ export function buildLineOption({
   // date alone identifies them; the tooltip still carries the exact time.
   const stamp = spansDays ? formatDate : formatTime;
 
+  // The smoothing is gated on the SAME 48h threshold the axis stamp is, and for
+  // a related reason: below it the window is short enough that the reader is
+  // looking at what is happening now, not at where the last week went, and a
+  // rolling median over a couple of hours only redraws the noise slightly
+  // rounder. 24h and 48h keep the plain chart; 7d and up get the trend.
+  const smoothing = smoothed && spansDays;
+  // Sized off the LONGEST series, so two models with different coverage are
+  // smoothed over the same window and their lines stay comparable.
+  const window = smoothWindow(
+    Math.max(0, ...Object.values(series).map((points) => points.length)),
+  );
+
   return {
     animation: false,
     grid: { left: 52, right: 16, top: 16, bottom: 28 },
@@ -408,7 +506,13 @@ export function buildLineOption({
       // did is carried over — in particular null rendering as "no data" and
       // never as a number, which is what keeps a gap from reading as a zero.
       formatter: (raw: AxisTooltipParam | AxisTooltipParam[]) => {
-        const rows = Array.isArray(raw) ? raw : [raw];
+        // The smoothed twins are dropped before anything is read off the rows,
+        // including the header: they carry the same timestamps as the raw
+        // lines, so the stamp is unaffected, and a hover has to report what was
+        // measured rather than what was drawn over it.
+        const rows = (Array.isArray(raw) ? raw : [raw]).filter(
+          (r) => !(r.seriesName ?? "").endsWith(SMOOTHED_SUFFIX),
+        );
         const first = rows[0]?.value;
         const t = Array.isArray(first) ? first[0] : undefined;
         const head =
@@ -489,53 +593,106 @@ export function buildLineOption({
         lineStyle: { color: GRID, type: "dashed" },
       },
     },
-    series: names.map((name, i) => {
-      return {
-        name,
-        type: "line",
-        showSymbol: false,
-        // Gaps are gaps: never connect across a bucket with no data.
-        connectNulls: false,
-        lineStyle: { width: 2, color: colorOf(name) },
-        itemStyle: { color: colorOf(name) },
-        areaStyle: { opacity: 0.12, color: colorOf(name) },
-        data: toPairs(series[name]!),
-        // Hung off the FIRST series only. markArea is per series, so attaching
-        // it to each would paint the same rectangles once per model and darken
-        // the band into something that reads as a severity it does not carry.
-        // silent, so it never takes over the tooltip from the data.
-        //
-        // The styling is carried PER ITEM rather than on the markArea itself:
-        // ECharts allows only one markArea per series, so a second kind of band
-        // added here later has to be able to style itself independently.
-        markArea:
-          i === 0 && bands.length > 0
+    series: names
+      .map((name, i) => {
+        return {
+          name,
+          type: "line",
+          showSymbol: false,
+          // Gaps are gaps: never connect across a bucket with no data.
+          connectNulls: false,
+          // Under a smoothed twin the measurement becomes a hairline. It is not
+          // hidden and never averaged away — every spike the smoothing steps over
+          // is still on the plot, and the tooltip still reads from THIS line — but
+          // the bold stroke belongs to the line the reader is meant to follow.
+          lineStyle: smoothing
             ? {
-                silent: true,
-                data: [
-                  ...bands.map(([from, to]) => [
-                    {
-                      xAxis: from,
-                      // ECharts paints markArea BENEATH the series, so this fill
-                      // is read through the line's own area fill and loses much
-                      // of its chroma on the way. Checked on the rendered plot:
-                      // below ~0.3 it arrives as a grey shadow, which reads as a
-                      // rendering artefact rather than as the caution the legend
-                      // swatch promises.
-                      itemStyle: { color: CENSORED, opacity: 0.3 },
-                    },
-                    { xAxis: to },
-                  ]),
-                ],
+                width: 1,
+                color: colorOf(name),
+                opacity: RAW_UNDER_SMOOTH_OPACITY,
               }
-            : undefined,
-      };
-    }),
+            : { width: 2, color: colorOf(name) },
+          itemStyle: { color: colorOf(name) },
+          // Hoverable, unlike its smoothed twin: this is the line the tooltip
+          // reads from. Stated rather than left off so both halves of the series
+          // array have the same shape.
+          silent: false,
+          // No fill under a hairline: an area is a solid shape carrying the same
+          // weight as ever, so keeping it would undo the recession the thinner
+          // stroke is there to create, and two translucent fills would sit under
+          // the smoothed lines as a wash nobody can read a value out of.
+          areaStyle: smoothing
+            ? undefined
+            : { opacity: 0.12, color: colorOf(name) },
+          data: toPairs(series[name]!),
+          // Hung off the FIRST series only. markArea is per series, so attaching
+          // it to each would paint the same rectangles once per model and darken
+          // the band into something that reads as a severity it does not carry.
+          // silent, so it never takes over the tooltip from the data.
+          //
+          // The styling is carried PER ITEM rather than on the markArea itself:
+          // ECharts allows only one markArea per series, so a second kind of band
+          // added here later has to be able to style itself independently.
+          markArea:
+            i === 0 && bands.length > 0
+              ? {
+                  silent: true,
+                  data: [
+                    ...bands.map(([from, to]) => [
+                      {
+                        xAxis: from,
+                        // ECharts paints markArea BENEATH the series, so this fill
+                        // is read through the line's own area fill and loses much
+                        // of its chroma on the way. Checked on the rendered plot:
+                        // below ~0.3 it arrives as a grey shadow, which reads as a
+                        // rendering artefact rather than as the caution the legend
+                        // swatch promises.
+                        itemStyle: { color: CENSORED, opacity: 0.3 },
+                      },
+                      { xAxis: to },
+                    ]),
+                  ],
+                }
+              : undefined,
+        };
+      })
+      // Appended AFTER every raw series, never interleaved: the censoring bands
+      // hang off series index 0, and a smoothed line landing there would take
+      // the markArea with it — onto a series that is drawn over the very
+      // stretches the bands are about.
+      .concat(
+        smoothing
+          ? names.map((name) => ({
+              name: `${name}${SMOOTHED_SUFFIX}`,
+              type: "line",
+              showSymbol: false,
+              connectNulls: false,
+              // silent, so the smoothed line never takes a hover from the
+              // measurement underneath it.
+              silent: true,
+              lineStyle: { width: 2, color: colorOf(name) },
+              itemStyle: { color: colorOf(name) },
+              // Never a fill, and never the censoring bands: the trend is a
+              // stroke, and the bands belong to the measurement below it.
+              areaStyle: undefined,
+              markArea: undefined,
+              data: rollingMedian(toPairs(series[name]!), window),
+            }))
+          : [],
+      ),
     logScale: log,
     // Surfaced so the panel can announce the bands in words. A colour-only
     // signal is not a signal here: the whole point is a reader who would
     // otherwise take the plot at face value.
     censoredBands: bands.length,
+    // Surfaced for the same reason, and it is the stronger case of the two: the
+    // panel has to be able to say which of the two lines per model was measured
+    // and which was drawn, and it must only say it on the windows that actually
+    // got a trend.
+    smoothed: smoothing,
+    // The window the median ran over, in buckets, so the note can state it in
+    // hours rather than leaving "smoothed" to mean whatever the reader assumes.
+    smoothWindow: smoothing ? window : 0,
   };
 }
 

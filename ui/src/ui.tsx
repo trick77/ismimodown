@@ -55,6 +55,51 @@ export function CensoredNote({ bands }: { bands: number }) {
   );
 }
 
+// TrendNote says which of the two lines per model was measured.
+//
+// The chart draws a bold rolling median over a hairline of the readings it was
+// taken from, and nothing about that pairing is self-evident: bold reads as the
+// real one, so without this note the reader takes the smoothed line for the
+// measurement and the hairline for some kind of error band. It also states the
+// window, because "smoothed" without a span is a claim of unknown strength —
+// the same picture could be an hour of averaging or a fortnight of it.
+//
+// In words beside the plot rather than in a tooltip, for CensoredNote's reason:
+// the reader this exists for is the one who would otherwise take the plot at
+// face value, and that reader is not hovering anything.
+export function TrendNote({
+  smoothed,
+  buckets,
+  bucketS,
+}: {
+  smoothed: boolean;
+  buckets: number;
+  bucketS: number;
+}) {
+  if (!smoothed || buckets < 1 || bucketS < 1) return null;
+  return (
+    <p className="mt-3 text-label text-muted">
+      The bold line is a {formatSpan(buckets * bucketS)} rolling median. The
+      hairline behind it is the measurement itself — every reading, including
+      the spikes the median steps over — and it is what the tooltip reports.
+    </p>
+  );
+}
+
+// formatSpan writes the smoothing window as hours or days.
+//
+// Hours up to two days and days beyond, matching where the x-axis itself stops
+// labelling in hours: past that span the reader is already thinking in days,
+// and "168-hour" is a number they would have to divide before it meant
+// anything.
+function formatSpan(seconds: number): string {
+  const hours = seconds / 3_600;
+  if (hours < 48) {
+    return `${Number(hours.toFixed(hours < 10 ? 1 : 0))}-hour`;
+  }
+  return `${Number((hours / 24).toFixed(1))}-day`;
+}
+
 // LogScaleChip announces that a plot's y-axis is logarithmic.
 //
 // A log axis read as a linear one is worse than no chart, so the switch is
