@@ -1,6 +1,5 @@
 import type { ReactNode } from "react";
 import type { State } from "./verdict";
-import type { FigureDelta } from "./trend";
 
 // Shared primitives. Colour is NEVER the only signal — every state chip carries
 // its word, and every delta its sign — so the dashboard stays readable to a
@@ -162,7 +161,6 @@ export function Figure({
   n,
   state,
   hint,
-  delta,
 }: {
   label: string;
   value: string;
@@ -170,8 +168,6 @@ export function Figure({
   n?: number;
   state?: State;
   hint?: string;
-  // How the figure compares with its own recent past — see trend.figureDelta.
-  delta?: FigureDelta | null;
 }) {
   return (
     <div>
@@ -196,18 +192,6 @@ export function Figure({
           {n !== undefined && (
             <span className="num ml-1 text-micro not-italic"> ({n})</span>
           )}
-        </div>
-      )}
-      {/* How this figure compares with its own recent past. A number and a
-          word — never a colour or an arrow alone — and amber only once it has
-          cleared the floor for its metric, because ordinary movement painted
-          as a warning is how a reader learns to ignore warnings. */}
-      {delta && sufficient && (
-        <div
-          className={`num mt-1 text-label ${delta.past ? "text-fault-edge" : "text-muted"}`}
-          data-testid="figure-delta"
-        >
-          {delta.words}
         </div>
       )}
       {hint && <div className="mt-1 text-micro text-ghost">{hint}</div>}
