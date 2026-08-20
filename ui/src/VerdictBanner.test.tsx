@@ -111,7 +111,11 @@ describe("VerdictBanner", () => {
       />,
     );
     expect(screen.queryByTestId("trend-plot")).toBeNull();
-    expect(screen.getByText(/Everything looks normal/)).toBeInTheDocument();
+    // The headline is split across elements now — the state word carries the
+    // chip's colour — so it is read off the paragraph rather than matched whole.
+    expect(screen.getByTestId("verdict")).toHaveTextContent(
+      "Everything looks normal right now",
+    );
   });
 
   // Forgetting is only acceptable if the page says what it forgot: a resting
@@ -127,13 +131,45 @@ describe("VerdictBanner", () => {
     expect(screen.getByText(/ordinary spread/)).toBeInTheDocument();
   });
 
+  // The pill and the sentence are one statement, so the word the pill carries
+  // is painted the pill's colour rather than left as ink.
+  it("paints the state word in the headline the colour of its chip", () => {
+    render(
+      <VerdictBanner
+        verdict={normal}
+        trend={trend([model("mimo-v2.5", [900, 900])])}
+        loading={false}
+      />,
+    );
+    const word = screen.getByTestId("headline-state");
+    expect(word).toHaveTextContent("normal");
+    expect(word).toHaveClass("text-online");
+  });
+
+  // ...but only when the chip says it. A headline that mentions the word while
+  // the page is degraded must not borrow the green and claim a state the page
+  // is not in.
+  it("leaves the word alone when the chip disagrees with it", () => {
+    render(
+      <VerdictBanner
+        verdict={{
+          state: "degraded",
+          headline: "Reasoning is switched on — nothing here is normal",
+          detail: [],
+        }}
+        loading={false}
+      />,
+    );
+    expect(screen.queryByTestId("headline-state")).toBeNull();
+  });
+
   // A payload from an older daemon has no trend block at all, and the banner is
   // the one thing on the page that must never fail to render.
   it("renders the plain verdict when the block is missing", () => {
     render(<VerdictBanner verdict={normal} loading={false} />);
-    expect(
-      screen.getByText("Everything looks normal right now"),
-    ).toBeInTheDocument();
+    expect(screen.getByTestId("verdict")).toHaveTextContent(
+      "Everything looks normal right now",
+    );
     expect(screen.getByTestId("state-chip")).toHaveAttribute(
       "data-state",
       "normal",

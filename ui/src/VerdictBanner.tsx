@@ -4,6 +4,29 @@ import { StateChip } from "./ui";
 import { buildSpeedReading } from "./trend";
 import { TrendPlot } from "./TrendPlot";
 
+// The one word in the headline that is also a state, painted the colour of the
+// chip beside it.
+//
+// Only when the chip actually says it: the tie is between the green pill and
+// the green word, so a headline mentioning "normal" while the chip reads
+// degraded — "reasoning is switched on", say — must not borrow the colour and
+// claim a state the page is not in. Colour is never the only signal here; the
+// word carries itself, and this only makes the pill and the sentence read as
+// one statement rather than two.
+function paintState(headline: string, word: string) {
+  const at = headline.indexOf(word);
+  if (at === -1) return headline;
+  return (
+    <>
+      {headline.slice(0, at)}
+      <span className="text-online" data-testid="headline-state">
+        {word}
+      </span>
+      {headline.slice(at + word.length)}
+    </>
+  );
+}
+
 // The verdict sits under the masthead and says what is happening in words,
 // before any number appears. "Is 996 ms good?" is unanswerable in the abstract.
 //
@@ -102,7 +125,9 @@ export function VerdictBanner({
               : "text-title"
           }`}
         >
-          {headline}
+          {verdict.state === "normal" && !slow
+            ? paintState(headline, "normal")
+            : headline}
         </p>
       </div>
       {detail.length > 0 && (
