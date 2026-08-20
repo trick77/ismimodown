@@ -182,6 +182,39 @@ export type DashboardSeries = {
   network: NetSeries;
 };
 
+// One metric's before-and-after, plus the shape between them.
+//
+// No ratio: the daemon publishes measurements and the client decides what they
+// mean — see trend.ts, where the floors live. Either side can be insufficient,
+// and then it renders as words rather than as a delta against a number that was
+// never measured.
+export type TrendMetric = {
+  recent: Stats;
+  before: Stats;
+  // The whole 27 hours the comparison spans, oldest first, at the bucket named
+  // by Trend.bucket_s. This is what the banner plots — NOT the selected
+  // window's series, which on 30d has six-hour buckets and cannot show three
+  // hours at all.
+  points: Point[];
+};
+
+export type ModelTrend = {
+  model_id: string;
+  ttft: TrendMetric;
+  tps: TrendMetric;
+};
+
+// The "is it slower than it was" reading: the last few hours against the day
+// before them. Fixed like `now` and `baseline`, so the range pills never change
+// what the sentence built from it means.
+export type Trend = {
+  recent_s: number;
+  before_s: number;
+  bucket_s: number;
+  models: ModelTrend[];
+  generated_at: string;
+};
+
 // Everything one render needs, in one response.
 //
 // `now` and `baseline` are the two fixed windows the verdict compares the
@@ -206,6 +239,9 @@ export type Dashboard = {
   // The server pins that day deliberately: the current failures are a fact
   // about the endpoint, not about the chart selector.
   failures: Failure[];
+  // The speed reading, also fixed. Optional on the type so a client running
+  // against an older daemon renders a page rather than throwing.
+  trend?: Trend;
 };
 
 // Two regions, each an edge paired with an independent reference.

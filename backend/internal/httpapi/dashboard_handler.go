@@ -105,6 +105,11 @@ type dashboardPayload struct {
 	// dashboardFailureWindow for why it ignores the selected window. Class and
 	// status only: samples.Failure explains why the upstream text stays behind.
 	Failures []samples.Failure `json:"failures"`
+	// The "slower than it was" reading: the last three hours against the day
+	// before them, per model. Fixed like `now` and `baseline` and for the same
+	// reason — see samples.Trend. A handler test asserts it is byte-identical
+	// on 24h and 3mo.
+	Trend samples.Trend `json:"trend"`
 }
 
 // dashboardSeries names the four lines the page draws.
@@ -245,6 +250,14 @@ func (s *server) buildDashboard(ctx context.Context, window samples.Window, now 
 		failures = []samples.Failure{}
 	}
 	out.Failures = failures
+
+	// Last, and unscoped like the block above it: three hours against the day
+	// before them, whichever pill is selected.
+	trend, err := s.deps.Samples.Trend(ctx, s.deps.Models, now)
+	if err != nil {
+		return nil, err
+	}
+	out.Trend = trend
 
 	return out, nil
 }
