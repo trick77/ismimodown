@@ -9,6 +9,7 @@ import {
   logAxis,
   rollingMedian,
   SERIES_COLORS,
+  smoothSpanMs,
   smoothWindow,
   SMOOTHED_SUFFIX,
 } from "./options";
@@ -644,6 +645,48 @@ describe("smoothWindow", () => {
   });
 });
 
+describe("smoothSpanMs", () => {
+  const H = 3_600_000;
+  const at = (hours: number[]): [number, number | null][] =>
+    hours.map((h) => [h * H, 1]);
+
+  it("is the wall clock a whole window reaches across", () => {
+    // Eleven contiguous hourly buckets: the window at any interior point
+    // reaches from five behind it to five ahead.
+    const out = smoothSpanMs(at(Array.from({ length: 11 }, (_, i) => i)), 11);
+    expect(out).toBe(10 * H);
+  });
+
+  // The API emits no row at all for a bucket where nothing ran, so the window
+  // walks over indices and can straddle an outage. Multiplied out from the
+  // bucket width, the note would understate the smoothing exactly where it
+  // reaches furthest.
+  it("counts the hours across a stretch the probe missed", () => {
+    const hours = [0, 1, 2, 3, 4, 40, 41, 42, 43, 44, 45];
+    expect(smoothSpanMs(at(hours), 11)).toBe(45 * H);
+  });
+
+  // One outage should not restate the whole line's smoothing as if every point
+  // were averaged that far.
+  it("takes the median reach rather than the widest", () => {
+    const hours = [
+      ...Array.from({ length: 20 }, (_, i) => i),
+      100,
+      ...Array.from({ length: 20 }, (_, i) => 101 + i),
+    ];
+    const span = smoothSpanMs(at(hours), 5);
+    expect(span).toBe(4 * H);
+  });
+
+  it("falls back to the whole plot when it is shorter than one window", () => {
+    expect(smoothSpanMs(at([0, 1, 2]), 11)).toBe(2 * H);
+  });
+
+  it("is zero with nothing to measure", () => {
+    expect(smoothSpanMs([], 11)).toBe(0);
+  });
+});
+
 describe("rollingMedian", () => {
   const pairs = (values: (number | null)[]): [number, number | null][] =>
     values.map((v, i) => [i * 1000, v]);
@@ -661,9 +704,10 @@ describe("rollingMedian", () => {
   });
 
   it("averages the middle pair when the window holds an even count", () => {
-    // The ends run over a shrinking half-window, so index 0 sees [1, 2].
+    // The ends run over a shrinking half-window, so index 1 sees four buckets
+    // rather than five: [1, 2, 3, 4], with no single middle to take.
     const out = rollingMedian(pairs([1, 2, 3, 4, 5]), 5);
-    expect(out[0]![1]).toBe(2);
+    expect(out[1]![1]).toBe(2.5);
   });
 
   // The right edge is the end a status page is read from, and a trend that
@@ -679,6 +723,18 @@ describe("rollingMedian", () => {
   it("takes a gap where the window is mostly empty", () => {
     const out = rollingMedian(pairs([1, null, null, null, null, null, 7]), 5);
     expect(out[3]![1]).toBeNull();
+  });
+
+  // Half the window is missing at the last point by construction, so the
+  // coverage rule counts the buckets that point could HAVE. Measured against
+  // the full window it would demand every one of them, and a single hole near
+  // the right edge would end the trend before "now".
+  it("survives a hole in the final half-window", () => {
+    // A 13-bucket window, the size a week's worth of points asks for: the last
+    // point sees seven buckets, and one of them is a hole.
+    const values = Array.from({ length: 25 }, (_, i) => (i === 20 ? null : 1));
+    const out = rollingMedian(pairs(values), 13);
+    expect(out[out.length - 1]![1]).toBe(1);
   });
 
   it("still draws where the window is mostly measured", () => {
@@ -722,7 +778,7 @@ describe("smoothing", () => {
     const opt = smoothed(long, false);
     expect(opt.series).toHaveLength(1);
     expect(opt.smoothed).toBe(false);
-    expect(opt.smoothWindow).toBe(0);
+    expect(opt.smoothSpanMs).toBe(0);
     // And the measurement keeps its full weight and its fill.
     expect(opt.series[0]!.lineStyle.width).toBe(2);
     expect(opt.series[0]!.areaStyle).toBeDefined();
@@ -739,7 +795,9 @@ describe("smoothing", () => {
   it("comes on once the window is longer than that", () => {
     const opt = smoothed(long);
     expect(opt.smoothed).toBe(true);
-    expect(opt.smoothWindow).toBe(smoothWindow(96));
+    // 96 hourly buckets, smoothed over an eighth of them: a 13-bucket window
+    // reaches twelve hours across.
+    expect(opt.smoothSpanMs).toBe(12 * 3_600_000);
   });
 
   it("drops the measurement to a hairline with no fill under it", () => {

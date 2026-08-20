@@ -271,8 +271,42 @@ export function smoothWindow(pointCount: number): number {
   return Math.max(5, (pointCount / SMOOTH_DIVISOR) | 0 | 1);
 }
 
+// smoothSpanMs is how much WALL CLOCK a window of that many buckets covers.
+//
+// Not `buckets × bucket_s`, which is the obvious arithmetic and is wrong
+// whenever the probe stopped: the API emits a row only for buckets that had a
+// sample or a censored run (the series query unions the two), so a stretch
+// where nothing ran is not a row of nulls — it is no rows at all, and the
+// window walks over indices, not over hours. Multiplied out, an 11-bucket
+// window spanning a 12-hour collector outage would still be published as
+// "22-hour", understating the smoothing exactly where it is strongest.
+//
+// The MEDIAN reach rather than the largest, because one outage should not
+// restate the whole line's smoothing as if every point were averaged that far;
+// the median describes what the window does across the plot. Measured on the
+// interior points where the window is whole — the ends run over a shrinking
+// half-window and would drag the figure below what the line actually does.
+export function smoothSpanMs(
+  pairs: [number, number | null][],
+  window: number,
+): number {
+  const half = window >> 1;
+  const reaches: number[] = [];
+  for (let i = half; i < pairs.length - half; i++) {
+    reaches.push(pairs[i + half]![0] - pairs[i - half]![0]);
+  }
+  if (reaches.length === 0) {
+    // Fewer points than the window is wide: the whole plot is one window.
+    const first = pairs[0]?.[0];
+    const last = pairs[pairs.length - 1]?.[0];
+    return first !== undefined && last !== undefined ? last - first : 0;
+  }
+  reaches.sort((a, b) => a - b);
+  return reaches[reaches.length >> 1]!;
+}
+
 // MIN_COVERAGE is how much of a window has to be measured for its median to be
-// drawn, as a fraction of the window.
+// drawn, as a fraction of the buckets that window actually spans.
 //
 // A centred median over a window that is mostly holes is a median of two
 // buckets pretending to speak for eight, and it lands wherever those two
@@ -301,11 +335,20 @@ export function rollingMedian(
 ): [number, number | null][] {
   const half = window >> 1;
   return pairs.map(([t], i) => {
-    const slice = pairs
-      .slice(Math.max(0, i - half), i + half + 1)
+    const candidates = pairs.slice(Math.max(0, i - half), i + half + 1);
+    const slice = candidates
       .map(([, v]) => v)
       .filter((v): v is number => v !== null && Number.isFinite(v));
-    const needed = Math.max(MIN_SAMPLES, Math.ceil(window * MIN_COVERAGE));
+    // Measured against the buckets this point could HAVE — not against the full
+    // window, which the ends never get. Half a window is missing at the last
+    // point by construction, so a full-window rule would demand 100% coverage
+    // exactly at "now": one hole anywhere in the final half-window and the
+    // trend would stop short of the right edge, which is the end this line
+    // exists to reach.
+    const needed = Math.max(
+      MIN_SAMPLES,
+      Math.ceil(candidates.length * MIN_COVERAGE),
+    );
     if (slice.length < needed) {
       return [t, null];
     }
@@ -490,6 +533,13 @@ export function buildLineOption({
   const window = smoothWindow(
     Math.max(0, ...Object.values(series).map((points) => points.length)),
   );
+  // Read off the longest series for the same reason, and off its TIMESTAMPS
+  // rather than off the bucket width — see smoothSpanMs.
+  const longest = Object.values(series).reduce<Point[]>(
+    (best, points) => (points.length > best.length ? points : best),
+    [],
+  );
+  const spanMs = smoothing ? smoothSpanMs(toPairs(longest), window) : 0;
 
   return {
     animation: false,
@@ -690,9 +740,11 @@ export function buildLineOption({
     // and which was drawn, and it must only say it on the windows that actually
     // got a trend.
     smoothed: smoothing,
-    // The window the median ran over, in buckets, so the note can state it in
-    // hours rather than leaving "smoothed" to mean whatever the reader assumes.
-    smoothWindow: smoothing ? window : 0,
+    // How much wall clock that window covers, so the note can state it rather
+    // than leaving "smoothed" to mean whatever the reader assumes. In ms and
+    // measured off the data, never derived from the bucket width — a stretch
+    // where the probe did not run has no buckets at all to multiply.
+    smoothSpanMs: spanMs,
   };
 }
 

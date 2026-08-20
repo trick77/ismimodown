@@ -69,17 +69,15 @@ export function CensoredNote({ bands }: { bands: number }) {
 // face value, and that reader is not hovering anything.
 export function TrendNote({
   smoothed,
-  buckets,
-  bucketS,
+  spanMs,
 }: {
   smoothed: boolean;
-  buckets: number;
-  bucketS: number;
+  spanMs: number;
 }) {
-  if (!smoothed || buckets < 1 || bucketS < 1) return null;
+  if (!smoothed || spanMs < 1) return null;
   return (
     <p className="mt-3 text-label text-muted">
-      The bold line is a {formatSpan(buckets * bucketS)} rolling median. The
+      The bold line is a {formatSpan(spanMs / 1_000)} rolling median. The
       hairline behind it is the measurement itself — every reading, including
       the spikes the median steps over — and it is what the tooltip reports.
     </p>

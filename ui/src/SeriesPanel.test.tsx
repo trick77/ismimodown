@@ -77,7 +77,8 @@ describe("SeriesPanel", () => {
   // "Smoothed" without a span is a claim of unknown strength.
   it("states the window the median ran over", () => {
     render(panel(day(Array.from({ length: 96 }, () => 1_000)), 3_600));
-    // 96 hourly buckets, smoothed over an eighth of them.
-    expect(screen.getByText(/rolling median/).textContent).toContain("13-hour");
+    // 96 hourly buckets, smoothed over an eighth of them: a 13-bucket window
+    // reaches six hours either side of the point it is centred on.
+    expect(screen.getByText(/rolling median/).textContent).toContain("12-hour");
   });
 });

@@ -46,11 +46,7 @@ export function SeriesPanel({
         </NoChart>
       )}
       <Legend models={models} />
-      <TrendNote
-        smoothed={option.smoothed}
-        buckets={option.smoothWindow}
-        bucketS={series?.bucket_s ?? 0}
-      />
+      <TrendNote smoothed={option.smoothed} spanMs={option.smoothSpanMs} />
       <CensoredNote bands={option.censoredBands} />
     </Card>
   );
