@@ -103,51 +103,6 @@ describe("ModelCards", () => {
     expect(screen.getByText("41 tok/s")).toBeInTheDocument();
   });
 
-  // The figure's own recent past, under the figure. A NUMBER and never a
-  // verdict: the banner has already made the page's one claim, and a card that
-  // scored the same change again could disagree with it.
-  it("prints how each figure compares with its own recent past", () => {
-    render(
-      <ModelCards
-        summary={summary([model()])}
-        baseline={null}
-        trend={{
-          recent_s: 3 * 3600,
-          before_s: 24 * 3600,
-          bucket_s: 1800,
-          generated_at: "2026-08-04T12:00:00Z",
-          models: [
-            {
-              model_id: "mimo-v2.5",
-              ttft: {
-                recent: { n: 36, sufficient: true, p50_ms: 1700, p95_ms: 1700 },
-                before: { n: 288, sufficient: true, p50_ms: 900, p95_ms: 900 },
-                points: [],
-              },
-              tps: {
-                recent: { n: 36, sufficient: true, p50_ms: 41, p95_ms: 41 },
-                before: { n: 288, sufficient: true, p50_ms: 41, p95_ms: 41 },
-                points: [],
-              },
-            },
-          ],
-        }}
-      />,
-    );
-    const deltas = screen.getAllByTestId("figure-delta");
-    expect(deltas[0]).toHaveTextContent("89 % slower than the 24 hours before");
-    // Movement inside the ordinary spread is not a finding, and printing a
-    // number for it every day is how the line stops being read.
-    expect(deltas[1]).toHaveTextContent("about the same");
-  });
-
-  // Nothing to compare against means no line at all — an older daemon serves no
-  // trend block, and the cards must render exactly as they did before it.
-  it("prints no comparison when the block is absent", () => {
-    render(<ModelCards summary={summary([model()])} baseline={null} />);
-    expect(screen.queryByTestId("figure-delta")).toBeNull();
-  });
-
   // A thin window must never render a number, because a P50 from three samples
   // is exactly what gets quoted out of context.
   it("suppresses a thin percentile", () => {

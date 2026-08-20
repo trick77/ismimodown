@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import type { ModelTrend, Point, Trend } from "./api/types";
 import {
   buildSpeedReading,
-  figureDelta,
   TPS_FLOOR,
   TTFT_FLOOR,
   TTFT_FLOOR_BOTH,
@@ -205,39 +204,5 @@ describe("buildSpeedReading", () => {
     );
     expect(reading.state).toBe("quicker");
     expect(reading.lead).toContain("quicker to start");
-  });
-});
-
-describe("figureDelta", () => {
-  it("prints ordinary movement quietly and a cleared floor loudly", () => {
-    const t = trendOf([model("mimo-v2.5", [1100, 900], [70, 70])]);
-    const quiet = figureDelta(t, "mimo-v2.5", "ttft");
-    expect(quiet?.words).toContain("slower");
-    expect(quiet?.past).toBe(false);
-
-    const loud = figureDelta(
-      trendOf([model("mimo-v2.5", [1700, 900], [70, 70])]),
-      "mimo-v2.5",
-      "ttft",
-    );
-    expect(loud?.past).toBe(true);
-  });
-
-  it("calls a small change the same rather than printing a number for noise", () => {
-    const t = trendOf([model("mimo-v2.5", [930, 900], [70, 70])]);
-    expect(figureDelta(t, "mimo-v2.5", "ttft")?.words).toContain(
-      "about the same",
-    );
-  });
-
-  it("names its own period, since the card's window does not apply to it", () => {
-    const t = trendOf([model("mimo-v2.5", [1700, 900], [70, 70])]);
-    expect(figureDelta(t, "mimo-v2.5", "ttft")?.words).toContain("24 hours");
-  });
-
-  it("is absent for a model the block does not carry", () => {
-    const t = trendOf([model("mimo-v2.5", [900, 900], [70, 70])]);
-    expect(figureDelta(t, "mimo-v2.5-pro", "ttft")).toBeNull();
-    expect(figureDelta(null, "mimo-v2.5", "ttft")).toBeNull();
   });
 });

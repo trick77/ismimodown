@@ -344,7 +344,6 @@ export default function App() {
             <ModelCards
               summary={data?.summary ?? null}
               baseline={data?.baseline ?? null}
-              trend={data?.trend ?? null}
               pending={pending}
             />
             <SeriesPanel
