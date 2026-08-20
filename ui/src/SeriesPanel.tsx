@@ -1,5 +1,5 @@
 import type { ModelSeries } from "./api/types";
-import { Card, CensoredNote, LogScaleChip, NoChart } from "./ui";
+import { Card, CensoredNote, LogScaleChip, NoChart, TrendNote } from "./ui";
 import { EChart } from "./charts/EChart";
 import { CHART_HEIGHT, buildLineOption, colorForModel } from "./charts/options";
 
@@ -27,6 +27,9 @@ export function SeriesPanel({
     unit,
     forceLinear,
     bucketMs: series ? series.bucket_s * 1000 : undefined,
+    // Only the model panels. The wire chart shares this builder and must not
+    // grow a second line per host — see the `smoothed` option.
+    smoothed: true,
   });
 
   return (
@@ -43,6 +46,7 @@ export function SeriesPanel({
         </NoChart>
       )}
       <Legend models={models} />
+      <TrendNote smoothed={option.smoothed} spanMs={option.smoothSpanMs} />
       <CensoredNote bands={option.censoredBands} />
     </Card>
   );

@@ -7,7 +7,11 @@ import {
   buildLineOption,
   colorForModel,
   logAxis,
+  rollingMedian,
   SERIES_COLORS,
+  smoothSpanMs,
+  smoothWindow,
+  SMOOTHED_SUFFIX,
 } from "./options";
 
 const pt = (t: number, p50: number | null, censored = 0): Point => ({
@@ -613,5 +617,291 @@ describe("a series that can reach zero", () => {
       unit: "ms",
     });
     expect(opt.logScale).toBe(true);
+  });
+});
+
+// A window longer than 48h is what turns the smoothing on, so every test here
+// builds its series out of hourly buckets and says how many hours it spans.
+const hourly = (values: (number | null)[], startH = 0) =>
+  values.map((v, i) => pt((startH + i) * 3_600, v));
+
+describe("smoothWindow", () => {
+  it("is an eighth of the points", () => {
+    expect(smoothWindow(80)).toBe(11);
+    expect(smoothWindow(360)).toBe(45);
+  });
+
+  // Even windows sit half a bucket to one side, and the smoothed line would lag
+  // the data it is drawn over by a constant amount.
+  it("is always odd, so the window is centred", () => {
+    for (const n of [40, 48, 56, 64, 72, 96, 120]) {
+      expect(smoothWindow(n) % 2).toBe(1);
+    }
+  });
+
+  it("never drops below five buckets, however few points there are", () => {
+    expect(smoothWindow(0)).toBe(5);
+    expect(smoothWindow(8)).toBe(5);
+  });
+});
+
+describe("smoothSpanMs", () => {
+  const H = 3_600_000;
+  const at = (hours: number[]): [number, number | null][] =>
+    hours.map((h) => [h * H, 1]);
+
+  it("is the wall clock a whole window reaches across", () => {
+    // Eleven contiguous hourly buckets: the window at any interior point
+    // reaches from five behind it to five ahead.
+    const out = smoothSpanMs(at(Array.from({ length: 11 }, (_, i) => i)), 11);
+    expect(out).toBe(10 * H);
+  });
+
+  // The API emits no row at all for a bucket where nothing ran, so the window
+  // walks over indices and can straddle an outage. Multiplied out from the
+  // bucket width, the note would understate the smoothing exactly where it
+  // reaches furthest.
+  it("counts the hours across a stretch the probe missed", () => {
+    const hours = [0, 1, 2, 3, 4, 40, 41, 42, 43, 44, 45];
+    expect(smoothSpanMs(at(hours), 11)).toBe(45 * H);
+  });
+
+  // One outage should not restate the whole line's smoothing as if every point
+  // were averaged that far.
+  it("takes the median reach rather than the widest", () => {
+    const hours = [
+      ...Array.from({ length: 20 }, (_, i) => i),
+      100,
+      ...Array.from({ length: 20 }, (_, i) => 101 + i),
+    ];
+    const span = smoothSpanMs(at(hours), 5);
+    expect(span).toBe(4 * H);
+  });
+
+  it("falls back to the whole plot when it is shorter than one window", () => {
+    expect(smoothSpanMs(at([0, 1, 2]), 11)).toBe(2 * H);
+  });
+
+  it("is zero with nothing to measure", () => {
+    expect(smoothSpanMs([], 11)).toBe(0);
+  });
+});
+
+describe("rollingMedian", () => {
+  const pairs = (values: (number | null)[]): [number, number | null][] =>
+    values.map((v, i) => [i * 1000, v]);
+
+  it("returns a value per input bucket, on the same timestamps", () => {
+    const out = rollingMedian(pairs([1, 2, 3, 4, 5]), 3);
+    expect(out.map(([t]) => t)).toEqual([0, 1000, 2000, 3000, 4000]);
+  });
+
+  // A mean would carry this page's own spikes into the smoothed line: one
+  // 56-second timeout drags the average above every reading in its window.
+  it("steps over a spike rather than bending around it", () => {
+    const out = rollingMedian(pairs([10, 10, 5_000, 10, 10]), 5);
+    expect(out[2]![1]).toBe(10);
+  });
+
+  it("averages the middle pair when the window holds an even count", () => {
+    // The ends run over a shrinking half-window, so index 1 sees four buckets
+    // rather than five: [1, 2, 3, 4], with no single middle to take.
+    const out = rollingMedian(pairs([1, 2, 3, 4, 5]), 5);
+    expect(out[1]![1]).toBe(2.5);
+  });
+
+  // The right edge is the end a status page is read from, and a trend that
+  // stops half a window before "now" is the part nobody can use.
+  it("carries the line to both ends rather than trimming them", () => {
+    const out = rollingMedian(pairs([1, 2, 3, 4, 5, 6, 7]), 5);
+    expect(out[0]![1]).not.toBeNull();
+    expect(out[out.length - 1]![1]).not.toBeNull();
+  });
+
+  // A median over a window that is mostly holes lands wherever the two
+  // surviving buckets happened to be.
+  it("takes a gap where the window is mostly empty", () => {
+    const out = rollingMedian(pairs([1, null, null, null, null, null, 7]), 5);
+    expect(out[3]![1]).toBeNull();
+  });
+
+  // Half the window is missing at the last point by construction, so the
+  // coverage rule counts the buckets that point could HAVE. Measured against
+  // the full window it would demand every one of them, and a single hole near
+  // the right edge would end the trend before "now".
+  it("survives a hole in the final half-window", () => {
+    // A 13-bucket window, the size a week's worth of points asks for: the last
+    // point sees seven buckets, and one of them is a hole.
+    const values = Array.from({ length: 25 }, (_, i) => (i === 20 ? null : 1));
+    const out = rollingMedian(pairs(values), 13);
+    expect(out[out.length - 1]![1]).toBe(1);
+  });
+
+  it("still draws where the window is mostly measured", () => {
+    // The hole is skipped rather than counted: the window at index 3 is
+    // [2, 4, 5, 6], four measured buckets out of five.
+    const out = rollingMedian(pairs([1, 2, null, 4, 5, 6, 7]), 5);
+    expect(out[3]![1]).toBe(4.5);
+  });
+});
+
+describe("smoothing", () => {
+  const smoothed = (points: Point[], on = true) =>
+    buildLineOption({
+      series: { a: points },
+      order: ["a"],
+      colorOf: () => "#fff",
+      unit: "ms",
+      smoothed: on,
+    });
+
+  // 96 hourly buckets is four days — past the 48h gate.
+  const long = hourly(Array.from({ length: 96 }, (_, i) => 1_000 + i));
+
+  it("adds one smoothed line per model, after every raw series", () => {
+    const opt = buildLineOption({
+      series: { a: long, b: long },
+      order: ["a", "b"],
+      colorOf: () => "#fff",
+      unit: "ms",
+      smoothed: true,
+    });
+    expect(opt.series.map((s) => s.name)).toEqual([
+      "a",
+      "b",
+      `a${SMOOTHED_SUFFIX}`,
+      `b${SMOOTHED_SUFFIX}`,
+    ]);
+  });
+
+  it("draws nothing extra unless asked, so the wire chart is untouched", () => {
+    const opt = smoothed(long, false);
+    expect(opt.series).toHaveLength(1);
+    expect(opt.smoothed).toBe(false);
+    expect(opt.smoothSpanMs).toBe(0);
+    // And the measurement keeps its full weight and its fill.
+    expect(opt.series[0]!.lineStyle.width).toBe(2);
+    expect(opt.series[0]!.areaStyle).toBeDefined();
+  });
+
+  // Below 48h the reader is looking at what is happening now, not at where the
+  // last week went — the same threshold the axis stamp switches on.
+  it("stays off on a window of two days or less", () => {
+    const opt = smoothed(hourly(Array.from({ length: 48 }, () => 1_000)));
+    expect(opt.series).toHaveLength(1);
+    expect(opt.smoothed).toBe(false);
+  });
+
+  it("comes on once the window is longer than that", () => {
+    const opt = smoothed(long);
+    expect(opt.smoothed).toBe(true);
+    // 96 hourly buckets, smoothed over an eighth of them: a 13-bucket window
+    // reaches twelve hours across.
+    expect(opt.smoothSpanMs).toBe(12 * 3_600_000);
+  });
+
+  it("drops the measurement to a hairline with no fill under it", () => {
+    const opt = smoothed(long);
+    expect(opt.series[0]!.lineStyle.width).toBe(1);
+    expect(opt.series[0]!.lineStyle.opacity).toBeLessThan(1);
+    expect(opt.series[0]!.areaStyle).toBeUndefined();
+    // The trend is a stroke, never a shape.
+    expect(opt.series[1]!.lineStyle.width).toBe(2);
+    expect(opt.series[1]!.areaStyle).toBeUndefined();
+  });
+
+  it("keeps the model's own hue on both of its lines", () => {
+    const opt = buildLineOption({
+      series: { a: long },
+      order: ["a"],
+      colorOf: () => "#abcdef",
+      unit: "ms",
+      smoothed: true,
+    });
+    expect(opt.series[0]!.lineStyle.color).toBe("#abcdef");
+    expect(opt.series[1]!.lineStyle.color).toBe("#abcdef");
+  });
+
+  // The bands hang off series index 0, and a smoothed line landing there would
+  // take the markArea onto a line drawn over the very stretches it is about.
+  it("leaves the censoring bands on the measurement", () => {
+    const censored = hourly(Array.from({ length: 96 }, () => 1_000)).map(
+      (p, i) => (i === 10 ? pt(p.t, p.p50, 2) : p),
+    );
+    const opt = buildLineOption({
+      series: { a: censored },
+      order: ["a"],
+      colorOf: () => "#fff",
+      unit: "ms",
+      bucketMs: 3_600_000,
+      smoothed: true,
+    });
+    expect(opt.series[0]!.markArea).toBeDefined();
+    expect(opt.series[1]!.markArea).toBeUndefined();
+  });
+
+  // A hover has to report what was measured, not what was drawn over it.
+  it("keeps the smoothed line out of the tooltip", () => {
+    const opt = smoothed(long);
+    const html = opt.tooltip.formatter([
+      { marker: "", seriesName: "a", value: [3_600_000, 1_000] },
+      {
+        marker: "",
+        seriesName: `a${SMOOTHED_SUFFIX}`,
+        value: [3_600_000, 1_234],
+      },
+    ]);
+    expect(html).toContain("1000 ms");
+    expect(html).not.toContain("1234");
+    expect(html).not.toContain(SMOOTHED_SUFFIX.trim());
+  });
+
+  it("never takes a hover from the measurement", () => {
+    const opt = smoothed(long);
+    expect(opt.series[0]!.silent).toBe(false);
+    expect(opt.series[1]!.silent).toBe(true);
+  });
+
+  // The axis is fitted to the readings; a smoothed line pulled in from them
+  // cannot be allowed to move the bounds it is drawn inside.
+  it("does not move the fitted log axis", () => {
+    const spiky = hourly(
+      Array.from({ length: 96 }, (_, i) => (i === 50 ? 60_000 : 1_000)),
+    );
+    const plain = buildLineOption({
+      series: { a: spiky },
+      order: ["a"],
+      colorOf: () => "#fff",
+      unit: "ms",
+    });
+    const withTrend = buildLineOption({
+      series: { a: spiky },
+      order: ["a"],
+      colorOf: () => "#fff",
+      unit: "ms",
+      smoothed: true,
+    });
+    expect(plain.logScale).toBe(true);
+    expect(withTrend.logScale).toBe(true);
+    expect(withTrend.yAxis.min).toBe(plain.yAxis.min);
+    expect(withTrend.yAxis.max).toBe(plain.yAxis.max);
+  });
+});
+
+describe("the wire chart, which shares this builder", () => {
+  // Four hosts over four days — long enough that it would be smoothed here too
+  // if the flag were not opt-in.
+  const long = hourly(Array.from({ length: 96 }, () => 40));
+  const targets = ["mimo-sgp", "ref-sgp", "mimo-ams", "ref-ams"];
+
+  it("stays at one line per host", () => {
+    const opt = buildLineOption({
+      series: Object.fromEntries(targets.map((t) => [t, long])),
+      order: targets,
+      colorOf: () => "#fff",
+      unit: "ms",
+    });
+    expect(opt.series.map((s) => s.name)).toEqual(targets);
+    expect(opt.smoothed).toBe(false);
   });
 });

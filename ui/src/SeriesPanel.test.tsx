@@ -31,11 +31,11 @@ const series = (points: Point[]): ModelSeries => ({
   models: { "mimo-v2.5": points },
 });
 
-const panel = (points: Point[]) => (
+const panel = (points: Point[], bucketS = 900) => (
   <SeriesPanel
     title="Time to first token"
     subtitle="P50 per bucket."
-    series={series(points)}
+    series={{ ...series(points), bucket_s: bucketS }}
     models={["mimo-v2.5"]}
     unit="ms"
   />
@@ -56,5 +56,29 @@ describe("SeriesPanel", () => {
   it("says nothing about the axis while it is linear", () => {
     render(panel(FLAT));
     expect(screen.queryByText("log scale")).not.toBeInTheDocument();
+  });
+
+  // Bold reads as the real line, so a chart that draws a rolling median over
+  // its own readings has to say which of the two was measured.
+  it("names the bold line and the hairline once it smooths", () => {
+    // Four days of hourly buckets — past the 48h the smoothing waits for.
+    render(panel(day(Array.from({ length: 96 }, () => 1_000)), 3_600));
+    expect(screen.getByText(/rolling median/)).toBeInTheDocument();
+    expect(screen.getByText(/the measurement itself/)).toBeInTheDocument();
+  });
+
+  // Below that the plot is unchanged, so a note about a line that is not there
+  // would be describing the wrong picture.
+  it("says nothing about a trend on a short window", () => {
+    render(panel(FLAT));
+    expect(screen.queryByText(/rolling median/)).not.toBeInTheDocument();
+  });
+
+  // "Smoothed" without a span is a claim of unknown strength.
+  it("states the window the median ran over", () => {
+    render(panel(day(Array.from({ length: 96 }, () => 1_000)), 3_600));
+    // 96 hourly buckets, smoothed over an eighth of them: a 13-bucket window
+    // reaches six hours either side of the point it is centred on.
+    expect(screen.getByText(/rolling median/).textContent).toContain("12-hour");
   });
 });
