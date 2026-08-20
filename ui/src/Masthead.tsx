@@ -129,14 +129,21 @@ export function Masthead() {
           whitespace-nowrap because the hyphen is a break opportunity: at 1280px
           the line broke after it and the first ID read as "mimo-" / "v2.5"
           across two lines, which is a different string. */}
-      <p className="mt-4 max-w-[52ch] font-serif text-[clamp(1rem,2vw,1.3rem)] leading-snug text-ink-dim">
+      {/* The measure was 52ch — under half the container's width, which read as
+          a narrow column against the full-width panels below it. Set to where
+          the sentence stops being three ragged lines.
+
+          The clause that follows joins on a comma, not an em dash: at this
+          measure the dash landed at the end of the first line, hanging in the
+          margin. */}
+      <p className="mt-4 max-w-[78ch] font-serif text-[clamp(1rem,2vw,1.3rem)] leading-snug text-ink-dim">
         Latency, throughput, availability and answer correctness for{" "}
         <span className="num whitespace-nowrap text-[0.92em]">mimo-v2.5</span>{" "}
         and{" "}
         <span className="num whitespace-nowrap text-[0.92em]">
           mimo-v2.5-pro
-        </span>{" "}
-        — separating how long it takes to <em>reach</em> the API endpoint from
+        </span>
+        , separating how long it takes to <em>reach</em> the API endpoint from
         what happens once you are there.
       </p>
     </header>
