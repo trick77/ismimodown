@@ -79,20 +79,29 @@ func TestTrendSpansDoNotOverlap(t *testing.T) {
 	now := time.Date(2026, 8, 20, 12, 0, 0, 0, time.UTC)
 	recentFrom := now.Add(-TrendRecent)
 
-	// Everything in the reference span, plus ONE run exactly on the boundary.
-	// The boundary run belongs to the recent span: `>= from AND < to`.
+	// A full reference day, and then ONE run exactly on the boundary instant.
+	// That run must land on the recent side and nowhere else — `>= from AND
+	// < to` on both queries is what makes it unambiguous, and an inclusive
+	// upper bound would count it twice.
 	seedTrendCycles(t, s, "mimo-v2.5", now.Add(-TrendRecent-TrendReference), recentFrom, 800, 70)
+	if _, err := s.Save(context.Background(), Cycle{
+		StartedAt: recentFrom, Net: okNet(),
+		Infer: []probe.InferResult{okInfer("mimo-v2.5", 1600)},
+	}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
 
 	tr, err := s.Trend(context.Background(), []string{"mimo-v2.5"}, now)
 	if err != nil {
 		t.Fatalf("Trend: %v", err)
 	}
 	m := tr.Models[0]
-	if m.TTFT.Recent.N != 0 {
-		t.Errorf("recent n = %d, want 0 — the reference span leaked into it", m.TTFT.Recent.N)
+	if m.TTFT.Recent.N != 1 {
+		t.Errorf("recent n = %d, want the 1 boundary run", m.TTFT.Recent.N)
 	}
 	if m.TTFT.Before.N != 288 {
-		t.Errorf("before n = %d, want 288 — a day at the five-minute cadence", m.TTFT.Before.N)
+		t.Errorf("before n = %d, want 288 — a day at the five-minute cadence, "+
+			"without the boundary run counted a second time", m.TTFT.Before.N)
 	}
 }
 

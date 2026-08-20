@@ -108,6 +108,48 @@ describe("buildSpeedReading", () => {
     );
   });
 
+  // "Both models" is a claim about ONE metric. When each model moved on a
+  // different one, saying it asserts the lead's metric of both — false about
+  // the model that only started slowly.
+  it("does not claim both models moved when they moved on different metrics", () => {
+    const reading = buildSpeedReading(
+      trendOf([
+        model("mimo-v2.5", [1700, 900], [70, 70]),
+        model("mimo-v2.5-pro", [900, 900], [45, 70]),
+      ]),
+    );
+    expect(reading.state).toBe("slower");
+    expect(reading.lead).not.toContain("Both models");
+    // The one it did not lead with is still named, once.
+    expect(reading.line).toContain("mimo-v2.5");
+    expect(reading.line.match(/mimo-v2\.5-pro/g)?.length ?? 0).toBeLessThan(2);
+  });
+
+  // A single-model payload can have both its metrics fire, which is not two
+  // models by any reading.
+  it("never says both models when the block carries one", () => {
+    const reading = buildSpeedReading(
+      trendOf([model("mimo-v2.5", [1700, 900], [45, 70])]),
+    );
+    expect(reading.lead).not.toContain("Both models");
+    expect(reading.lead).toContain("mimo-v2.5");
+  });
+
+  // No request is answered by both models, so summing their penalties states a
+  // wait nobody can experience — and it would grow with the fleet rather than
+  // with the slowdown.
+  it("costs the wait in the lead model's own seconds, not the sum across models", () => {
+    const reading = buildSpeedReading(
+      trendOf([
+        model("mimo-v2.5", [1700, 900], [70, 70]),
+        model("mimo-v2.5-pro", [1700, 900], [70, 70]),
+      ]),
+    );
+    // 800 ms on one model, not 1.6 s across two.
+    expect(reading.line).toContain("0.8 s");
+    expect(reading.line).not.toContain("1.6 s");
+  });
+
   // Both models moving together is rarer than either moving alone, and it is
   // the more meaningful event — so it fires at a lower floor.
   it("uses the lower floor when both models move together", () => {

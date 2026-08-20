@@ -43,7 +43,7 @@ export function TrendPlot({
   const recentFromMs = generatedAt - trend.recent_s * 1000;
   // The reference line is drawn for the model the sentence leads with, so the
   // dashes and the numbers in the sentence are the same measurement.
-  const lead = moves[0];
+  const lead = moves.find((m) => m.metric === metric);
   const leadModel = trend.models.find((m) => m.model_id === lead?.modelID);
   const referenceLevel = leadModel?.[metric].before.p50_ms ?? null;
 
@@ -51,7 +51,13 @@ export function TrendPlot({
     <div className="mt-4" data-testid="trend-plot">
       <div className="mb-1 flex flex-wrap items-center gap-x-5 gap-y-1">
         {trend.models.map((model) => {
-          const move = moves.find((m) => m.modelID === model.model_id);
+          // Matched on the metric as well as the model. The plot draws ONE
+          // metric, so a move on the other one must not label this line: a
+          // model whose first token regressed would otherwise have its
+          // throughput value tagged "slower" while that line sat flat.
+          const move = moves.find(
+            (m) => m.modelID === model.model_id && m.metric === metric,
+          );
           const value = model[metric].recent.p50_ms;
           return (
             <span

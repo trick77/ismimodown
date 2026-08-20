@@ -170,10 +170,14 @@ export function buildSpeedReading(
     // Every span was too thin to produce a median. Said in words, never as a
     // zero — the page has nothing to compare, which is not the same as nothing
     // having changed.
+    // Which side is thin is deliberately not claimed: moveFor returns nothing
+    // when EITHER span misses the threshold, and a freshly restarted daemon has
+    // the opposite problem from a fresh page — three good hours against a day
+    // that barely exists.
     return {
       state: "unknown",
       lead: "Not enough answers yet to compare",
-      line: `The last ${span} hold too few finished requests for a median. The comparison appears once enough are in.`,
+      line: `Comparing the last ${span} with the ${refSpan} before them needs more finished requests than one of those periods holds. The comparison appears once they are in.`,
       moves: [],
       metric: null,
     };
@@ -194,13 +198,20 @@ export function buildSpeedReading(
 
   if (fired.length > 0) {
     const lead = fired[0]!;
-    const others = fired.slice(1);
-    const subject =
-      fired.length === models.length * 2 ||
-      new Set(fired.map((m) => m.modelID)).size > 1
-        ? "Both models are"
-        : `${lead.modelID} is`;
+    // "Both models" is a claim about THIS metric, not about the page. Saying it
+    // whenever two models appear anywhere in the list asserts the lead's metric
+    // of every model — so a page where one model started slowly and the other
+    // generated slowly announced that both were generating slowly, which was
+    // false about the first one.
+    const sameMetric = fired.filter((m) => m.metric === lead.metric);
+    const everyModel = models.length > 1 && sameMetric.length === models.length;
+    const subject = everyModel ? "Both models are" : `${lead.modelID} is`;
     const words = METRIC_WORDS[lead.metric].slow;
+    // Whatever the subject did not already cover. Without the metric filter a
+    // model named by "Both models" was then named again on its own.
+    const others = fired.filter(
+      (m) => !(everyModel && m.metric === lead.metric) && m !== lead,
+    );
 
     const parts: string[] = [];
     parts.push(
@@ -208,9 +219,15 @@ export function buildSpeedReading(
         ? `Its first token takes ${pct(lead.worseBy)} longer than over the ${refSpan} before — ${Math.round(lead.recent)} ms against ${Math.round(lead.before)} ms.`
         : `It produces ${pct(lead.worseBy)} fewer tokens per second than over the ${refSpan} before — ${lead.recent.toFixed(1)} against ${lead.before.toFixed(1)}.`,
     );
-    const total = fired.reduce((sum, m) => sum + m.secondsAdded, 0);
+    // The lead MODEL's own cost, not the sum across models. No single request is
+    // answered by both models, so adding their penalties together states a wait
+    // nobody can ever experience — and it would grow with the size of the fleet
+    // rather than with the slowdown.
+    const leadCost = fired
+      .filter((m) => m.modelID === lead.modelID)
+      .reduce((sum, m) => sum + m.secondsAdded, 0);
     parts.push(
-      `That is about ${seconds(total)} of extra waiting on a full-length answer.`,
+      `That is about ${seconds(leadCost)} of extra waiting on a full-length answer${everyModel ? ", each" : ""}.`,
     );
     if (others.length > 0) {
       parts.push(
@@ -294,9 +311,10 @@ export function figureDelta(
   const move = moveFor(model, metric);
   const refSpan = spanWords(trend?.before_s ?? 0);
   if (!move) {
-    // Either span was too thin for a median. Said in words rather than left
-    // blank, because a missing line reads as "nothing changed".
-    return { words: `no comparison yet for the last ${refSpan}`, past: false };
+    // Either span was too thin for a median — and which one is not claimed,
+    // because both are reachable. Said in words rather than left blank, since a
+    // missing line reads as "nothing changed".
+    return { words: "not enough runs yet to compare", past: false };
   }
   if (Math.abs(move.worseBy) < SAME_BAND) {
     return { words: `about the same as the ${refSpan} before`, past: false };
