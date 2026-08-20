@@ -252,10 +252,12 @@ describe("ModelCards", () => {
       /3 of 592 runs were cut off/,
     );
     const card = screen.getByTestId("model-card-mimo-v2.5");
-    expect(card.querySelector("[data-testid='state-chip']")).toHaveAttribute(
-      "data-state",
-      "normal",
-    );
+    // No green chip anywhere on the card: normal is the resting state, and
+    // saying it is a second opinion about what the banner has already said —
+    // including on the day the banner says SLOWER, when nothing is failing and
+    // every card would otherwise contradict the headline. A figure whose own
+    // state is unknown still gets its word.
+    expect(card.querySelector("[data-state='normal']")).toBeNull();
     expect(card.querySelectorAll("[data-state='elevated']")).toHaveLength(0);
   });
 
@@ -381,7 +383,8 @@ describe("ModelCards", () => {
     expect(screen.getByText(/288\/288 runs/)).toBeInTheDocument();
   });
 
-  // ...and one failed run is still nothing, on the card as on the banner.
+  // ...and one failed run is still nothing, on the card as on the banner —
+  // which the card says by staying silent rather than by claiming normality.
   it("stays normal for a single failed run", () => {
     render(
       <ModelCards
@@ -391,10 +394,9 @@ describe("ModelCards", () => {
     );
 
     const card = screen.getByTestId("model-card-mimo-v2.5");
-    expect(card.querySelector("[data-testid='state-chip']")).toHaveAttribute(
-      "data-state",
-      "normal",
-    );
+    expect(card.querySelector("[data-state='normal']")).toBeNull();
+    expect(card.querySelector("[data-state='elevated']")).toBeNull();
+    expect(card.querySelector("[data-state='degraded']")).toBeNull();
   });
 
   // The recent block can only ever make this chip WORSE. scoreModelRecent has

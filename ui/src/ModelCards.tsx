@@ -141,6 +141,7 @@ export function ModelCards({
         );
         const ttft = scoreRatio(m.ttft.p50_ms, base?.ttft.p50_ms ?? null);
         const recentState = scoreModelRecent(m.model_id, summary?.recent ?? []);
+        const card = chipState(availability, correctness, ttft, recentState);
 
         return (
           <section
@@ -187,9 +188,18 @@ export function ModelCards({
                   outside the window predicate (backend/internal/samples/
                   queries.go, Summarize) — so this is the identical block the
                   banner reads off `now`, whichever window is selected. */}
-              <StateChip
-                state={chipState(availability, correctness, ttft, recentState)}
-              />
+              {/* Only when it is NOT normal — the same rule the figures below
+                  already follow.
+
+                  A green "normal" here is a second opinion about a state the
+                  banner has already stated, and it contradicts the banner
+                  outright on the day the banner says SLOWER: nothing is
+                  failing, so every card would carry a green chip under an
+                  amber headline, and the reader has no way to know which one
+                  answers their question. Silence cannot contradict anything.
+                  Anything worse than normal — including no data — still gets
+                  its word, because that is the case worth spotting. */}
+              {card !== "normal" && <StateChip state={card} />}
             </header>
 
             <div className="grid grid-cols-2 gap-4">
