@@ -54,6 +54,17 @@ measured 0.0075 ms against 70 tok/s. Never lead a chart with it; `output_tps` is
 **`error_detail` is operator-only** — no public endpoint serves it; a provider error body can
 echo request fragments. A test asserts this.
 
+**The speed-trend floors are MEASURED, never rounded** (`ui/src/trend.ts`). A 3h median sits
+20–35% off the previous day's for `ttft_ms` and 10–12% for `output_tps` — replayed over 7 days of
+live readings. So `+70%` first token (`+40%` when both models move), `−20%` throughput; a round
+10% fires on 70% of readings and makes amber the resting state. Rank several moves by SECONDS
+added to the wait, never by per cent — the metrics are different sizes.
+
+**One claim per page.** The banner is the only surface that states a state; panels and cards
+print numbers. A slowdown is folded into the banner sentence with its own chip word `slower`
+(never `elevated`, which is spent on faults) — "normal" and "slower" must never appear together.
+A fault outranks speed and takes the banner alone.
+
 **`cached_tokens` must stay near zero.** A rise means the system prompt went missing.
 
 **`reasoning_tokens` must be 0.** Send both `{"thinking":{"type":"disabled"}}` and

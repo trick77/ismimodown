@@ -292,7 +292,11 @@ export default function App() {
             <main> stops being a banner. The footer is outside it for the same
             reason. */}
         <main>
-          <VerdictBanner verdict={verdict} loading={loading} />
+          <VerdictBanner
+            verdict={verdict}
+            trend={data?.trend ?? null}
+            loading={loading}
+          />
           <div className="mb-6">
             <PulseStrip
               perModel={data?.pulse.map((p) => p.cycles) ?? []}
@@ -340,6 +344,7 @@ export default function App() {
             <ModelCards
               summary={data?.summary ?? null}
               baseline={data?.baseline ?? null}
+              trend={data?.trend ?? null}
               pending={pending}
             />
             <SeriesPanel

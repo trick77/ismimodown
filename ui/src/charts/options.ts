@@ -761,3 +761,136 @@ export function buildCostOption(
     banded: bands.length > 0,
   };
 }
+
+// TREND_HEIGHT is the banner plot. Short on purpose: it sits under a sentence
+// that has already said what happened, so its job is the SHAPE — a step, a
+// ramp, a spike that is already over — and a full-height chart there would push
+// the rest of the page below the fold on exactly the day the page matters.
+export const TREND_HEIGHT = 120;
+
+// buildTrendOption draws the whole span the speed reading compares, with the
+// recent side picked out.
+//
+// One metric, every model, so a claim about "both models" can be checked
+// against two lines rather than taken on trust. The shading marks the recent
+// span and the dashed line marks where the reference level sat — the gap
+// between the line and the dashes IS the change, read without arithmetic.
+export function buildTrendOption({
+  series,
+  order,
+  colorOf,
+  unit,
+  recentFromMs,
+  referenceLevel,
+}: {
+  series: Record<string, Point[]>;
+  order: string[];
+  colorOf: (name: string) => string;
+  unit: string;
+  recentFromMs: number;
+  referenceLevel: number | null;
+}) {
+  const names = order.filter((name) => series[name] !== undefined);
+  const extent = timeExtent(series);
+  return {
+    animation: false,
+    // Tighter than the panels' grid on every side, and with no y-axis labels:
+    // the sentence above this plot already states both values, and a second
+    // copy on an axis is noise on a chart that exists to show a shape.
+    grid: { left: 8, right: 8, top: 10, bottom: 22 },
+    tooltip: {
+      trigger: "axis",
+      backgroundColor: "#242422",
+      borderColor: GRID,
+      textStyle: { color: INK, fontSize: 12 },
+      // The same hand-written formatter the panels use, and for the same
+      // reason: ECharts stamps a time-axis tooltip in the BROWSER's zone, which
+      // would disagree with every other time on this page.
+      formatter: (raw: AxisTooltipParam | AxisTooltipParam[]) => {
+        const rows = Array.isArray(raw) ? raw : [raw];
+        const first = rows[0]?.value;
+        const t = Array.isArray(first) ? first[0] : undefined;
+        const head =
+          typeof t === "number"
+            ? `<div style="color:${AXIS};font-size:11px">${formatDateTime(new Date(t))}</div>`
+            : "";
+        return (
+          head +
+          rows
+            .map((r) => {
+              const pair = r.value;
+              const v = Array.isArray(pair) ? pair[1] : undefined;
+              const text =
+                typeof v === "number" && Number.isFinite(v)
+                  ? `${round(v)} ${unit}`
+                  : "no data";
+              return `${r.marker ?? ""}${escapeHTML(r.seriesName ?? "")} <b>${text}</b>`;
+            })
+            .join("<br/>")
+        );
+      },
+    },
+    xAxis: {
+      type: "time",
+      min: extent?.[0],
+      max: extent?.[1],
+      axisLine: { lineStyle: { color: GRID } },
+      axisTick: { show: false },
+      axisLabel: {
+        color: AXIS,
+        fontSize: 10,
+        formatter: (value: number) => formatTime(new Date(value)),
+        hideOverlap: true,
+      },
+      splitLine: { show: false },
+    },
+    yAxis: {
+      type: "value",
+      // Scaled to the data rather than anchored at zero: this plot is about a
+      // change, and a zero floor flattens every change worth drawing.
+      scale: true,
+      axisLine: { show: false },
+      axisLabel: { show: false },
+      splitLine: { show: false },
+    },
+    series: names.map((name, i) => ({
+      name,
+      type: "line",
+      showSymbol: false,
+      // A bucket with no finished run is a gap, exactly as on every other plot
+      // here: joining across it would draw a measurement never taken.
+      connectNulls: false,
+      lineStyle: { width: 2, color: colorOf(name) },
+      itemStyle: { color: colorOf(name) },
+      data: toPairs(series[name] ?? []),
+      // The shading and the reference line ride on the FIRST series only —
+      // ECharts draws one set per series, and two identical bands stack into a
+      // darker one that reads as a third state.
+      markArea:
+        i === 0
+          ? {
+              silent: true,
+              data: [
+                [
+                  {
+                    xAxis: recentFromMs,
+                    itemStyle: { color: INK, opacity: 0.05 },
+                  },
+                  { xAxis: extent?.[1] ?? recentFromMs },
+                ],
+              ],
+            }
+          : undefined,
+      markLine:
+        i === 0 && referenceLevel !== null
+          ? {
+              silent: true,
+              symbol: "none",
+              label: { show: false },
+              lineStyle: { color: AXIS, type: "dashed", width: 1 },
+              data: [{ yAxis: referenceLevel }],
+            }
+          : undefined,
+    })),
+  };
+}

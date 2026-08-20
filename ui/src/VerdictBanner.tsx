@@ -1,21 +1,61 @@
+import type { Trend } from "./api/types";
 import type { Verdict } from "./verdict";
 import { StateChip } from "./ui";
+import { buildSpeedReading } from "./trend";
+import { TrendPlot } from "./TrendPlot";
 
 // The verdict sits under the masthead and says what is happening in words,
 // before any number appears. "Is 996 ms good?" is unanswerable in the abstract.
+//
+// It makes exactly ONE claim, and it is the only surface on the page that makes
+// any. A green "everything looks normal" with "slower than usual" underneath it
+// is the page failing to answer its own question — is it normal or is it
+// slower? — so the speed reading is folded into this sentence rather than given
+// a surface of its own, and every panel below prints numbers and no verdicts.
+//
+// Order is severity: a fault outranks a slowdown and takes the banner outright,
+// with speed unmentioned. Being slow is the smaller problem, and a sentence
+// that hedges an outage with a note about throughput reads as neither.
 export function VerdictBanner({
   verdict,
+  trend,
   loading,
 }: {
   verdict: Verdict;
+  trend?: Trend | null;
   loading: boolean;
 }) {
+  const speed = buildSpeedReading(trend);
+  // Only when nothing is wrong. verdict.state carries the faults, and this
+  // branch is what keeps "slower" from ever appearing beside one.
+  const slow =
+    verdict.state === "normal" &&
+    (speed.state === "slower" || speed.state === "quicker");
+
   const tone =
     verdict.state === "degraded"
       ? "border-danger/40 bg-danger/8"
       : verdict.state === "elevated"
         ? "border-fault-edge/40 bg-fault-edge/8"
-        : "border-border bg-panel/60";
+        : speed.state === "slower" && verdict.state === "normal"
+          ? "border-fault-edge/25 bg-fault-edge/5"
+          : "border-border bg-panel/60";
+
+  const headline =
+    loading && verdict.state === "unknown"
+      ? "Loading…"
+      : slow
+        ? speed.lead
+        : verdict.headline;
+
+  // The detail lines the verdict already carries, plus the speed sentence — and
+  // the speed sentence FIRST when it is the thing being announced, because it
+  // is what the headline just claimed.
+  const detail = slow
+    ? [speed.line, ...verdict.detail]
+    : verdict.state === "normal" && speed.state === "steady"
+      ? [...verdict.detail, speed.line]
+      : verdict.detail;
 
   return (
     <div
@@ -36,19 +76,48 @@ export function VerdictBanner({
       data-testid="verdict"
     >
       <div className="flex flex-wrap items-center gap-3">
-        <StateChip state={verdict.state} />
-        <p className="font-serif text-title text-ink">
-          {loading && verdict.state === "unknown"
-            ? "Loading…"
-            : verdict.headline}
+        {slow && speed.state === "slower" ? (
+          // A word this page did not have, and deliberately not "elevated",
+          // which is spent on faults. There is only ever one chip, so this can
+          // never appear beside a green "normal" — which is the contradiction
+          // the whole arrangement exists to make unrepresentable.
+          <span
+            className="num inline-block rounded-full border border-fault-edge/40 bg-fault-edge/10 px-2 py-[2px] text-micro uppercase tracking-wider text-fault-edge"
+            data-testid="state-chip"
+            data-state="slower"
+          >
+            slower
+          </span>
+        ) : (
+          <StateChip state={verdict.state} />
+        )}
+        <p
+          // Display size when something is off, title size otherwise: the
+          // finding is meant to be the loudest thing on the page, and a
+          // slowdown announced in the same weight as "everything looks normal"
+          // is a slowdown a reader scrolls past.
+          className={`font-serif text-ink ${
+            slow && speed.state === "slower"
+              ? "text-display leading-tight"
+              : "text-title"
+          }`}
+        >
+          {headline}
         </p>
       </div>
-      {verdict.detail.length > 0 && (
+      {detail.length > 0 && (
         <ul className="mt-2 space-y-1 text-label text-muted">
-          {verdict.detail.map((line) => (
+          {detail.map((line) => (
             <li key={line}>{line}</li>
           ))}
         </ul>
+      )}
+      {/* The shape of it, under the sentence that named it. A percentage says
+          how much; only the plot says whether it is a step, a ramp, or a spike
+          that is already over. Drawn only when something is off — the plot
+          appearing is itself part of the signal. */}
+      {slow && trend && speed.metric && (
+        <TrendPlot trend={trend} metric={speed.metric} moves={speed.moves} />
       )}
     </div>
   );

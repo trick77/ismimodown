@@ -11,6 +11,7 @@ import {
   GridComponent,
   LegendComponent,
   MarkAreaComponent,
+  MarkLineComponent,
   TooltipComponent,
 } from "echarts/components";
 import { CanvasRenderer } from "echarts/renderers";
@@ -36,6 +37,11 @@ echarts.use([
   TooltipComponent,
   LegendComponent,
   MarkAreaComponent,
+  // The dashed "where it was" line under the speed reading. Registered for the
+  // same reason MarkAreaComponent is: an unregistered component is not an error
+  // in ECharts, the option key is simply ignored — so the line would be absent
+  // and the sentence above it would point at nothing.
+  MarkLineComponent,
   CanvasRenderer,
 ]);
 

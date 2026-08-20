@@ -1,4 +1,4 @@
-import type { Summary } from "./api/types";
+import type { Summary, Trend } from "./api/types";
 import { Figure, StateChip } from "./ui";
 import { formatMs, formatPct, formatTps, plural } from "./format";
 import type { State } from "./verdict";
@@ -12,6 +12,7 @@ import {
   worst,
 } from "./verdict";
 import { colorForModel } from "./charts/options";
+import { figureDelta } from "./trend";
 
 // chipState folds the recent cycles into the three window figures WITHOUT
 // letting them answer a question the data cannot.
@@ -40,10 +41,19 @@ function chipState(
 export function ModelCards({
   summary,
   baseline,
+  trend = null,
   pending = false,
 }: {
   summary: Summary | null;
   baseline: Summary | null;
+  // The recent-past comparison, per figure. A NUMBER under each value and never
+  // a verdict: the banner has already made the page's one claim, and a second
+  // opinion down here is how the page ends up disagreeing with itself.
+  //
+  // Not window-scoped, unlike every figure it sits under — it is the same fixed
+  // reading whichever pill is selected, which is why the line names its own
+  // period ("than the 24 hours before") rather than leaning on the card's.
+  trend?: Trend | null;
   // Whether a first response is still on its way. Only then is holding ground
   // for cards a promise the page can keep — see the placeholder below.
   pending?: boolean;
@@ -131,6 +141,7 @@ export function ModelCards({
         );
         const ttft = scoreRatio(m.ttft.p50_ms, base?.ttft.p50_ms ?? null);
         const recentState = scoreModelRecent(m.model_id, summary?.recent ?? []);
+        const card = chipState(availability, correctness, ttft, recentState);
 
         return (
           <section
@@ -177,9 +188,18 @@ export function ModelCards({
                   outside the window predicate (backend/internal/samples/
                   queries.go, Summarize) — so this is the identical block the
                   banner reads off `now`, whichever window is selected. */}
-              <StateChip
-                state={chipState(availability, correctness, ttft, recentState)}
-              />
+              {/* Only when it is NOT normal — the same rule the figures below
+                  already follow.
+
+                  A green "normal" here is a second opinion about a state the
+                  banner has already stated, and it contradicts the banner
+                  outright on the day the banner says SLOWER: nothing is
+                  failing, so every card would carry a green chip under an
+                  amber headline, and the reader has no way to know which one
+                  answers their question. Silence cannot contradict anything.
+                  Anything worse than normal — including no data — still gets
+                  its word, because that is the case worth spotting. */}
+              {card !== "normal" && <StateChip state={card} />}
             </header>
 
             <div className="grid grid-cols-2 gap-4">
@@ -189,12 +209,14 @@ export function ModelCards({
                 sufficient={m.ttft.sufficient}
                 n={m.ttft.n}
                 state={ttft}
+                delta={figureDelta(trend, m.model_id, "ttft")}
               />
               <Figure
                 label="Throughput p50"
                 value={formatTps(m.tps.p50_ms)}
                 sufficient={m.tps.sufficient}
                 n={m.tps.n}
+                delta={figureDelta(trend, m.model_id, "tps")}
               />
               <Figure
                 label="Availability"

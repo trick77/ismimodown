@@ -43,6 +43,7 @@ type dashboardBody struct {
 		Samples []samples.Sample `json:"samples"`
 	} `json:"samples"`
 	Failures []samples.Failure `json:"failures"`
+	Trend    samples.Trend     `json:"trend"`
 }
 
 func getDashboard(t *testing.T, h http.Handler, window string) dashboardBody {
@@ -487,6 +488,28 @@ func TestFailuresAreIdenticalAcrossWindows(t *testing.T) {
 	// on either window.
 	if !day.Failures[0].At.Equal(testNow.Add(-2 * time.Hour)) {
 		t.Errorf("failure at = %v, want the one inside the day", day.Failures[0].At)
+	}
+}
+
+// Same independence for the speed reading, and it matters more here than it
+// does for the errors block: the banner sentence built from this says "the last
+// three hours", so a reading that quietly became "the last three months" when a
+// pill was clicked would be a different statistic under an unchanged sentence.
+func TestTrendIsIdenticalAcrossWindows(t *testing.T) {
+	h, store := newAPIServer(t)
+	seed(t, store, 25, 900)
+
+	day := getDashboard(t, h, "24h")
+	quarter := getDashboard(t, h, "3mo")
+
+	if !reflect.DeepEqual(day.Trend, quarter.Trend) {
+		t.Errorf("the reading moved with the selector:\n24h = %+v\n3mo = %+v", day.Trend, quarter.Trend)
+	}
+	if len(day.Trend.Models) == 0 {
+		t.Fatal("the block is empty; the page has nothing to read")
+	}
+	if day.Trend.RecentSeconds != int64(samples.TrendRecent/time.Second) {
+		t.Errorf("recent span = %d s, want %v", day.Trend.RecentSeconds, samples.TrendRecent)
 	}
 }
 
