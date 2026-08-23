@@ -92,14 +92,23 @@ function value(m: TrendMetric, side: "recent" | "before"): number | null {
 // Which SIDE it fell on decides what the sentence may claim, so the two are
 // counted apart. Truncation removes the slowest runs from a median, so a
 // censored recent span understates the change and a censored reference day
-// overstates it — the same fact, pointing opposite ways. A bucket that straddles
-// the boundary counts as reference: `t` is where it starts.
+// overstates it — the same fact, pointing opposite ways.
+//
+// Counted by OVERLAP, not by where the bucket starts. Buckets are floored to
+// bucket_s (samples/queries.go) and the boundary is generated_at minus the span,
+// which is not on that grid: a bucket straddling it holds runs from both sides,
+// and reading its start alone filed every one of them under the reference day.
+// A cut-off run eight minutes into the compared span would then have flipped the
+// caveat to "may be smaller than this" — the inversion this counts sides to
+// avoid. Straddling means both are true, which lands on the hedged sentence, and
+// that is the only claim such a bucket supports.
 function censoredIn(
   m: TrendMetric,
   recentFromS: number,
+  bucketS: number,
 ): { recent: boolean; before: boolean } {
   return {
-    recent: m.points.some((p) => p.censored > 0 && p.t >= recentFromS),
+    recent: m.points.some((p) => p.censored > 0 && p.t + bucketS > recentFromS),
     before: m.points.some((p) => p.censored > 0 && p.t < recentFromS),
   };
 }
@@ -108,6 +117,7 @@ function moveFor(
   model: ModelTrend,
   metric: SpeedMetric,
   recentFromS: number,
+  bucketS: number,
 ): SpeedMove | null {
   const block = model[metric];
   const recent = value(block, "recent");
@@ -129,7 +139,7 @@ function moveFor(
     before,
     worseBy,
     secondsAdded,
-    censored: censoredIn(block, recentFromS),
+    censored: censoredIn(block, recentFromS, bucketS),
   };
 }
 
@@ -217,7 +227,7 @@ export function buildSpeedReading(
   const all: SpeedMove[] = [];
   for (const model of models) {
     for (const metric of ["ttft", "tps"] as const) {
-      const move = moveFor(model, metric, recentFromS);
+      const move = moveFor(model, metric, recentFromS, trend?.bucket_s ?? 0);
       if (move) all.push(move);
     }
   }

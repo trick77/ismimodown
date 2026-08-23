@@ -232,6 +232,28 @@ describe("buildSpeedReading", () => {
     expect(reading.line).not.toContain("may be smaller than this");
   });
 
+  // Buckets are floored to bucket_s and the boundary is not on that grid, so one
+  // bucket holds runs from both spans. Read by its START it counted entirely as
+  // reference — and a run cut off minutes INTO the compared span then flipped
+  // the caveat to the reassuring direction, which is the inversion the split
+  // exists to prevent.
+  it("claims no direction when the censored bucket straddles the boundary", () => {
+    const straddling = model("mimo-v2.5", [1700, 900], [70, 70]);
+    // Half a bucket before the boundary, so it carries runs from either side.
+    straddling.ttft.points = [
+      {
+        t: GENERATED_AT_S - 3 * HOUR - 900,
+        n: 6,
+        censored: 2,
+        p50: 900,
+        p95: 1200,
+      },
+    ];
+    const reading = buildSpeedReading(trendOf([straddling]));
+    expect(reading.line).toContain("either side of it");
+    expect(reading.line).not.toContain("may be smaller than this");
+  });
+
   // "Fewer tokens per second" is a share of the rate the reader used to get, and
   // the ratio behind it is computed the other way round. Spending one as the
   // other published "100 % fewer" for a rate that had halved — with both figures
