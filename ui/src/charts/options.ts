@@ -248,6 +248,35 @@ export function logAxis(
   return { min, max, ticks };
 }
 
+// linearBounds fits a linear axis to every value that has to be HELD, including
+// the levels drawn as markLines rather than as data.
+//
+// ECharts computes a linear extent from the series on the axis and from nothing
+// else, so a markLine outside that extent is positioned outside the grid and
+// never seen. Where the axis carries labels that is fine — the caller wants
+// ECharts' rounded ends — so this is only for the plots that draw a level the
+// data does not reach.
+//
+// Null when there is nothing finite to fit. Padded so a line at the extreme is
+// not drawn along an edge, and with a floor under the pad so a perfectly flat
+// series still gets an axis with height.
+function linearBounds(
+  values: (number | null)[],
+): { min: number; max: number } | null {
+  const finite = values.filter(
+    (v): v is number => v !== null && Number.isFinite(v),
+  );
+  if (finite.length === 0) {
+    return null;
+  }
+  const lo = Math.min(...finite);
+  const hi = Math.max(...finite);
+  const pad = (hi - lo) * 0.05 || Math.abs(hi) * 0.05 || 1;
+  // Never below zero: everything drawn on such an axis is a duration or a rate,
+  // and a negative floor is axis spent on a reading that cannot happen.
+  return { min: lo >= 0 ? Math.max(0, lo - pad) : lo - pad, max: hi + pad };
+}
+
 // SMOOTHED_SUFFIX marks a series as the smoothed twin of a measurement rather
 // than a measurement of its own. The tooltip filters on it: hovering a chart
 // with two models must report two numbers, and a rolling median is not a
@@ -1016,6 +1045,23 @@ export function buildTrendOption({
 }) {
   const names = order.filter((name) => series[name] !== undefined);
   const extent = timeExtent(series);
+  // The same axis rule the panels follow, and for the reason spelled out at
+  // LOG_SCALE_THRESHOLD: past a 20x spread a linear axis collapses one of the
+  // two readings, and on this plot it collapsed the one the sentence is about —
+  // a single cut-off bucket flattened a doubled first token into a straight
+  // line. The levels are included in the range test, so an axis can never be
+  // fitted to a spread that leaves one of the two dashes off the plot.
+  const values = [...allValues(series), referenceLevel ?? null];
+  const plottableOnLog = values.every((v) => v === null || v > 0);
+  const log = plottableOnLog && shouldUseLogScale(values);
+  const fitted = log ? logAxis(values) : null;
+  // On a LINEAR axis the same guarantee has to be made by hand. ECharts unions
+  // its extent from series data only — a markLine is a component, not a series,
+  // so a dashed level below everything drawn is placed outside the grid and
+  // simply never seen. That is the ordinary case here: the plot draws six hours
+  // of a slowdown that started before them, so every value on it sits above the
+  // reference day's median and the dash the legend promises lands off the plot.
+  const bounds = log ? null : linearBounds(values);
   return {
     animation: false,
     // Tighter than the panels' grid on every side, and with no y-axis labels:
@@ -1069,10 +1115,17 @@ export function buildTrendOption({
       splitLine: { show: false },
     },
     yAxis: {
-      type: "value",
+      type: log ? "log" : "value",
       // Scaled to the data rather than anchored at zero: this plot is about a
       // change, and a zero floor flattens every change worth drawing.
       scale: true,
+      // Fitted to the data rather than rounded out to decades — see logAxis. On
+      // a plot this short a decade of empty axis is most of its height. The
+      // linear branch sets its own bounds for a different reason — see
+      // linearBounds — and neither is nice-rounded, which costs nothing on a
+      // plot that draws no labels and no gridlines.
+      ...(fitted ? { min: fitted.min, max: fitted.max } : {}),
+      ...(bounds ? { min: bounds.min, max: bounds.max } : {}),
       axisLine: { show: false },
       axisLabel: { show: false },
       splitLine: { show: false },
@@ -1109,6 +1162,12 @@ export function buildTrendOption({
               ],
             }
           : undefined,
+      // One level line, not two. The recent median was drawn here as well for a
+      // while — a segment across the shaded span — and on a 120px plot it read
+      // as a third axis rule rather than as the figure the sentence quotes. The
+      // dashed reference is the one that earns its place: it is the level the
+      // line is being compared against, and the data line's own position over
+      // the shading is the other half.
       markLine:
         i === 0 && referenceLevel !== null
           ? {
@@ -1120,5 +1179,8 @@ export function buildTrendOption({
             }
           : undefined,
     })),
+    // The caller stamps "log scale" beside the legend when this is true — a log
+    // axis read as linear is worse than no chart.
+    logScale: log,
   };
 }

@@ -31,12 +31,17 @@ const (
 )
 
 // TrendSeriesWindow is the plot that rides along with the figures: the whole
-// 27 hours the comparison spans, at half-hour buckets.
+// 27 hours the comparison spans, at quarter-hour buckets.
 //
 // Deliberately not one of the Windows: those are the reader's choices and this
-// is the page's own. The bucket is wide enough that 54 points cover the span —
-// two models times two metrics is 216 points, which is a plot, not a payload
-// problem — and narrow enough that the shape of a slowdown is still visible.
+// is the page's own. The banner DRAWS only the last six of these hours — the
+// three the sentence measures plus as much again in front of them — so the
+// bucket has to be narrow enough that six hours is a shape rather than a
+// zigzag: 24 points, where half-hour buckets gave 12 and a slowdown's onset
+// landed between two of them. The full 27 hours still ship, because the
+// censoring caveat is read off the reference day's buckets and it cannot be
+// pointed the right way without them. 108 buckets, two models, two metrics is
+// ~430 points — the same order as the panels already serve.
 //
 // The page draws this rather than the selected window's series because the
 // series a reader has selected may not contain three hours at all: the 30d
@@ -44,7 +49,7 @@ const (
 var TrendSeriesWindow = Window{
 	Key:      "trend",
 	Duration: TrendRecent + TrendReference,
-	Bucket:   30 * time.Minute,
+	Bucket:   15 * time.Minute,
 }
 
 // TrendMetric is one metric's before-and-after, plus the shape between them.

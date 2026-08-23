@@ -60,10 +60,14 @@ func TestTrendSeparatesTheRecentSpanFromTheDayBeforeIt(t *testing.T) {
 		t.Errorf("before tps p50 = %v, want 70", m.TPS.Before.P50)
 	}
 
-	// Both spans, drawn at half-hour buckets. The plot the banner shows is this
-	// one and not the selected window's, so it has to cover the comparison.
-	if len(m.TTFT.Points) < 40 {
-		t.Errorf("points = %d, want the whole 27 h at half-hour buckets", len(m.TTFT.Points))
+	// Both spans, drawn at quarter-hour buckets. The banner plots only the last
+	// six hours of this, but the reference day's buckets are what point the
+	// censoring caveat the right way, so the whole span still has to arrive.
+	if len(m.TTFT.Points) < 80 {
+		t.Errorf("points = %d, want the whole 27 h at quarter-hour buckets", len(m.TTFT.Points))
+	}
+	if tr.BucketSeconds != int64(TrendSeriesWindow.Bucket/time.Second) {
+		t.Errorf("bucket_s = %d, want %v", tr.BucketSeconds, TrendSeriesWindow.Bucket)
 	}
 	if tr.RecentSeconds != int64(TrendRecent/time.Second) ||
 		tr.BeforeSeconds != int64(TrendReference/time.Second) {
