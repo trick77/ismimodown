@@ -234,11 +234,11 @@ export function buildSpeedReading(
         `${others.map((m) => `${m.modelID} is ${METRIC_WORDS[m.metric].slow}`).join(", ")} too.`,
       );
     }
-    parts.push(
-      fired.some((m) => m.censored)
-        ? "Some requests in these periods were cut off by the timeout limits and are not in either median, so the real change is at least this large."
-        : "Nothing failed, and every answer was right.",
-    );
+    if (fired.some((m) => m.censored)) {
+      parts.push(
+        "Some requests in these periods were cut off by the timeout limits and are not in either median, so the real change is at least this large.",
+      );
+    }
 
     return {
       state: "slower",
