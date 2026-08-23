@@ -853,6 +853,14 @@ function round(v: number): string {
 // and it is the only green on the card.
 const OFFPEAK = "#5aa06a";
 
+// The band is painted BENEATH the cost line and its own area fill, so the green
+// arrives twice diluted. At 0.13 it landed as a grey smudge on the panel — read
+// on the rendered plot as a lighting artefact rather than as the shaded hours
+// the caption names. 0.3 is the same weight the censoring bands carry, for the
+// same reason, and the 1px edge fixes where the reduced rate starts and stops:
+// a wash this soft has no readable boundary on its own.
+const OFFPEAK_FILL = 0.3;
+
 // SPAN_HHMM_MS is where a bare HH:mm stops being unambiguous — past two days it
 // repeats across the plot.
 const COST_SPAN_HHMM_MS = 48 * 3_600_000;
@@ -958,7 +966,12 @@ export function buildCostOption(
                 data: bands.map(([from, to]) => [
                   {
                     xAxis: from * 1000,
-                    itemStyle: { color: OFFPEAK, opacity: 0.13 },
+                    itemStyle: {
+                      color: OFFPEAK,
+                      opacity: OFFPEAK_FILL,
+                      borderColor: OFFPEAK,
+                      borderWidth: 1,
+                    },
                   },
                   { xAxis: to * 1000 },
                 ]),
