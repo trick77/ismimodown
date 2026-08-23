@@ -24,12 +24,24 @@ export function TrendPlot({
   metric: SpeedMetric;
   moves: SpeedMove[];
 }) {
+  // Only the models the sentence is about. A second line for a model that did
+  // not move is a shape the reader has to rule out before they can read the one
+  // that did — and the two are on one axis, so the steady line also sets the
+  // scale the moved one is drawn against.
+  //
+  // Matched on the metric too: the plot draws ONE of them, and a model that only
+  // started slowly has nothing to say on the throughput plot.
+  const drawn = trend.models.filter((m) =>
+    moves.some((move) => move.modelID === m.model_id && move.metric === metric),
+  );
+  // Colour follows the MODEL, so it is picked from the whole fleet — a model
+  // keeps its hue whether or not the other one is on the plot.
   const ids = trend.models.map((m) => m.model_id);
   const series: Record<
     string,
     (typeof trend.models)[number]["ttft"]["points"]
   > = {};
-  for (const model of trend.models) {
+  for (const model of drawn) {
     series[model.model_id] = model[metric].points;
   }
   const unit = metric === "ttft" ? "ms" : "tok/s";
@@ -50,7 +62,7 @@ export function TrendPlot({
   return (
     <div className="mt-4" data-testid="trend-plot">
       <div className="mb-1 flex flex-wrap items-center gap-x-5 gap-y-1">
-        {trend.models.map((model) => {
+        {drawn.map((model) => {
           // Matched on the metric as well as the model. The plot draws ONE
           // metric, so a move on the other one must not label this line: a
           // model whose first token regressed would otherwise have its

@@ -1096,7 +1096,11 @@ export function buildTrendOption({
                 [
                   {
                     xAxis: recentFromMs,
-                    itemStyle: { color: INK, opacity: 0.05 },
+                    // Ink on the panel, and the only thing on the plot that says
+                    // WHICH hours the sentence above it is about. At 0.05 it was
+                    // invisible on the rendered chart — a band nobody can find
+                    // labels nothing, and the legend still promised one.
+                    itemStyle: { color: INK, opacity: 0.12 },
                   },
                   { xAxis: extent?.[1] ?? recentFromMs },
                 ],

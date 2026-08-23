@@ -118,6 +118,29 @@ describe("VerdictBanner", () => {
     );
   });
 
+  // The plot exists to show ONE shape. A line for the model that held steady is
+  // a second shape the reader has to rule out first — and on a shared axis it
+  // also sets the scale the moved line is drawn against.
+  it("plots only the models the sentence is about", () => {
+    render(
+      <VerdictBanner
+        verdict={normal}
+        trend={trend([
+          model("mimo-v2.5", [900, 900]),
+          model("mimo-v2.5-pro", [1700, 900]),
+        ])}
+        loading={false}
+      />,
+    );
+    const plot = screen.getByTestId("trend-plot");
+    expect(plot).toHaveTextContent("mimo-v2.5-pro");
+    // The steady model keeps its own legend entry off the plot. Matched on the
+    // whole label, since its id is a prefix of the one that did move.
+    expect(
+      screen.queryByText("mimo-v2.5", { selector: "span" }),
+    ).not.toBeInTheDocument();
+  });
+
   // Forgetting is only acceptable if the page says what it forgot: a resting
   // banner that mentions speed at all is what makes its silence readable.
   it("says it is running at its usual speed on a quiet day", () => {
