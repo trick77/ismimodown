@@ -58,7 +58,14 @@ export function TrendPlot({
   // The lead-in is what makes the shading legible: a plot that started exactly
   // where the shading starts would be shaded end to end, and the reader could
   // not see the level the compared hours departed from.
-  const fromMs = generatedAt - 2 * trend.recent_s * 1000;
+  //
+  // An unparseable stamp leaves generatedAt NaN, and a NaN cutoff would compare
+  // false against every point and leave the plot empty. The shading is already
+  // wrong at that point; dropping the line as well turns a mislabelled plot into
+  // no plot, so the window opens all the way instead.
+  const fromMs = Number.isFinite(generatedAt)
+    ? generatedAt - 2 * trend.recent_s * 1000
+    : -Infinity;
   const series: Record<
     string,
     (typeof trend.models)[number]["ttft"]["points"]
@@ -128,7 +135,7 @@ export function TrendPlot({
       </div>
       <EChart
         height={TREND_HEIGHT}
-        ariaLabel={`${metric === "ttft" ? "Time to first token" : "Throughput"} over the compared hours and as much again before them, with the compared span shaded and both medians drawn`}
+        ariaLabel={`${metric === "ttft" ? "Time to first token" : "Throughput"} over the compared hours and as much again before them, with the compared span shaded and the reference median drawn`}
         option={option}
       />
     </div>

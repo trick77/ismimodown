@@ -248,6 +248,35 @@ export function logAxis(
   return { min, max, ticks };
 }
 
+// linearBounds fits a linear axis to every value that has to be HELD, including
+// the levels drawn as markLines rather than as data.
+//
+// ECharts computes a linear extent from the series on the axis and from nothing
+// else, so a markLine outside that extent is positioned outside the grid and
+// never seen. Where the axis carries labels that is fine — the caller wants
+// ECharts' rounded ends — so this is only for the plots that draw a level the
+// data does not reach.
+//
+// Null when there is nothing finite to fit. Padded so a line at the extreme is
+// not drawn along an edge, and with a floor under the pad so a perfectly flat
+// series still gets an axis with height.
+function linearBounds(
+  values: (number | null)[],
+): { min: number; max: number } | null {
+  const finite = values.filter(
+    (v): v is number => v !== null && Number.isFinite(v),
+  );
+  if (finite.length === 0) {
+    return null;
+  }
+  const lo = Math.min(...finite);
+  const hi = Math.max(...finite);
+  const pad = (hi - lo) * 0.05 || Math.abs(hi) * 0.05 || 1;
+  // Never below zero: everything drawn on such an axis is a duration or a rate,
+  // and a negative floor is axis spent on a reading that cannot happen.
+  return { min: lo >= 0 ? Math.max(0, lo - pad) : lo - pad, max: hi + pad };
+}
+
 // SMOOTHED_SUFFIX marks a series as the smoothed twin of a measurement rather
 // than a measurement of its own. The tooltip filters on it: hovering a chart
 // with two models must report two numbers, and a rolling median is not a
@@ -996,10 +1025,9 @@ export const TREND_HEIGHT = 120;
 // One metric, and the models the caller says moved on it — a claim about "both
 // models" still arrives as two lines that can be checked rather than taken on
 // trust, while a reading about one model no longer drags a steady second line
-// onto the shared axis. The shading marks the recent span, and the two level
-// lines mark what the sentence compared: dashes where the reference day sat, a
-// short segment at the median of the compared hours. The gap between them IS
-// the change, read without arithmetic.
+// onto the shared axis. The shading marks the recent span and the dashed line
+// marks where the reference level sat — the gap between the line and the dashes
+// IS the change, read without arithmetic.
 export function buildTrendOption({
   series,
   order,
@@ -1027,6 +1055,13 @@ export function buildTrendOption({
   const plottableOnLog = values.every((v) => v === null || v > 0);
   const log = plottableOnLog && shouldUseLogScale(values);
   const fitted = log ? logAxis(values) : null;
+  // On a LINEAR axis the same guarantee has to be made by hand. ECharts unions
+  // its extent from series data only — a markLine is a component, not a series,
+  // so a dashed level below everything drawn is placed outside the grid and
+  // simply never seen. That is the ordinary case here: the plot draws six hours
+  // of a slowdown that started before them, so every value on it sits above the
+  // reference day's median and the dash the legend promises lands off the plot.
+  const bounds = log ? null : linearBounds(values);
   return {
     animation: false,
     // Tighter than the panels' grid on every side, and with no y-axis labels:
@@ -1085,8 +1120,12 @@ export function buildTrendOption({
       // change, and a zero floor flattens every change worth drawing.
       scale: true,
       // Fitted to the data rather than rounded out to decades — see logAxis. On
-      // a plot this short a decade of empty axis is most of its height.
+      // a plot this short a decade of empty axis is most of its height. The
+      // linear branch sets its own bounds for a different reason — see
+      // linearBounds — and neither is nice-rounded, which costs nothing on a
+      // plot that draws no labels and no gridlines.
       ...(fitted ? { min: fitted.min, max: fitted.max } : {}),
+      ...(bounds ? { min: bounds.min, max: bounds.max } : {}),
       axisLine: { show: false },
       axisLabel: { show: false },
       splitLine: { show: false },

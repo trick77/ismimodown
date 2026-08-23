@@ -140,6 +140,12 @@ describe("TrendPlot", () => {
     );
     expect(captured.option!.yAxis.type).toBe("value");
     expect(screen.queryByText("log scale")).not.toBeInTheDocument();
+    // The dashed level is a markLine, and ECharts fits a linear axis to the
+    // SERIES only: a reference below every drawn hour — the ordinary case, a
+    // slowdown older than the six hours on the plot — would be positioned
+    // outside the grid and never drawn.
+    expect(captured.option!.yAxis.min).toBeLessThanOrEqual(900);
+    expect(captured.option!.yAxis.max).toBeGreaterThanOrEqual(1800);
   });
 
   // One level line: the normal the sentence measured against. A second one for
