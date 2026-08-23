@@ -993,10 +993,12 @@ export const TREND_HEIGHT = 120;
 // buildTrendOption draws the whole span the speed reading compares, with the
 // recent side picked out.
 //
-// One metric, every model, so a claim about "both models" can be checked
-// against two lines rather than taken on trust. The shading marks the recent
-// span and the dashed line marks where the reference level sat — the gap
-// between the line and the dashes IS the change, read without arithmetic.
+// One metric, and the models the caller says moved on it — a claim about "both
+// models" still arrives as two lines that can be checked rather than taken on
+// trust, while a reading about one model no longer drags a steady second line
+// onto the shared axis. The shading marks the recent span and the dashed line
+// marks where the reference level sat — the gap between the line and the dashes
+// IS the change, read without arithmetic.
 export function buildTrendOption({
   series,
   order,
