@@ -996,9 +996,10 @@ export const TREND_HEIGHT = 120;
 // One metric, and the models the caller says moved on it — a claim about "both
 // models" still arrives as two lines that can be checked rather than taken on
 // trust, while a reading about one model no longer drags a steady second line
-// onto the shared axis. The shading marks the recent span and the dashed line
-// marks where the reference level sat — the gap between the line and the dashes
-// IS the change, read without arithmetic.
+// onto the shared axis. The shading marks the recent span, and the two level
+// lines mark what the sentence compared: dashes where the reference day sat, a
+// short segment at the median of the compared hours. The gap between them IS
+// the change, read without arithmetic.
 export function buildTrendOption({
   series,
   order,
@@ -1016,6 +1017,16 @@ export function buildTrendOption({
 }) {
   const names = order.filter((name) => series[name] !== undefined);
   const extent = timeExtent(series);
+  // The same axis rule the panels follow, and for the reason spelled out at
+  // LOG_SCALE_THRESHOLD: past a 20x spread a linear axis collapses one of the
+  // two readings, and on this plot it collapsed the one the sentence is about —
+  // a single cut-off bucket flattened a doubled first token into a straight
+  // line. The levels are included in the range test, so an axis can never be
+  // fitted to a spread that leaves one of the two dashes off the plot.
+  const values = [...allValues(series), referenceLevel ?? null];
+  const plottableOnLog = values.every((v) => v === null || v > 0);
+  const log = plottableOnLog && shouldUseLogScale(values);
+  const fitted = log ? logAxis(values) : null;
   return {
     animation: false,
     // Tighter than the panels' grid on every side, and with no y-axis labels:
@@ -1069,10 +1080,13 @@ export function buildTrendOption({
       splitLine: { show: false },
     },
     yAxis: {
-      type: "value",
+      type: log ? "log" : "value",
       // Scaled to the data rather than anchored at zero: this plot is about a
       // change, and a zero floor flattens every change worth drawing.
       scale: true,
+      // Fitted to the data rather than rounded out to decades — see logAxis. On
+      // a plot this short a decade of empty axis is most of its height.
+      ...(fitted ? { min: fitted.min, max: fitted.max } : {}),
       axisLine: { show: false },
       axisLabel: { show: false },
       splitLine: { show: false },
@@ -1109,6 +1123,12 @@ export function buildTrendOption({
               ],
             }
           : undefined,
+      // One level line, not two. The recent median was drawn here as well for a
+      // while — a segment across the shaded span — and on a 120px plot it read
+      // as a third axis rule rather than as the figure the sentence quotes. The
+      // dashed reference is the one that earns its place: it is the level the
+      // line is being compared against, and the data line's own position over
+      // the shading is the other half.
       markLine:
         i === 0 && referenceLevel !== null
           ? {
@@ -1120,5 +1140,8 @@ export function buildTrendOption({
             }
           : undefined,
     })),
+    // The caller stamps "log scale" beside the legend when this is true — a log
+    // axis read as linear is worse than no chart.
+    logScale: log,
   };
 }
