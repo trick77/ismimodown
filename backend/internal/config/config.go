@@ -120,7 +120,15 @@ const DefaultSystemPrompt = "You are a helpful assistant."
 // architectural one — but it is a change to this line, reviewed with the price
 // table and the UI copy that name these two models, not a deployment-time knob
 // that can silently disagree with any of them.
-var DefaultModels = []string{"mimo-v2.5", "mimo-v2.5-pro"}
+//
+// The ORDER is the display order, not just a set. It stays pure slice order all
+// the way to the wire — summary, trend, pulse and sample groups — and the UI
+// reads its left-to-right sequence off it: the first entry is the left model
+// card and the first chart series and legend entry. Reordering here reorders the
+// page. It also reorders dispatch within a cycle, which changes nothing
+// measured: runs are serialised DispatchGap apart either way, and every row is
+// stamped with its cycle's started_at rather than its own.
+var DefaultModels = []string{"mimo-v2.5-pro", "mimo-v2.5"}
 
 // ModelPrice is one model's list price, in USD per MILLION tokens.
 //

@@ -20,6 +20,11 @@
 // first fetch resolves, and a subtitle that pops a clause in half a second
 // later is worse than one that can go stale on a release we control.
 //
+// Their ORDER deliberately does not follow that list, which runs pro first. This
+// is a sentence rather than a ranking, and the shorter ID first is how it reads
+// aloud; the string is also cut into og.png (assets/og/card.html), so reordering
+// it costs a regenerated card and a ?v= bump for no reader's benefit.
+//
 // The eyebrow names the two layers the page measures: the inference itself, and
 // the network path the request takes to reach it. That is the page's whole
 // structure — it is the split the subtitle spells out one line down, and the

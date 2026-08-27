@@ -125,7 +125,21 @@ export const REFERENCE_AMS_COLOR = "#8f8d85";
 // Against #1f1f1e, paired with WIRE_COLOR: CVD ΔE 10.8, normal-vision ΔE 15.3.
 export const SERVER_COLOR = "#c6613f";
 
+// The two probed models' hues, bound to the ID rather than to the position.
+// This is what makes the promise above true: the page's left-to-right order is
+// DefaultModels' slice order and can be reordered there, and a model that moves
+// takes its hue with it. Index order was doing the same job only for as long as
+// the list never changed, and a reorder would silently have swapped the two.
+const MODEL_COLORS: Record<string, string> = {
+  "mimo-v2.5": SERIES_COLORS[0],
+  "mimo-v2.5-pro": SERIES_COLORS[1],
+};
+
 export function colorForModel(modelID: string, models: string[]): string {
+  const known = MODEL_COLORS[modelID];
+  if (known !== undefined) return known;
+  // A model this file has never heard of still has to draw. Position is the
+  // only thing left to go on, and it at least keeps two unknown models apart.
   const i = models.indexOf(modelID);
   return SERIES_COLORS[i >= 0 ? i % SERIES_COLORS.length : 0]!;
 }
@@ -819,6 +833,11 @@ export function buildDecompositionOption(
     yAxis: {
       type: "category",
       data: names,
+      // An ECharts category axis counts UP from the bottom, so without this the
+      // first model would draw as the bottom bar — reading as last on a page
+      // whose every other surface puts it first. Inverted, the bars run in the
+      // same order as the cards and the legends above them.
+      inverse: true,
       axisLine: { lineStyle: { color: GRID } },
       axisLabel: { color: AXIS, fontSize: 11 },
     },
