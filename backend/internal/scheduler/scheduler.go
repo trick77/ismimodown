@@ -391,10 +391,12 @@ func (s *Scheduler) RunCycle(ctx context.Context) {
 		}
 	}
 
-	// Kept although the loop above is now deterministic and already produces this
-	// order. It is one comparison per row and it pins the invariant the readers
-	// depend on to the write path rather than to the shape of a loop somebody
-	// might reorder later.
+	// Kept, and it is no longer a no-op: config.DefaultModels is the DISPLAY
+	// order and runs pro first, so the loop above dispatches in an order this
+	// sort undoes. That is deliberate — row order in the database is alphabetical
+	// and stays that way however the page is arranged, which is what the readers
+	// tie-breaking on id (queries.go) depend on. Reordering DefaultModels must
+	// not silently reorder stored rows.
 	//
 	// One key now that there is one run per model. It used to break ties on the
 	// probe kind as well, which is the sort of tie that stops existing quietly.

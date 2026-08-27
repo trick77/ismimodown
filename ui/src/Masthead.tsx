@@ -20,6 +20,11 @@
 // first fetch resolves, and a subtitle that pops a clause in half a second
 // later is worse than one that can go stale on a release we control.
 //
+// Their ORDER deliberately does not follow that list, which runs pro first. The
+// list is a display order and the cards, charts and legends all read off it;
+// this is a sentence rather than a ranking, and the shorter ID first is how it
+// reads aloud.
+//
 // The eyebrow names the two layers the page measures: the inference itself, and
 // the network path the request takes to reach it. That is the page's whole
 // structure — it is the split the subtitle spells out one line down, and the
