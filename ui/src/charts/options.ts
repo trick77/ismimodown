@@ -138,10 +138,27 @@ const MODEL_COLORS: Record<string, string> = {
 export function colorForModel(modelID: string, models: string[]): string {
   const known = MODEL_COLORS[modelID];
   if (known !== undefined) return known;
-  // A model this file has never heard of still has to draw. Position is the
-  // only thing left to go on, and it at least keeps two unknown models apart.
-  const i = models.indexOf(modelID);
-  return SERIES_COLORS[i >= 0 ? i % SERIES_COLORS.length : 0]!;
+  // A model this file has never heard of still has to draw, and the hues the
+  // known ones hold are spoken for: a third model taking SERIES_COLORS[1] by
+  // position would draw in mimo-v2.5-pro's colour, on the same chart as
+  // mimo-v2.5-pro. So the unknown ones share out what is LEFT, by their
+  // position among the unknowns — which keeps two of them apart as well.
+  //
+  // With more models on a chart than SERIES_COLORS has entries there is nothing
+  // left to share and two series must repeat a hue. That is a palette that ran
+  // out, not a lookup that went wrong: adding a third model means adding a third
+  // colour here, measured against the surface like the two above it.
+  const taken = new Set(
+    models
+      .filter((m) => MODEL_COLORS[m] !== undefined)
+      .map((m) => MODEL_COLORS[m]!),
+  );
+  const free = SERIES_COLORS.filter((c) => !taken.has(c));
+  const palette = free.length > 0 ? free : SERIES_COLORS;
+  const i = models
+    .filter((m) => MODEL_COLORS[m] === undefined)
+    .indexOf(modelID);
+  return palette[i >= 0 ? i % palette.length : 0]!;
 }
 
 const AXIS = "#6b6963";

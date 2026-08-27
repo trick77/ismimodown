@@ -41,7 +41,17 @@ describe("colorForModel", () => {
   });
 
   it("falls back for an unknown model rather than returning undefined", () => {
-    expect(colorForModel("nope", ["mimo-v2.5"])).toBe(SERIES_COLORS[0]);
+    expect(colorForModel("nope", ["nope"])).toBe(SERIES_COLORS[0]);
+  });
+
+  // A model RENAMED in DefaultModels without an entry here must not land on the
+  // hue the model beside it is already drawing with. By position it would:
+  // "mimo-v3" first would take SERIES_COLORS[0], which mimo-v2.5 holds.
+  it("never hands an unknown model a hue a known one holds", () => {
+    const models = ["mimo-v3", "mimo-v2.5"];
+    expect(colorForModel("mimo-v3", models)).not.toBe(
+      colorForModel("mimo-v2.5", models),
+    );
   });
 });
 
