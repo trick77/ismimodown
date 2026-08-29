@@ -28,8 +28,12 @@ describe("colorForModel", () => {
   it("is stable per model regardless of position", () => {
     const a = ["mimo-v2.5", "mimo-v2.5-pro"];
     const b = ["mimo-v2.5-pro", "mimo-v2.5"];
+    // The same hue in both orderings — this is what lets DefaultModels be
+    // reordered without the two models trading colours.
     expect(colorForModel("mimo-v2.5", a)).toBe(SERIES_COLORS[0]);
-    expect(colorForModel("mimo-v2.5", b)).toBe(SERIES_COLORS[1]);
+    expect(colorForModel("mimo-v2.5", b)).toBe(SERIES_COLORS[0]);
+    expect(colorForModel("mimo-v2.5-pro", a)).toBe(SERIES_COLORS[1]);
+    expect(colorForModel("mimo-v2.5-pro", b)).toBe(SERIES_COLORS[1]);
     // The two series must never share a colour.
     expect(colorForModel("mimo-v2.5", a)).not.toBe(
       colorForModel("mimo-v2.5-pro", a),
@@ -37,7 +41,17 @@ describe("colorForModel", () => {
   });
 
   it("falls back for an unknown model rather than returning undefined", () => {
-    expect(colorForModel("nope", ["mimo-v2.5"])).toBe(SERIES_COLORS[0]);
+    expect(colorForModel("nope", ["nope"])).toBe(SERIES_COLORS[0]);
+  });
+
+  // A model RENAMED in DefaultModels without an entry here must not land on the
+  // hue the model beside it is already drawing with. By position it would:
+  // "mimo-v3" first would take SERIES_COLORS[0], which mimo-v2.5 holds.
+  it("never hands an unknown model a hue a known one holds", () => {
+    const models = ["mimo-v3", "mimo-v2.5"];
+    expect(colorForModel("mimo-v3", models)).not.toBe(
+      colorForModel("mimo-v2.5", models),
+    );
   });
 });
 
@@ -251,6 +265,17 @@ describe("buildDecompositionOption", () => {
     expect(opt.series[1]!.name).toBe("server-side");
     expect(opt.series[1]!.data).toEqual([736]);
     expect(opt.series[0]!.stack).toBe(opt.series[1]!.stack);
+  });
+
+  // A category axis counts up from the bottom, so the first model would draw as
+  // the bottom bar and read as last against the cards and legends above it.
+  it("draws the first model as the top bar", () => {
+    const opt = buildDecompositionOption([
+      { id: "mimo-v2.5-pro", ttft: 916, edge: 180 },
+      { id: "mimo-v2.5", ttft: 700, edge: 180 },
+    ]);
+    expect(opt.yAxis.data).toEqual(["mimo-v2.5-pro", "mimo-v2.5"]);
+    expect(opt.yAxis.inverse).toBe(true);
   });
 
   // Never "model time": the handshake terminates at the TLS edge, and any
