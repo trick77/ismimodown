@@ -68,6 +68,9 @@ export type SpeedReading = {
   // "elevated", which is spent on faults: a slowdown with nothing failing is a
   // different claim, and reusing the fault vocabulary for it is how a reader
   // stops believing the fault vocabulary.
+  //
+  // "quicker" is measured and never spoken — it carries no lead and no line. It
+  // exists so that "steady" keeps meaning what it says.
   state: "slower" | "quicker" | "steady" | "unknown";
   // The whole answer, in one line, largest type on the page.
   lead: string;
@@ -154,13 +157,12 @@ function pct(v: number): string {
 
 // A ratio restated against the figure it started from.
 //
-// Two of the four sentences claim a share of the OLD reading — "fewer tokens per
-// second", "sooner" — while the ratio behind them was computed the other way
-// round, against the new one. Spending one as the other published "100 % fewer
-// tokens per second" for a rate that had halved, with "35.0 against 70.0"
-// printed in the same breath; "100 % fewer" is no tokens at all. The other two
-// ("longer", "more tokens per second") are already shares of the old reading and
-// must NOT be passed through here.
+// Both "fewer tokens per second" sentences claim a share of the OLD reading,
+// while the ratio behind them was computed the other way round, against the new
+// one. Spending one as the other published "100 % fewer tokens per second" for a
+// rate that had halved, with "35.0 against 70.0" printed in the same breath;
+// "100 % fewer" is no tokens at all. The first-token sentence ("longer") is
+// already a share of the old reading and must NOT be passed through here.
 //
 // The FLOORS keep testing the symmetric figure — a fraction is not symmetric
 // about zero, and comparing the two directions against one threshold is what
@@ -181,9 +183,11 @@ export function spanWords(seconds: number): string {
   return h <= 1 ? "hour" : `${h} ${plural(h, "hour")}`;
 }
 
-const METRIC_WORDS: Record<SpeedMetric, { slow: string; quick: string }> = {
-  ttft: { slow: "slow to start", quick: "quicker to start" },
-  tps: { slow: "generating more slowly", quick: "generating faster" },
+// Only the slow words. A speed-up is measured (see below) and never said, so
+// there is no quick half of this to keep in step.
+const METRIC_WORDS: Record<SpeedMetric, { slow: string }> = {
+  ttft: { slow: "slow to start" },
+  tps: { slow: "generating more slowly" },
 };
 
 // One model's move, in the reader's units: the per cent, then the two medians it
@@ -357,36 +361,27 @@ export function buildSpeedReading(
     };
   }
 
-  // Quicker is worth saying for one reason: it is how a reader knows a slowdown
-  // ended. Same floors, so it is exactly as rare — but measured the other way
-  // round, because a fraction is not symmetric about zero: 900 ms falling to
-  // 500 is the same size of move as 500 rising to 900, and only one of those is
-  // 80% by division. Comparing -worseBy against the floor would make every
-  // recovery look smaller than the slowdown it undid.
-  const better = all
-    .filter(
-      (m) =>
-        m.worseBy < 0 && 1 / (1 + m.worseBy) - 1 >= floorFor(m.metric, false),
-    )
-    .sort((a, b) => a.secondsAdded - b.secondsAdded);
+  // Quicker is measured and never said. The page answers one question, the
+  // banner carries one claim, and "it is faster than it was this morning" is not
+  // a thing anyone came here to read — announcing it in the same weight as a
+  // slowdown is how a reader learns to skim the banner.
+  //
+  // It is still DETECTED, because the steady sentence below claims the last span
+  // sits inside this endpoint's ordinary spread, and a reading that cleared its
+  // floor in the good direction does not. Silence is the claim here; that
+  // sentence would be a false one.
+  //
+  // Same floors, so it is exactly as rare — but measured the other way round,
+  // because a fraction is not symmetric about zero: 900 ms falling to 500 is the
+  // same size of move as 500 rising to 900, and only one of those is 80% by
+  // division. Comparing -worseBy against the floor would make every recovery
+  // look smaller than the slowdown it undid.
+  const better = all.filter(
+    (m) =>
+      m.worseBy < 0 && 1 / (1 + m.worseBy) - 1 >= floorFor(m.metric, false),
+  );
   if (better.length > 0) {
-    const lead = better[0]!;
-    // The symmetric figure the floor was tested against. It is NOT what the
-    // sentence prints for a first token: "sooner" is a share of the old wait,
-    // and 900 ms falling to 500 published "80 % sooner" with both numbers beside
-    // it — the reader can do that division, and 44 % is what it comes to. The
-    // threshold keeps the symmetric one; only the words change.
-    const quickerBy = 1 / (1 + lead.worseBy) - 1;
-    return {
-      state: "quicker",
-      lead: `${lead.modelID} is ${METRIC_WORDS[lead.metric].quick} right now`,
-      line:
-        lead.metric === "ttft"
-          ? `Its first token arrives ${pct(ofBefore(quickerBy))} sooner than over the ${refSpan} before — ${Math.round(lead.recent)} ms against ${Math.round(lead.before)} ms.`
-          : `It produces ${pct(quickerBy)} more tokens per second than over the ${refSpan} before — ${lead.recent.toFixed(1)} against ${lead.before.toFixed(1)}.`,
-      moves: better,
-      metric: lead.metric,
-    };
+    return { state: "quicker", lead: "", line: "", moves: [], metric: null };
   }
 
   return {
