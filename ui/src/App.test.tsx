@@ -464,8 +464,15 @@ describe("App", () => {
       expect(main).toContainElement(screen.getByTestId("model-card-mimo-v2.5"));
       // A <header> nested in <main> is no longer a banner, which is the one
       // landmark a reader uses to find out what site they are on.
+      //
+      // level: 1 because the FAQ inside <main> asks the same question as one of
+      // its headings, and only the masthead's is the page's h1 — the assertion
+      // is about that heading, not about the string.
       expect(main).not.toContainElement(
-        screen.getByRole("heading", { name: /is xiaomi mimo down\?/i }),
+        screen.getByRole("heading", {
+          name: /is xiaomi mimo down\?/i,
+          level: 1,
+        }),
       );
       // And the footer is outside it for the same reason — the other half of
       // the claim, and the one nothing else here would catch.
@@ -509,9 +516,10 @@ describe("App", () => {
     await waitFor(() =>
       expect(screen.getByRole("alert")).toHaveTextContent(/rate limited/i),
     );
-    // The masthead survives, so the page still explains what it is.
+    // The masthead survives, so the page still explains what it is. level: 1
+    // picks it out from the FAQ heading that asks the same question.
     expect(
-      screen.getByRole("heading", { name: /is xiaomi mimo down\?/i }),
+      screen.getByRole("heading", { name: /is xiaomi mimo down\?/i, level: 1 }),
     ).toBeInTheDocument();
   });
 

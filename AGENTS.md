@@ -151,7 +151,9 @@ point of that test.
 ## Naming
 
 The SITE is "Is Xiaomi MiMo down?" at `ismimodown.com`. That exact question is the `<h1>`, the
-`<title>`, the static body of `index.html` and the og card — four copies, reword together.
+`<title>`, the static body of `index.html`, the first entry in `ui/src/faq.ts` and the og card —
+five copies, reword together. `Faq.test.tsx` pins the first three; the card is a picture, so
+re-run `scripts/gen-og.sh`.
 
 Always `Xiaomi MiMo`, never bare `MiMo`, in anything a stranger reads: "mimo" is also an antenna
 technique and a learn-to-code app, and that disambiguation is the whole point of the name. In
@@ -182,6 +184,18 @@ The card's heading width band in `gen-og.sh` is calibrated to the real render (5
 the font-fallback render (481px) — only 46px apart. Re-measure BOTH (break the `@font-face`
 URLs on purpose) before touching it; never just widen it. The `<br>` in that heading is load
 bearing: left to wrap, the fallback broke a word later and measured WIDER than the real face.
+
+**The six FAQ answers exist three times and must agree**, character for character:
+`ui/src/faq.ts` (what `Faq.tsx` renders, and what a crawler that runs JavaScript sees), the static
+body of `ui/index.html` (what one that does NOT run JavaScript sees — otherwise a heading and one
+sentence, which is why Bing crawled this URL and left it out of the index), and the FAQPage
+JSON-LD in the same file (markup may only state what the page visibly says; it used to promise
+three answers the body never showed). `Faq.test.tsx` compares all three. Answers stay
+STATE-INDEPENDENT — `index.html` is built once by Vite with no serve-time substitution, so an
+answer naming a state would keep naming it through an outage — and they are the one place on the
+page allowed to restate the method, so keep them true to the measurement invariants above (the
+old markup claimed the models are probed "concurrently", which is the opposite of what the
+scheduler does).
 
 **Host and SEO strings move together:** `Host()` in `compose.yaml` (two routers — apex and the
 www 308), og:/twitter: URLs, `rel=canonical`, `robots.txt`, `sitemap.xml`, JSON-LD `@id`s, and

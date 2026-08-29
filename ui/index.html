@@ -35,6 +35,20 @@
          redirect ever lapses, the two hostnames still resolve to one page
          rather than to duplicate content. -->
     <link rel="canonical" href="https://ismimodown.com/" />
+    <!-- index,follow is the default, and saying it costs nothing next to the
+         two directives that are NOT defaults. max-snippet:-1 lets a result
+         quote as much of an answer below as it wants — capped, a page whose
+         whole job is answering one question gets summarised by whoever is
+         guessing. max-image-preview:large is what makes the og card run full
+         width in a Bing or Google result rather than as a thumbnail.
+
+         Deliberately a <meta> and not an X-Robots-Tag header: this belongs with
+         the canonical it qualifies, not in Go middleware, where nobody editing
+         the page's SEO would look for it. -->
+    <meta
+      name="robots"
+      content="index, follow, max-snippet:-1, max-image-preview:large"
+    />
 
     <!-- Link previews for iMessage, WhatsApp, Slack, Telegram and the rest.
          The card is ui/public/og.png, drawn by ui/scripts/gen-og.sh from
@@ -109,17 +123,21 @@
       content="Is Xiaomi MiMo down? — live availability, latency, throughput and answer correctness for the Xiaomi MiMo API, measured periodically."
     />
 
-    <!-- Structured data. The FAQPage answer must stay STATE-INDEPENDENT: this
-         file is static, built once by Vite, and nothing substitutes into it at
-         serve time, so an answer that said "MiMo is up" would keep saying it
-         through an outage. It says what the page reports instead, which is true
-         at every moment. It is also the same sentence as the <p> in the body
-         below — one answer, two places, worded once.
+    <!-- Structured data. Every FAQPage answer must stay STATE-INDEPENDENT:
+         this file is static, built once by Vite, and nothing substitutes into
+         it at serve time, so an answer that said "MiMo is up" would keep saying
+         it through an outage. They say what the page reports instead, which is
+         true at every moment.
+
+         Same strings, same order, as ui/src/faq.ts and as the questions in the
+         body below — markup may only state what the page visibly says, and this
+         block used to promise three answers the body never showed. Faq.test.tsx
+         compares all three and fails when any two disagree.
 
          What this markup does NOT do is guarantee a rich result: Google has
          narrowed FAQ rich results to a small set of site types. It is here
          because it is cheap and correct. The thing that actually gives a search
-         engine an answer to show is the <h1> and paragraph in the body. -->
+         engine an answer to show is the prose in the body. -->
     <script type="application/ld+json">
       {
         "@context": "https://schema.org",
@@ -147,10 +165,34 @@
               },
               {
                 "@type": "Question",
+                "name": "What does this page measure?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "Availability, time to first token, output throughput and answer correctness for mimo-v2.5 and mimo-v2.5-pro, alongside the network path to the endpoint, so the time spent reaching the API is separated from the time spent waiting on it."
+                }
+              },
+              {
+                "@type": "Question",
                 "name": "How often is Xiaomi MiMo checked?",
                 "acceptedAnswer": {
                   "@type": "Answer",
-                  "text": "Every few minutes. Each cycle probes both models concurrently and records a sample even when the request times out, so an outage is counted as unavailability rather than as slow latency."
+                  "text": "Every few minutes. Each cycle probes both models one request at a time, never concurrently: they share one rate limit, and racing them turns a throttled request into something that publishes as an outage. A sample is recorded even when a request times out."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "Where is Xiaomi MiMo measured from?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "A single European egress. Everything here is one vantage point's view of the API: a reader elsewhere can see different latency, and a fault on the path from here is not by itself a fault at the endpoint."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "What counts as an outage rather than a slow request?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "A run that fails or is cut off by the timeout is recorded as unavailability, never as a latency reading, so a timed-out request cannot land in a percentile. Excluding those runs truncates the slow tail, so the number excluded is published beside every percentile."
                 }
               },
               {
@@ -168,21 +210,33 @@
     </script>
   </head>
   <body>
-    <!-- These two elements are the ONLY content this page serves before React
-         mounts, and for a crawler that does not run JavaScript they are the
-         only content it ever sees. Without them the served <body> is an empty
+    <!-- Everything from here down is the ONLY content this page serves before
+         React mounts, and for a crawler that does not run JavaScript it is the
+         only content it ever sees. Without it the served <body> is an empty
          <div> and every word of the page — the question in the masthead, the
-         verdict, the subtitle — exists only after a bundle downloads AND an API
-         call returns. A page named after a question should answer it in its
-         own HTML.
+         verdict, the panels — exists only after an 800 kB bundle downloads AND
+         an API call returns. A page named after a question should answer it in
+         its own HTML.
+
+         That is why the six questions below are here in full rather than the
+         one paragraph this used to carry. A heading and a sentence is what a
+         search engine weighs when it does not render, and it is not enough to
+         index a page on: Bing reported this URL as known, crawled and left out
+         of the index. It is also what makes the FAQPage JSON-LD above legal —
+         structured data may only state what the page visibly says, and that
+         markup promised three answers while the body showed none of them.
+
+         The questions and answers are the SAME STRINGS as ui/src/faq.ts, in the
+         same order, which is what Faq.tsx renders once React has replaced all
+         of this. Reword one and reword the other; Faq.test.tsx compares this
+         markup, that module and the JSON-LD above and fails when any two
+         disagree. Three copies rather than one templated at build time, because
+         this file should read as the document it serves.
 
          main.tsx mounts with createRoot, not hydrateRoot, so React REPLACES
          these children on mount: no hydration mismatch, no duplicated heading.
          Keep it that way — switching to hydrateRoot would render this markup
          and the app's markup as the same tree and they do not match.
-
-         The <h1> mirrors Masthead.tsx and the <p> is the same sentence as the
-         FAQPage answer in the JSON-LD above. All four copies move together.
 
          The prose is deliberately STATE-INDEPENDENT. It says what the page
          reports, never what the current state is: this file is static, built
@@ -191,7 +245,10 @@
 
          The inline styles only have to survive the moment before mount — the
          stylesheet may not have landed yet, and unstyled black-on-white
-         flashing to the dark ground is the one thing a reader would notice.
+         flashing to the dark ground is the one thing a reader would notice. The
+         face and the body colour sit on the wrapper and inherit; only the
+         headings, which a UA stylesheet would otherwise set bold and oversized,
+         carry their own.
 
          #root carries the ground itself, not just the type colour. body's
          background lives in index.css, which under `npm run dev` is injected
@@ -200,10 +257,21 @@
          literal is --color-void; it stays on #root after mount, where it is
          indistinguishable from body's own. -->
     <div id="root" style="background: #131312; min-height: 100vh">
-      <div style="max-width: 52ch; margin: 0 auto; padding: 4rem 1.25rem">
+      <div
+        style="
+          max-width: 64ch;
+          margin: 0 auto;
+          padding: 4rem 1.25rem;
+          font-family: Georgia, &quot;Times New Roman&quot;, serif;
+          color: #9c9a92;
+        "
+      >
+        <!-- Mirrors Masthead.tsx, the <title>, the first entry in
+             ui/src/faq.ts and the og card: five copies of the one question,
+             reworded together. Faq.test.tsx holds the first three to each
+             other; the card is a picture, so re-run scripts/gen-og.sh. -->
         <h1
           style="
-            font-family: Georgia, &quot;Times New Roman&quot;, serif;
             font-weight: 400;
             font-size: 2.4rem;
             line-height: 1.05;
@@ -213,18 +281,118 @@
         >
           Is Xiaomi MiMo down?
         </h1>
-        <p
+        <!-- The subtitle Masthead.tsx carries, minus the two model IDs: those
+             are hardcoded there against DefaultModels already, and a second
+             copy here would be a third place to forget. The FAQ below names
+             them, which is where a reader searching for one of them lands. -->
+        <p style="font-size: 1.1rem; line-height: 1.45; margin: 1rem 0 0">
+          Latency, throughput, availability and answer correctness for the
+          Xiaomi MiMo API, measured periodically from a single European egress,
+          separating how long it takes to reach the endpoint from what happens
+          once you are there.
+        </p>
+        <h2
           style="
-            font-family: Georgia, &quot;Times New Roman&quot;, serif;
-            font-size: 1.1rem;
-            line-height: 1.45;
-            color: #9c9a92;
-            margin: 1rem 0 0;
+            font-weight: 400;
+            font-size: 1.35rem;
+            color: #faf9f5;
+            margin: 2.75rem 0 0;
           "
         >
+          Questions
+        </h2>
+        <h3
+          style="
+            font-weight: 400;
+            font-size: 1.05rem;
+            color: #faf9f5;
+            margin: 2rem 0 0;
+          "
+        >
+          Is Xiaomi MiMo down?
+        </h3>
+        <p style="font-size: 0.95rem; line-height: 1.5; margin: 0.45rem 0 0">
           This page checks the Xiaomi MiMo API periodically and reports whether
           it is answering right now, alongside latency, throughput and answer
-          correctness measured from a single European egress.
+          correctness.
+        </p>
+        <h3
+          style="
+            font-weight: 400;
+            font-size: 1.05rem;
+            color: #faf9f5;
+            margin: 2rem 0 0;
+          "
+        >
+          What does this page measure?
+        </h3>
+        <p style="font-size: 0.95rem; line-height: 1.5; margin: 0.45rem 0 0">
+          Availability, time to first token, output throughput and answer
+          correctness for mimo-v2.5 and mimo-v2.5-pro, alongside the network
+          path to the endpoint, so the time spent reaching the API is separated
+          from the time spent waiting on it.
+        </p>
+        <h3
+          style="
+            font-weight: 400;
+            font-size: 1.05rem;
+            color: #faf9f5;
+            margin: 2rem 0 0;
+          "
+        >
+          How often is Xiaomi MiMo checked?
+        </h3>
+        <p style="font-size: 0.95rem; line-height: 1.5; margin: 0.45rem 0 0">
+          Every few minutes. Each cycle probes both models one request at a
+          time, never concurrently: they share one rate limit, and racing them
+          turns a throttled request into something that publishes as an outage.
+          A sample is recorded even when a request times out.
+        </p>
+        <h3
+          style="
+            font-weight: 400;
+            font-size: 1.05rem;
+            color: #faf9f5;
+            margin: 2rem 0 0;
+          "
+        >
+          Where is Xiaomi MiMo measured from?
+        </h3>
+        <p style="font-size: 0.95rem; line-height: 1.5; margin: 0.45rem 0 0">
+          A single European egress. Everything here is one vantage point's view
+          of the API: a reader elsewhere can see different latency, and a fault
+          on the path from here is not by itself a fault at the endpoint.
+        </p>
+        <h3
+          style="
+            font-weight: 400;
+            font-size: 1.05rem;
+            color: #faf9f5;
+            margin: 2rem 0 0;
+          "
+        >
+          What counts as an outage rather than a slow request?
+        </h3>
+        <p style="font-size: 0.95rem; line-height: 1.5; margin: 0.45rem 0 0">
+          A run that fails or is cut off by the timeout is recorded as
+          unavailability, never as a latency reading, so a timed-out request
+          cannot land in a percentile. Excluding those runs truncates the slow
+          tail, so the number excluded is published beside every percentile.
+        </p>
+        <h3
+          style="
+            font-weight: 400;
+            font-size: 1.05rem;
+            color: #faf9f5;
+            margin: 2rem 0 0;
+          "
+        >
+          Is this site run by Xiaomi?
+        </h3>
+        <p style="font-size: 0.95rem; line-height: 1.5; margin: 0.45rem 0 0">
+          No. This is an independent project, not operated by, endorsed by or
+          connected with Xiaomi. Xiaomi and MiMo are trademarks of their
+          respective owner, named here only to identify what is measured.
         </p>
       </div>
     </div>

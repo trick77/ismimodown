@@ -13,6 +13,7 @@ import { PulseStrip } from "./PulseStrip";
 import { RecentErrors } from "./RecentErrors";
 import { SamplesTable } from "./SamplesTable";
 import { CostPanel } from "./CostPanel";
+import { Faq } from "./Faq";
 import { Footer } from "./Footer";
 import { buildVerdict } from "./verdict";
 
@@ -395,6 +396,17 @@ export default function App() {
               perGroup={data?.samples.map((g) => g.samples) ?? []}
             />
           </div>
+          {/* Outside the panel grid, below everything it measures: it answers
+              questions rather than reporting a measurement, and inside the grid
+              it read as one more finding. Still inside <main> — it is content,
+              not the footer's small print.
+
+              It is also the only part of this page a search engine can read
+              without running the bundle: the same six answers are in the static
+              body of index.html, which is what a crawler sees before React
+              replaces it. Keep the two in step; Faq.test.tsx fails if they
+              drift. */}
+          <Faq />
         </main>
         {/* Outside the panel grid: it is not a panel, and inside the grid it
             picked up the gap-6 rhythm and read as one more finding. */}
