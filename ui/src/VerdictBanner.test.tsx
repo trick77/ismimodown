@@ -118,6 +118,27 @@ describe("VerdictBanner", () => {
     );
   });
 
+  // Faster is not the question this page answers, so a recovery gets the plain
+  // normal banner: no headline about it, no sentence, no plot — and not the
+  // steady sentence either, which would claim an ordinary spread this reading
+  // is outside of.
+  it("says nothing when a model got quicker", () => {
+    render(
+      <VerdictBanner
+        verdict={normal}
+        trend={trend([model("mimo-v2.5", [500, 900])])}
+        loading={false}
+      />,
+    );
+    expect(screen.getByTestId("verdict")).toHaveTextContent(
+      "Everything looks normal right now",
+    );
+    expect(screen.queryByTestId("trend-plot")).toBeNull();
+    expect(
+      screen.queryByText(/quicker|faster|sooner|ordinary spread/),
+    ).toBeNull();
+  });
+
   // The plot exists to show ONE shape. A line for the model that held steady is
   // a second shape the reader has to rule out first — and on a shared axis it
   // also sets the scale the moved line is drawn against.
