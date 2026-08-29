@@ -189,7 +189,9 @@ export function SamplesTable({ perGroup }: { perGroup: Sample[][] }) {
                     </time>
                   </td>
                   <td className="num py-2 pr-4">
-                    <span style={{ color: colorForModel(s.model_id, modelIds) }}>
+                    <span
+                      style={{ color: colorForModel(s.model_id, modelIds) }}
+                    >
                       {s.model_id}
                     </span>
                   </td>

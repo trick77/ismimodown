@@ -212,7 +212,9 @@ export function RecentErrors({ failures }: { failures: Failure[] | null }) {
                       </time>
                     </td>
                     <td className="num py-2 pr-4">
-                      <span style={{ color: colorForModel(f.model_id, modelIds) }}>
+                      <span
+                        style={{ color: colorForModel(f.model_id, modelIds) }}
+                      >
                         {f.model_id}
                       </span>
                     </td>
