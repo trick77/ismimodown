@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { Failure } from "./api/types";
 import { FAULT_ROUTE } from "./api/types";
+import { colorForModel } from "./charts/options";
 import { unattributableFault } from "./verdict";
 import { Card } from "./ui";
 import { formatAgo, formatDateTime } from "./format";
@@ -146,6 +147,10 @@ export function RecentErrors({ failures }: { failures: Failure[] | null }) {
     const id = setInterval(() => setNow(Date.now()), TICK_MS);
     return () => clearInterval(id);
   }, []);
+  const modelIds = useMemo(
+    () => (failures ? [...new Set(failures.map((f) => f.model_id))] : []),
+    [failures],
+  );
 
   return (
     <Card
@@ -206,7 +211,11 @@ export function RecentErrors({ failures }: { failures: Failure[] | null }) {
                         {formatAgo(f.at, now)}
                       </time>
                     </td>
-                    <td className="num py-2 pr-4">{f.model_id}</td>
+                    <td className="num py-2 pr-4">
+                      <span style={{ color: colorForModel(f.model_id, modelIds) }}>
+                        {f.model_id}
+                      </span>
+                    </td>
                     <td className="py-2 pr-4">
                       {/* Three colours, three claims.
 
