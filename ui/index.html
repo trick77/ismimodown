@@ -226,6 +226,24 @@
           it is answering right now, alongside latency, throughput and answer
           correctness measured from a single European egress.
         </p>
+        <!-- Replaced at build time by build/static-copy.ts with one section per
+             panel, drawn from src/copy.ts — the same sentences the components
+             render as their subtitles.
+
+             It is here because the two elements above were, for a crawler that
+             does not run JavaScript, the entire page: 32 words and a script
+             tag. Google renders the bundle and indexed the site; bingbot does
+             not do that reliably and did not. Everything explaining what is
+             measured lived only in the bundle, which made a page full of
+             substance read as thin content to the one engine that could not
+             see it.
+
+             A COMMENT rather than an empty element, so `npm run dev` — which
+             does not run the plugin — leaves nothing in the shell the author
+             has to scroll past. The build THROWS if this marker goes missing
+             rather than quietly shipping the short version: a silently thin
+             shell is exactly the failure that took a month to notice. -->
+        <!-- @static-copy -->
       </div>
     </div>
     <script type="module" src="/src/main.tsx"></script>

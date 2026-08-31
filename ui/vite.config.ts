@@ -4,9 +4,13 @@ import tailwindcss from "@tailwindcss/vite";
 // Extension included: Vite's native config loader does not resolve it
 // otherwise, and warns on every build without it.
 import { stripCommentsPlugin } from "./build/strip-comments.ts";
+import { staticCopyPlugin } from "./build/static-copy.ts";
 
 export default defineConfig({
-  plugins: [react(), tailwindcss(), stripCommentsPlugin()],
+  // static-copy before strip-comments: the first consumes the marker comment
+  // the second would otherwise delete. Their enforce/order settings say the
+  // same thing, so this line is belt to that; keep both.
+  plugins: [react(), tailwindcss(), staticCopyPlugin(), stripCommentsPlugin()],
   // Straight into the Go binary's embed directory, so `go build` bakes the real
   // bundle in. Never the Vite default ui/dist.
   build: { outDir: "../backend/web/dist", emptyOutDir: true },

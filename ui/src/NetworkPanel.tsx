@@ -6,6 +6,7 @@ import {
   TARGET_REF_AMS,
 } from "./api/types";
 import { Card, LogScaleChip, NoChart } from "./ui";
+import { PANEL_COPY } from "./copy";
 import { EChart } from "./charts/EChart";
 import {
   buildLineOption,
@@ -94,8 +95,7 @@ export function NetworkPanel({ series }: { series: NetSeries | null }) {
 
   return (
     <Card
-      title="The wire itself"
-      subtitle="Time to complete the TCP handshake on port 443 — no TLS, no HTTP, no auth, no tokens. Each Xiaomi MiMo edge is paired with an independent reference host in the same city, so a route problem, or an outage on our side, shows up as its own problem and not as MiMo's. Only Singapore serves the inference this page measures; Amsterdam is the same service from another region, for comparison. Lower is better."
+      {...PANEL_COPY.network}
       right={option.logScale ? <LogScaleChip /> : null}
     >
       {order.length > 0 ? (

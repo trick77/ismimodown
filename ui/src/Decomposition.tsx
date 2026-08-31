@@ -1,5 +1,6 @@
 import type { Summary } from "./api/types";
 import { Card, NoChart } from "./ui";
+import { PANEL_COPY } from "./copy";
 import { EChart } from "./charts/EChart";
 import { buildDecompositionOption } from "./charts/options";
 
@@ -35,8 +36,7 @@ export function Decomposition({
 
   return (
     <Card
-      title="Where the time goes"
-      subtitle="Time to first token, split into the measured TCP handshake to MiMo's edge and the remainder. Both halves come from the same 5-minute cycle."
+      {...PANEL_COPY.decomposition}
     >
       {hasData ? (
         <EChart
