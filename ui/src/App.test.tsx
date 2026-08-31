@@ -289,13 +289,20 @@ describe("App", () => {
     expect(table).toHaveTextContent("242 ms");
   });
 
-  // The residual must never be called model time anywhere on the page.
-  it("labels the residual as server-side time", async () => {
+  // The residual must never be called model time anywhere on the page, and the
+  // caveat that says why has to stay with the chart: everything past the TLS
+  // edge is inside that bar, inseparable. The page used to carry the naming
+  // rule itself ("Called server-side time, never model time"), which told the
+  // reader what we refuse to call it instead of what the bar contains.
+  it("says what the residual contains, and never calls it model time", async () => {
     vi.stubGlobal("fetch", mockFetch());
     render(<App />);
     await waitFor(() =>
-      expect(screen.getByText(/never .model time/i)).toBeInTheDocument(),
+      expect(
+        screen.getByText(/this measurement cannot separate them/i),
+      ).toBeInTheDocument(),
     );
+    expect(screen.queryByText(/model time/i)).toBeNull();
   });
 
   it("puts the selected window in the query string so a view can be linked", async () => {

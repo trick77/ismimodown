@@ -50,14 +50,10 @@ export function Decomposition({
         </NoChart>
       )}
       <p className="mt-4 border-l-2 border-accent/60 bg-accent/5 px-4 py-3 text-label text-muted">
-        <strong className="text-ink">
-          Called “server-side time”, never “model time.”
-        </strong>{" "}
         The handshake measured here terminates at the TLS edge. Everything after
         that — any backhaul between that edge and wherever the request is
         computed, plus queueing, prefill and scheduling — sits <em>inside</em>{" "}
-        this remainder, and this measurement cannot separate them. Calling it
-        model time would claim a split it cannot show.
+        this remainder, and this measurement cannot separate them.
       </p>
     </Card>
   );
