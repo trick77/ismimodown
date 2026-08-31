@@ -64,6 +64,23 @@ describe("injectStaticCopy", () => {
   it("throws rather than shipping a shell with no marker", () => {
     expect(() => injectStaticCopy("<div></div>")).toThrow(/@static-copy/);
   });
+
+  // String.replace reads these as substitution directives in a replacement
+  // STRING: `$&` becomes the marker itself, "$`" and "$'" the shell on either
+  // side of it. No copy carries one today, so the bug would have sat inert
+  // until some future subtitle mentioned a price or a shell variable — and it
+  // would still have produced a plausible-looking page. Each token must land
+  // byte for byte.
+  it.each(["$&", "$`", "$'", "$$", "$1"])(
+    "puts %s in the copy through literally",
+    (token) => {
+      const out = injectStaticCopy(
+        `<p>before</p>${STATIC_COPY_MARKER}<p>after</p>`,
+        `<p>a ${token} b</p>`,
+      );
+      expect(out).toBe(`<p>before</p><p>a ${token} b</p><p>after</p>`);
+    },
+  );
 });
 
 describe("the shell", () => {

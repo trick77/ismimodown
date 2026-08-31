@@ -35,9 +35,7 @@ export function Decomposition({
   const hasData = models.some((m) => m.ttft !== null && m.edge !== null);
 
   return (
-    <Card
-      {...PANEL_COPY.decomposition}
-    >
+    <Card {...PANEL_COPY.decomposition}>
       {hasData ? (
         <EChart
           option={buildDecompositionOption(models)}

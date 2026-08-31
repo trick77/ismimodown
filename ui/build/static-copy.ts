@@ -104,14 +104,30 @@ export function renderStaticCopy(): string {
   return `${panels}<section style="${SECTION_STYLE}">${independence}</section>`;
 }
 
-/** Replaces the marker in a shell with the rendered copy. Throws if it is absent. */
-export function injectStaticCopy(html: string): string {
+/**
+ * Replaces the marker in a shell with the rendered copy. Throws if it is absent.
+ *
+ * `copy` is a parameter only so a test can pin the substitution behaviour below
+ * against strings the real copy does not contain yet. The build always uses the
+ * default.
+ */
+export function injectStaticCopy(
+  html: string,
+  copy: string = renderStaticCopy(),
+): string {
   if (!html.includes(STATIC_COPY_MARKER)) {
     throw new Error(
       `static-copy: ${STATIC_COPY_MARKER} not found in index.html — the shell would ship without the copy a non-rendering crawler reads`,
     );
   }
-  return html.replace(STATIC_COPY_MARKER, renderStaticCopy());
+  // A REPLACER FUNCTION, not the string itself. String.replace reads `$&`,
+  // "$`", "$'" and `$$` in a replacement STRING as substitution directives, so
+  // the day a panel subtitle contains one of them the build would splice the
+  // marker text, or a slice of the surrounding shell, into the page instead of
+  // the copy — silently, and past a test that only checked the output was a
+  // well-formed shell of roughly the right length. A function replacement is
+  // taken literally and has no such syntax.
+  return html.replace(STATIC_COPY_MARKER, () => copy);
 }
 
 export function staticCopyPlugin(): Plugin {
