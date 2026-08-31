@@ -51,16 +51,18 @@ export function VerdictBanner({
   const speed = buildSpeedReading(trend);
   // Only when nothing is wrong. verdict.state carries the faults, and this
   // branch is what keeps "slower" from ever appearing beside one.
-  const slow =
-    verdict.state === "normal" &&
-    (speed.state === "slower" || speed.state === "quicker");
+  //
+  // A slowdown and nothing else: speed.state can also be "quicker", which this
+  // page measures and never mentions, so it takes neither the headline nor the
+  // plot.
+  const slow = verdict.state === "normal" && speed.state === "slower";
 
   const tone =
     verdict.state === "degraded"
       ? "border-danger/40 bg-danger/8"
       : verdict.state === "elevated"
         ? "border-fault-edge/40 bg-fault-edge/8"
-        : speed.state === "slower" && verdict.state === "normal"
+        : slow
           ? "border-fault-edge/25 bg-fault-edge/5"
           : "border-border bg-panel/60";
 
@@ -99,7 +101,7 @@ export function VerdictBanner({
       data-testid="verdict"
     >
       <div className="flex flex-wrap items-center gap-3">
-        {slow && speed.state === "slower" ? (
+        {slow ? (
           // A word this page did not have, and deliberately not "elevated",
           // which is spent on faults. There is only ever one chip, so this can
           // never appear beside a green "normal" — which is the contradiction
@@ -120,9 +122,7 @@ export function VerdictBanner({
           // slowdown announced in the same weight as "everything looks normal"
           // is a slowdown a reader scrolls past.
           className={`font-serif text-ink ${
-            slow && speed.state === "slower"
-              ? "text-display leading-tight"
-              : "text-title"
+            slow ? "text-display leading-tight" : "text-title"
           }`}
         >
           {verdict.state === "normal" && !slow

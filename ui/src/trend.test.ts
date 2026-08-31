@@ -267,29 +267,27 @@ describe("buildSpeedReading", () => {
     expect(reading.line).toContain("35.0 against 70.0");
   });
 
-  // The same reading, the other way round: "sooner" is a share of the wait it
-  // replaced. 900 ms falling to 500 is 44% off the wait, not 80%.
-  it("states a recovered first token as a share of the wait it replaced", () => {
+  // The same reading the other way round is measured and never printed: a
+  // recovery carries no lead, no line, no plot.
+  it("keeps a recovered first token off the page entirely", () => {
     const reading = buildSpeedReading(
       trendOf([model("mimo-v2.5", [500, 900], [70, 70])]),
     );
     expect(reading.state).toBe("quicker");
-    expect(reading.line).toContain("44 % sooner");
-    expect(reading.line).not.toContain("80 %");
+    expect(reading.lead).toBe("");
+    expect(reading.line).toBe("");
+    expect(reading.moves).toEqual([]);
+    expect(reading.metric).toBeNull();
   });
 
-  // "Longer" and "more tokens per second" were already shares of the old
-  // reading, and must not be restated: this is the assertion that catches the
-  // conversion being applied to all four sentences at once.
-  it("leaves the two sentences that were already stated against the old figure", () => {
+  // "Longer" was already a share of the old reading, and must not be restated:
+  // this is the assertion that catches the conversion being applied to every
+  // sentence at once.
+  it("leaves the sentence that was already stated against the old figure", () => {
     const slower = buildSpeedReading(
       trendOf([model("mimo-v2.5", [1620, 900], [70, 70])]),
     );
     expect(slower.line).toContain("80 % longer");
-    const quicker = buildSpeedReading(
-      trendOf([model("mimo-v2.5", [900, 900], [100, 70])]),
-    );
-    expect(quicker.line).toContain("43 % more tokens per second");
   });
 
   // Under "Both models", one pair of medians described a measurement only one of
@@ -356,12 +354,15 @@ describe("buildSpeedReading", () => {
     expect(buildSpeedReading(undefined).lead).toBe("");
   });
 
-  // Worth saying for one reason: it is how a reader knows a slowdown ended.
-  it("reports a recovery too", () => {
+  // Faster is not what this page is asked about, so it says nothing — and in
+  // particular not the steady sentence, which would claim a reading that moved
+  // past its floor sits inside the ordinary spread.
+  it("says nothing at all when a model got quicker", () => {
     const reading = buildSpeedReading(
-      trendOf([model("mimo-v2.5", [500, 900], [70, 70])]),
+      trendOf([model("mimo-v2.5", [900, 900], [100, 70])]),
     );
     expect(reading.state).toBe("quicker");
-    expect(reading.lead).toContain("quicker to start");
+    expect(reading.lead).toBe("");
+    expect(reading.line).toBe("");
   });
 });

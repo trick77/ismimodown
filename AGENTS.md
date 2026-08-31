@@ -63,7 +63,9 @@ added to the wait, never by per cent — the metrics are different sizes.
 **One claim per page.** The banner is the only surface that states a state; panels and cards
 print numbers. A slowdown is folded into the banner sentence with its own chip word `slower`
 (never `elevated`, which is spent on faults) — "normal" and "slower" must never appear together.
-A fault outranks speed and takes the banner alone.
+A fault outranks speed and takes the banner alone. A speed-up is MEASURED and never said: faster is
+not the question, so `quicker` carries no lead, no line and no plot — it exists only so the steady
+sentence cannot claim an ordinary spread the reading is outside of.
 
 **`cached_tokens` must stay near zero.** A rise means the system prompt went missing.
 
