@@ -366,7 +366,7 @@ export default function App() {
               it is only readable once its parts have been shown. */}
             <SeriesPanel
               title="The whole wait"
-              subtitle="P50 end-to-end, request sent to last token. Most of the wait is getting to the first token; the gap between the two plots is what decoding adds. Output caps at 150 tokens, so check a step change here against the throughput plot before calling it a slowdown. Failed runs are excluded. Lower is better."
+              subtitle="P50 end-to-end, request sent to last token. Most of the wait is getting to the first token; the gap between this plot and the time-to-first-token plot is what decoding adds. Output caps at 150 tokens, so check a step change here against the throughput plot before calling it a slowdown. Failed runs are excluded. Lower is better."
               series={data?.series.total ?? null}
               models={models}
               unit="ms"

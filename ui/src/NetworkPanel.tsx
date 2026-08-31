@@ -95,7 +95,7 @@ export function NetworkPanel({ series }: { series: NetSeries | null }) {
   return (
     <Card
       title="The wire itself"
-      subtitle="Time to complete the TCP handshake on port 443 — no TLS, no HTTP, no auth, no tokens. Each Xiaomi MiMo edge is paired with an independent reference host in the same city, so a route problem, or an outage on our side, shows up as one. Only Singapore serves the inference this page measures; Amsterdam is the same service from another region, for comparison. Lower is better."
+      subtitle="Time to complete the TCP handshake on port 443 — no TLS, no HTTP, no auth, no tokens. Each Xiaomi MiMo edge is paired with an independent reference host in the same city, so a route problem, or an outage on our side, shows up as its own problem and not as MiMo's. Only Singapore serves the inference this page measures; Amsterdam is the same service from another region, for comparison. Lower is better."
       right={option.logScale ? <LogScaleChip /> : null}
     >
       {order.length > 0 ? (
