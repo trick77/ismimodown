@@ -38,17 +38,17 @@ export function scoreRatio(
 // rolling baseline: a model that has been 97% available all week has not made
 // 97% acceptable, and a drifting baseline would quietly normalise a fault.
 
-// The published expectation, and the only figure on this page that is a TARGET
-// rather than a band — hence the name, and hence the asymmetry with
-// CORRECTNESS_ELEVATED four lines down, which stays a band because nothing
-// states a target for correctness. Do not "restore consistency" here: the name
-// is what makes the number a promise instead of a threshold nobody chose.
+// A band this project chose, at the same altitude as the correctness pair below
+// it, and named to match. It was once named for a target and the card printed it
+// as "target 99%", which claimed a commitment that does not exist: nothing the
+// operator publishes states an availability target, and neither does anything
+// here. The number was picked, not sourced. Do not restore the target name or
+// the target copy without a real published figure to point at.
 //
 // 99%, not 99.5% and emphatically not 100%. This is one endpoint probed from one
-// vantage over the public internet, and a page whose resting expectation is
-// perfection reports weather, not faults. 99% is roughly seven hours a month,
-// which is a number worth defending.
-export const AVAILABILITY_TARGET = 99;
+// vantage over the public internet, so a resting expectation of perfection
+// reports weather, not faults.
+export const AVAILABILITY_ELEVATED = 99;
 export const AVAILABILITY_DEGRADED = 97;
 export const CORRECTNESS_ELEVATED = 98;
 export const CORRECTNESS_DEGRADED = 95;
@@ -121,7 +121,7 @@ export function wilsonUpper(succeeded: number, attempts: number): number {
 //
 // So the band stays absolute, exactly as the comment above it demands — nothing
 // here drifts with observed behaviour — and the sample size decides a different
-// question: is there enough evidence to CLAIM we are under the target. Only when
+// question: is there enough evidence to CLAIM we are under the band. Only when
 // even the optimistic end of the interval sits below the band does the page say
 // so.
 //
@@ -137,7 +137,7 @@ export function scoreAvailability(succeeded: number, attempts: number): State {
   if (attempts < MIN_ATTEMPTS_FOR_STATE) return "unknown";
   const upper = wilsonUpper(succeeded, attempts);
   if (upper < AVAILABILITY_DEGRADED) return "degraded";
-  if (upper < AVAILABILITY_TARGET) return "elevated";
+  if (upper < AVAILABILITY_ELEVATED) return "elevated";
   return "normal";
 }
 

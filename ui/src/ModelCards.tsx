@@ -3,7 +3,6 @@ import { Figure, StateChip } from "./ui";
 import { formatMs, formatPct, formatTps, plural } from "./format";
 import type { State } from "./verdict";
 import {
-  AVAILABILITY_TARGET,
   MIN_FAILURES_FOR_STATE,
   scoreAvailability,
   scoreCorrectness,
@@ -109,22 +108,11 @@ export function ModelCards({
         const base = baseline?.models.find((b) => b.model_id === m.model_id);
         // The counts, not the percentage beside them. A card describes the
         // selected window, and over a day of cycles three cut-off runs are
-        // 98.97% — under the target, and indistinguishable from an endpoint
-        // that meets it. scoreAvailability needs both integers to tell those
-        // apart; available_pct is derived from the same two and adds nothing.
+        // 98.97% — under the band, and indistinguishable from an endpoint
+        // that sits above it. scoreAvailability needs both integers to tell
+        // those apart; available_pct is derived from the same two and adds
+        // nothing.
         const availability = scoreAvailability(m.succeeded, m.attempts);
-        // A percentage under the target with no chip beside it reads as a
-        // contradiction, and printing the target is what made it one — before
-        // it there was nothing on the card for the number to disagree with.
-        //
-        // The sentence that reconciles them existed already, but only inside
-        // the censored note below, so it appeared only when the failures came
-        // from the timeout ladder. Three 502s produce the identical figure and
-        // no note at all. It belongs on the figure that raises the question.
-        const unexplainedMiss =
-          availability === "normal" &&
-          m.attempts > 0 &&
-          m.available_pct < AVAILABILITY_TARGET;
         const correctness = scoreCorrectness(
           m.correct_pct,
           m.answered - m.correct,
@@ -210,15 +198,12 @@ export function ModelCards({
                 label="Availability"
                 value={formatPct(m.attempts > 0 ? m.available_pct : null)}
                 state={availability}
-                // The target rides along with the counts because this is the
-                // one figure on the card that HAS one, and a percentage with
-                // nothing to be measured against invites the reader to assume
-                // the goal is 100%. It is not. See AVAILABILITY_TARGET.
-                hint={
-                  unexplainedMiss
-                    ? `${m.succeeded}/${m.attempts} runs · under the ${AVAILABILITY_TARGET}% target, within what this many runs can tell apart from meeting it`
-                    : `${m.succeeded}/${m.attempts} runs · target ${AVAILABILITY_TARGET}%`
-                }
+                // The counts and nothing else. A band used to ride along here
+                // as "target 99%", which stated a commitment nobody made; the
+                // band is a scoring threshold, and the chip beside this figure
+                // is where it belongs. Correctness prints its counts the same
+                // way and names no band either.
+                hint={`${m.succeeded}/${m.attempts} runs`}
               />
               <Figure
                 label="Correctness"
@@ -247,7 +232,7 @@ export function ModelCards({
               // other. It used to be impossible, back when three failures was
               // also the threshold for the chip — which was the bug: three
               // cut-off runs in two days is a fact worth stating and is not a
-              // missed target. The note reports what happened; the chip reports
+              // fault. The note reports what happened; the chip reports
               // whether it amounts to anything. The sentence below says which
               // is which.
               <p
@@ -256,7 +241,7 @@ export function ModelCards({
               >
                 {m.censored} of {m.attempts} runs were cut off by the timeout
                 limits. They count as failures in Availability above, which says
-                for itself whether that missed the target. The p50s do not
+                for itself whether that amounts to a fault. The p50s do not
                 include them — those are medians of the runs that finished.
               </p>
             )}
