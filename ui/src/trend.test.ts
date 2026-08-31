@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 import type { ModelTrend, Point, Trend } from "./api/types";
 import {
   buildSpeedReading,
+  TAIL_S,
   TPS_FLOOR,
   TTFT_FLOOR,
   TTFT_FLOOR_BOTH,
+  type SpeedMetric,
 } from "./trend";
 
 // GENERATED_AT is what the module measures the two spans back from, so the
@@ -55,14 +57,51 @@ function metric(
   };
 }
 
-function trendOf(models: ModelTrend[]): Trend {
+function trendOf(models: ModelTrend[], bucketS = 1800): Trend {
   return {
     recent_s: 3 * 3600,
     before_s: 24 * 3600,
-    bucket_s: 1800,
+    bucket_s: bucketS,
     models,
     generated_at: GENERATED_AT,
   };
+}
+
+// The quarter-hour buckets the tail gate reads, filling the last hour. Three
+// successful runs apiece is the rate the daemon actually probes at, so a whole
+// hour is twelve — comfortably past TAIL_MIN_SAMPLES, and the reason a thinner
+// hour has to be spelled out to be tested.
+const QUARTER = 900;
+const tailPoints = (values: number[], n = 3): Point[] =>
+  values.map((v, i) => ({
+    t: GENERATED_AT_S - (values.length - i) * QUARTER,
+    n,
+    censored: 0,
+    p50: v,
+    p95: v,
+  }));
+
+// One bucket back in the reference day, so the series is not made entirely of
+// the hour under test.
+const REFERENCE_BUCKET: Point = {
+  t: GENERATED_AT_S - 10 * HOUR,
+  n: 6,
+  censored: 0,
+  p50: 900,
+  p95: 1200,
+};
+
+function withTail(
+  m: ModelTrend,
+  metric: SpeedMetric,
+  values: number[],
+  n = 3,
+): ModelTrend {
+  const block = {
+    ...m[metric],
+    points: [REFERENCE_BUCKET, ...tailPoints(values, n)],
+  };
+  return metric === "ttft" ? { ...m, ttft: block } : { ...m, tps: block };
 }
 
 const model = (
@@ -352,6 +391,209 @@ describe("buildSpeedReading", () => {
   it("reads a missing block as nothing to say rather than throwing", () => {
     expect(buildSpeedReading(null).state).toBe("unknown");
     expect(buildSpeedReading(undefined).lead).toBe("");
+  });
+
+  // The compared median cannot follow the edge of its own window: a spike that
+  // ended an hour ago still owns it, and the page went on announcing a
+  // slowdown over a plot that had been flat for an hour.
+  it("withdraws the reading when the last hour is back on the reference level", () => {
+    const reading = buildSpeedReading(
+      trendOf(
+        [
+          withTail(
+            model("mimo-v2.5", [2016, 954], [70, 70]),
+            "ttft",
+            [950, 940, 960, 950],
+          ),
+        ],
+        QUARTER,
+      ),
+    );
+    expect(2016 / 954 - 1).toBeGreaterThan(TTFT_FLOOR);
+    expect(reading.state).toBe("recovered");
+    // No badge, no headline, no plot — and the figure that is still elevated is
+    // printed with the hour that undid it, never on its own.
+    expect(reading.lead).toBe("");
+    expect(reading.moves).toEqual([]);
+    expect(reading.metric).toBeNull();
+    expect(reading.line).toContain("was slower earlier in the last 3 hours");
+    expect(reading.line).toContain("2016 ms against 954 ms");
+    expect(reading.line).toContain("back to normal for the last hour");
+  });
+
+  // ...and only when it really is back. The clear is the floor halved, not the
+  // floor, so a reading sitting on its threshold cannot flicker between the two
+  // states as single buckets roll off the hour.
+  it("keeps the reading while the last hour is still elevated", () => {
+    const still = buildSpeedReading(
+      trendOf(
+        [
+          withTail(
+            model("mimo-v2.5", [2016, 954], [70, 70]),
+            "ttft",
+            [2000, 1900, 2100, 2000],
+          ),
+        ],
+        QUARTER,
+      ),
+    );
+    expect(still.state).toBe("slower");
+
+    // Halfway down is not down: 1.5x the reference is under the 0.7 floor and
+    // still well over half of it.
+    const halfway = buildSpeedReading(
+      trendOf(
+        [
+          withTail(
+            model("mimo-v2.5", [2016, 954], [70, 70]),
+            "ttft",
+            [1430, 1430, 1430, 1430],
+          ),
+        ],
+        QUARTER,
+      ),
+    );
+    expect(halfway.state).toBe("slower");
+  });
+
+  // Too thin an hour changes NOTHING in either direction. Withdrawing a claim
+  // on two samples is the same error as raising one on two samples.
+  it("withdraws nothing when the last hour is too thin to read", () => {
+    const reading = buildSpeedReading(
+      trendOf(
+        [
+          withTail(
+            model("mimo-v2.5", [2016, 954], [70, 70]),
+            "ttft",
+            [950, 940],
+            2,
+          ),
+        ],
+        QUARTER,
+      ),
+    );
+    expect(reading.state).toBe("slower");
+  });
+
+  // The mirror of the recovery lag: a slowdown twenty minutes old moves a
+  // three-hour median by almost nothing, and the banner was as late to fire as
+  // it was to clear.
+  it("fires off the last hour when the compared median has not moved yet", () => {
+    const reading = buildSpeedReading(
+      trendOf(
+        [
+          withTail(
+            model("mimo-v2.5", [900, 900], [70, 70]),
+            "ttft",
+            [1700, 1750, 1700, 1800],
+          ),
+        ],
+        QUARTER,
+      ),
+    );
+    expect(reading.state).toBe("slower");
+    // The TAIL's figures, never the compared median — which is 900 here and
+    // supports none of this sentence.
+    expect(reading.line).toContain("1700 ms against 900 ms");
+    expect(reading.line).toContain("over the last hour");
+    expect(reading.moves[0]!.spanS).toBe(TAIL_S);
+  });
+
+  // An AND across the whole hour, because this is a ~12-sample reading: three
+  // samples must not be able to turn the page amber on their own.
+  it("needs every quarter-hour to agree before the last hour may fire", () => {
+    const reading = buildSpeedReading(
+      trendOf(
+        [
+          withTail(
+            model("mimo-v2.5", [900, 900], [70, 70]),
+            "ttft",
+            [1700, 900, 1750, 1700],
+          ),
+        ],
+        QUARTER,
+      ),
+    );
+    expect(reading.state).toBe("steady");
+  });
+
+  // Throughput recovers on its own words, and on its own floor — a fifth of the
+  // first token's.
+  it("says a throughput drop is over in the throughput's own words", () => {
+    const reading = buildSpeedReading(
+      trendOf(
+        [
+          withTail(
+            model("mimo-v2.5", [900, 900], [35, 70]),
+            "tps",
+            [70, 69, 71, 70],
+          ),
+        ],
+        QUARTER,
+      ),
+    );
+    expect(reading.state).toBe("recovered");
+    expect(reading.line).toContain("was generating more slowly earlier");
+    expect(reading.line).toContain("35.0 against 70.0");
+  });
+
+  // Each model with its own figures here too — one pair of medians standing in
+  // for the fleet is the bug the present-tense sentence already fixed.
+  it("gives each recovered model its own clause", () => {
+    const reading = buildSpeedReading(
+      trendOf(
+        [
+          withTail(
+            model("mimo-v2.5", [1800, 900], [70, 70]),
+            "ttft",
+            [900, 910, 890, 900],
+          ),
+          withTail(
+            model("mimo-v2.5-pro", [1400, 900], [70, 70]),
+            "ttft",
+            [900, 890, 910, 900],
+          ),
+        ],
+        QUARTER,
+      ),
+    );
+    expect(reading.state).toBe("recovered");
+    expect(reading.line).toContain("mimo-v2.5's first token was slower");
+    expect(reading.line).toContain("mimo-v2.5-pro's first token was slower");
+    expect(reading.line).toContain("1800 ms against 900 ms");
+    expect(reading.line).toContain("1400 ms against 900 ms");
+  });
+
+  // The two spans can now differ inside one reading: one model fired off its
+  // last hour and the other off the compared ones. A caveat worded from the
+  // lead then said "in the last hour" about runs cut off two hours before it —
+  // a sentence about a span that does not contain what it describes.
+  it("names the widest censored span, not the lead's", () => {
+    const hot = withTail(
+      model("mimo-v2.5", [900, 900], [70, 70]),
+      "ttft",
+      [2400, 2400, 2400, 2400],
+    );
+    const censoredEarlier = model("mimo-v2.5-pro", [1700, 900], [70, 70]);
+    censoredEarlier.ttft = {
+      ...censoredEarlier.ttft,
+      points: [
+        REFERENCE_BUCKET,
+        {
+          t: GENERATED_AT_S - 2 * HOUR,
+          n: 6,
+          censored: 2,
+          p50: 1700,
+          p95: 2000,
+        },
+      ],
+    };
+    const reading = buildSpeedReading(trendOf([hot, censoredEarlier], QUARTER));
+    expect(reading.state).toBe("slower");
+    // The lead is the hour-old move, and the cut-off runs are not in it.
+    expect(reading.moves[0]!.spanS).toBe(TAIL_S);
+    expect(reading.line).toContain("Some requests in the last 3 hours");
+    expect(reading.line).not.toContain("Some requests in the last hour");
   });
 
   // Faster is not what this page is asked about, so it says nothing — and in

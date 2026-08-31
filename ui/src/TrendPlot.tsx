@@ -21,10 +21,16 @@ export function TrendPlot({
   trend,
   metric,
   moves,
+  spanS,
 }: {
   trend: Trend;
   metric: SpeedMetric;
   moves: SpeedMove[];
+  // The hours the sentence measured, which is the payload's recent_s only when
+  // the compared span is what fired. A reading the last hour raised on its own
+  // shades that hour, or the plot would label three hours the sentence never
+  // quoted — the exact failure the shading was added to prevent.
+  spanS?: number;
 }) {
   // Only the models the sentence is about. A second line for a model that did
   // not move is a shape the reader has to rule out before they can read the one
@@ -47,7 +53,7 @@ export function TrendPlot({
   // spans, and a plot that shaded a different three hours than the sentence
   // described would be worse than no plot.
   const generatedAt = Date.parse(trend.generated_at);
-  const recentFromMs = generatedAt - trend.recent_s * 1000;
+  const recentFromMs = generatedAt - (spanS ?? trend.recent_s) * 1000;
   // The compared span, and as much again in front of it — never the whole 27
   // hours the payload carries. The reference day is a LEVEL in this reading, not
   // a shape: it reaches the plot as the dashed line, and drawing its buckets as
@@ -57,7 +63,10 @@ export function TrendPlot({
   //
   // The lead-in is what makes the shading legible: a plot that started exactly
   // where the shading starts would be shaded end to end, and the reader could
-  // not see the level the compared hours departed from.
+  // not see the level the compared hours departed from. It is measured off
+  // recent_s and not off the shaded span, so a reading raised by the last hour
+  // still opens on the hours in front of it — six hours of context under an
+  // hour of shading, rather than two.
   //
   // An unparseable stamp leaves generatedAt NaN, and a NaN cutoff would compare
   // false against every point and leave the plot empty. The shading is already
@@ -101,7 +110,11 @@ export function TrendPlot({
           const move = moves.find(
             (m) => m.modelID === model.model_id && m.metric === metric,
           );
-          const value = model[metric].recent.p50_ms;
+          // The move's own figure, not the compared median: they are the same
+          // number until the last hour fires on its own, and then the legend
+          // would be labelling the line with a median the sentence above it
+          // never mentioned.
+          const value = move ? move.recent : model[metric].recent.p50_ms;
           return (
             <span
               key={model.model_id}

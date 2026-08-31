@@ -83,11 +83,12 @@ const trend = (models: ModelTrend[]): Trend => ({
   generated_at: GENERATED_AT,
 });
 
-const move = (modelID: string): SpeedMove => ({
+const move = (modelID: string, spanS = RECENT_S): SpeedMove => ({
   modelID,
   metric: "ttft",
   recent: 1800,
   before: 900,
+  spanS,
   worseBy: 1,
   secondsAdded: 0.9,
   censored: { recent: false, before: false },
@@ -161,5 +162,45 @@ describe("TrendPlot", () => {
     expect(captured.option!.series[0]!.markLine!.data).toHaveLength(1);
     expect(captured.option!.series[0]!.markArea!.data).toHaveLength(1);
     expect(screen.getByText(/dashed: the 24 hours before/)).toBeInTheDocument();
+  });
+
+  // The shading names WHICH hours the sentence is about, so it follows the
+  // sentence: a reading the last hour raised on its own shades one hour, not
+  // the three the median it never quoted was taken over.
+  it("shades the span the sentence measured, not always the compared hours", () => {
+    render(
+      <TrendPlot
+        trend={trend([model("mimo-v2.5", 1800, 900)])}
+        metric="ttft"
+        moves={[move("mimo-v2.5", 3600)]}
+        spanS={3600}
+      />,
+    );
+    const area = captured.option!.series[0]!.markArea!.data as [
+      { xAxis: number },
+      { xAxis: number },
+    ][];
+    expect(area[0]![0]!.xAxis).toBe((AT_S - 3600) * 1000);
+    // ...while the lead-in still opens on the compared hours, or an hourly
+    // reading would be drawn on two hours of context instead of six.
+    const data = captured.option!.series[0]!.data;
+    expect(data[0]![0]).toBeGreaterThanOrEqual((AT_S - 2 * RECENT_S) * 1000);
+    expect(data.length).toBeGreaterThan(20);
+  });
+
+  // The legend prints the figure the sentence quotes. They are the same number
+  // until the tail fires alone, and then the compared median labels a line the
+  // sentence never mentioned.
+  it("labels the line with the move's own figure", () => {
+    render(
+      <TrendPlot
+        trend={trend([model("mimo-v2.5", 1100, 900)])}
+        metric="ttft"
+        moves={[move("mimo-v2.5", 3600)]}
+        spanS={3600}
+      />,
+    );
+    expect(screen.getByText("1.8 s")).toBeInTheDocument();
+    expect(screen.queryByText("1.1 s")).not.toBeInTheDocument();
   });
 });

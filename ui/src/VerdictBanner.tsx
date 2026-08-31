@@ -53,8 +53,10 @@ export function VerdictBanner({
   // branch is what keeps "slower" from ever appearing beside one.
   //
   // A slowdown and nothing else: speed.state can also be "quicker", which this
-  // page measures and never mentions, so it takes neither the headline nor the
-  // plot.
+  // page measures and never mentions, and "recovered", which is a slowdown the
+  // last hour has already undone. Neither takes the headline or the plot — a
+  // banner shouting about hours that are over is the reason the tail gate
+  // exists (trend.ts, TAIL_S).
   const slow = verdict.state === "normal" && speed.state === "slower";
 
   const tone =
@@ -76,9 +78,14 @@ export function VerdictBanner({
   // The detail lines the verdict already carries, plus the speed sentence — and
   // the speed sentence FIRST when it is the thing being announced, because it
   // is what the headline just claimed.
+  //
+  // "recovered" rides in the same slot as "steady", and for the same reason:
+  // the page has said something about speed, so its silence is readable. It
+  // sits UNDER the verdict rather than over it, because what it reports is over.
   const detail = slow
     ? [speed.line, ...verdict.detail]
-    : verdict.state === "normal" && speed.state === "steady"
+    : verdict.state === "normal" &&
+        (speed.state === "steady" || speed.state === "recovered")
       ? [...verdict.detail, speed.line]
       : verdict.detail;
 
@@ -142,7 +149,12 @@ export function VerdictBanner({
           that is already over. Drawn only when something is off — the plot
           appearing is itself part of the signal. */}
       {slow && trend && speed.metric && (
-        <TrendPlot trend={trend} metric={speed.metric} moves={speed.moves} />
+        <TrendPlot
+          trend={trend}
+          metric={speed.metric}
+          moves={speed.moves}
+          spanS={speed.spanS ?? undefined}
+        />
       )}
     </div>
   );

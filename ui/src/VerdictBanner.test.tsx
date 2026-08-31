@@ -34,12 +34,31 @@ const model = (id: string, ttft: [number, number]): ModelTrend => ({
   },
 });
 
-const trend = (models: ModelTrend[]): Trend => ({
+const AT_S = Date.parse("2026-08-20T12:00:00Z") / 1000;
+
+const trend = (models: ModelTrend[], bucketS = 1800): Trend => ({
   recent_s: 3 * 3600,
   before_s: 24 * 3600,
-  bucket_s: 1800,
+  bucket_s: bucketS,
   models,
   generated_at: "2026-08-20T12:00:00Z",
+});
+
+// A model whose compared median is still elevated and whose last hour is back
+// on the reference level — the shape the banner used to announce as current.
+const recoveredModel = (id: string, ttft: [number, number]): ModelTrend => ({
+  ...model(id, ttft),
+  ttft: {
+    recent: stats(ttft[0]),
+    before: stats(ttft[1]),
+    points: [900, 900, 900, 900].map((p50, i) => ({
+      t: AT_S - (4 - i) * 900,
+      n: 3,
+      censored: 0,
+      p50,
+      p95: p50,
+    })),
+  },
 });
 
 const normal: Verdict = {
@@ -137,6 +156,32 @@ describe("VerdictBanner", () => {
     expect(
       screen.queryByText(/quicker|faster|sooner|ordinary spread/),
     ).toBeNull();
+  });
+
+  // The spike is inside the compared median and over. Announcing it in the
+  // present tense over a plot that has been flat for an hour is what the tail
+  // gate exists to stop — but silence would drop a reading the page was shouting
+  // about an hour ago, so it is demoted, not deleted.
+  it("reports a slowdown the last hour has undone in the past tense", () => {
+    render(
+      <VerdictBanner
+        verdict={normal}
+        trend={trend([recoveredModel("mimo-v2.5", [2016, 954])], 900)}
+        loading={false}
+      />,
+    );
+    expect(screen.getByTestId("state-chip")).toHaveAttribute(
+      "data-state",
+      "normal",
+    );
+    expect(screen.getByTestId("verdict")).toHaveTextContent(
+      "Everything looks normal right now",
+    );
+    expect(screen.queryByTestId("trend-plot")).toBeNull();
+    expect(
+      screen.getByText(/back to normal for the last hour/),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/slow to start right now/)).toBeNull();
   });
 
   // The plot exists to show ONE shape. A line for the model that held steady is
