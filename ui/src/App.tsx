@@ -355,7 +355,7 @@ export default function App() {
             />
             <SeriesPanel
               title="Throughput"
-              subtitle="Output tokens per second over the decode window. This leads rather than inter-token latency, because MiMo batches tokens into chunks and delivers them in bursts — the median inter-chunk gap collapses toward zero on a perfectly healthy run. Higher is better."
+              subtitle="Output tokens per second over the decode window. Higher is better."
               series={data?.series.tps ?? null}
               models={models}
               unit="tok/s"
@@ -366,7 +366,7 @@ export default function App() {
               it is only readable once its parts have been shown. */}
             <SeriesPanel
               title="The whole wait"
-              subtitle="P50 end-to-end, request sent to last token. Its resemblance to the time-to-first-token plot is the finding: most of the wait is getting to the first token, and the gap between the two — read off the axis, not the shape — is what decoding adds. Length matters too, since output caps at 150 tokens, so check a step change here against the throughput plot before calling it a slowdown. Failed runs are excluded. Lower is better."
+              subtitle="P50 end-to-end, request sent to last token. Most of the wait is getting to the first token; the gap between this plot and the time-to-first-token plot is what decoding adds. Output caps at 150 tokens, so check a step change here against the throughput plot before calling it a slowdown. Failed runs are excluded. Lower is better."
               series={data?.series.total ?? null}
               models={models}
               unit="ms"
