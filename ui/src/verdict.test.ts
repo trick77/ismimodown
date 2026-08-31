@@ -147,8 +147,8 @@ describe("lower-is-worse metrics", () => {
   // Scored against ABSOLUTE expectations, not a rolling baseline: a model that
   // has been 97% available all week has not made 97% acceptable. What the
   // sample size decides is not the band, it is whether there is enough
-  // evidence to claim the band was missed.
-  it("scores availability against the target", () => {
+  // evidence to claim the reading is under it.
+  it("scores availability against the band", () => {
     expect(scoreAvailability(292, 292)).toBe("normal");
     expect(scoreAvailability(282, 292)).toBe("elevated");
     expect(scoreAvailability(277, 292)).toBe("degraded");
@@ -165,8 +165,8 @@ describe("lower-is-worse metrics", () => {
   // The reported bug, both readings of it. Three runs cut off by the timeout
   // ladder painted the 24h card AND the 48h card, off the same three runs —
   // 98.97% and 99.49%, neither of which is distinguishable from an endpoint
-  // that meets the target.
-  it("does not call three cut-off runs a missed target", () => {
+  // sitting above the band.
+  it("does not make a state out of three cut-off runs", () => {
     expect(scoreAvailability(589, 592)).toBe("normal");
     expect(scoreAvailability(289, 292)).toBe("normal");
     expect(scoreAvailability(290, 292)).toBe("normal");
