@@ -1,6 +1,7 @@
 import type { CostBreakdown, CostGroup } from "./api/types";
 import { formatInt, formatTime, formatUSD, formatUSDPrecise } from "./format";
 import { Card, NoChart } from "./ui";
+import { PANEL_COPY } from "./copy";
 import { EChart } from "./charts/EChart";
 import { CHART_HEIGHT, buildCostOption } from "./charts/options";
 
@@ -34,8 +35,7 @@ export function CostPanel({ cost }: { cost: CostBreakdown | null }) {
 
   return (
     <Card
-      title="What this dashboard costs to run"
-      subtitle="Every probe this page sends, priced from the usage MiMo reported on it — both models."
+      {...PANEL_COPY.cost}
       right={
         <span
           className={`num whitespace-nowrap rounded-full border px-2 py-[2px] text-micro uppercase tracking-wider ${

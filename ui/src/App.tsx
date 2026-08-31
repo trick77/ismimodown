@@ -15,6 +15,7 @@ import { SamplesTable } from "./SamplesTable";
 import { CostPanel } from "./CostPanel";
 import { Footer } from "./Footer";
 import { buildVerdict } from "./verdict";
+import { PANEL_COPY } from "./copy";
 
 // Mirrors samples.Windows on the daemon. 1h is absent for the reason documented
 // there: at a 5-minute cadence it cannot hold enough samples to clear the
@@ -347,15 +348,13 @@ export default function App() {
               pending={pending}
             />
             <SeriesPanel
-              title="Time to first token"
-              subtitle="P50 per bucket. Failed runs are excluded — an outage is counted as availability, not as latency. Lower is better."
+              {...PANEL_COPY.ttft}
               series={data?.series.ttft ?? null}
               models={models}
               unit="ms"
             />
             <SeriesPanel
-              title="Throughput"
-              subtitle="Output tokens per second over the decode window. Higher is better."
+              {...PANEL_COPY.tps}
               series={data?.series.tps ?? null}
               models={models}
               unit="tok/s"
@@ -365,8 +364,7 @@ export default function App() {
               fast it runs once it has. This is the sum, so it comes after them:
               it is only readable once its parts have been shown. */}
             <SeriesPanel
-              title="The whole wait"
-              subtitle="P50 end-to-end, request sent to last token. Most of the wait is getting to the first token; the gap between this plot and the time-to-first-token plot is what decoding adds. Output caps at 150 tokens, so check a step change here against the throughput plot before calling it a slowdown. Failed runs are excluded. Lower is better."
+              {...PANEL_COPY.total}
               series={data?.series.total ?? null}
               models={models}
               unit="ms"

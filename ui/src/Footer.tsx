@@ -1,4 +1,5 @@
 import { zoneLabel } from "./format";
+import { INDEPENDENCE_BODY, INDEPENDENCE_LEAD } from "./copy";
 
 // The site is named after someone else's product and measures someone else's
 // API, so it says plainly whose it is not. That belongs on the page rather than
@@ -35,11 +36,9 @@ export function Footer() {
     <footer className="mt-14 border-t border-border pt-6 text-label text-muted">
       <p className="max-w-[64ch]">
         <strong className="font-medium text-ink-dim">
-          An independent project.
+          {INDEPENDENCE_LEAD}
         </strong>{" "}
-        Not operated by, endorsed by or connected with Xiaomi. “Xiaomi” and
-        “MiMo” are trademarks of their respective owner, named here only to
-        identify what is measured.
+        {INDEPENDENCE_BODY}
       </p>
       <p className="mt-2 text-faint">
         Times are shown in your browser’s zone —{" "}
