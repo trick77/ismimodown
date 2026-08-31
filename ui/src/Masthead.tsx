@@ -20,10 +20,9 @@
 // first fetch resolves, and a subtitle that pops a clause in half a second
 // later is worse than one that can go stale on a release we control.
 //
-// Their ORDER deliberately does not follow that list, which runs pro first. The
-// list is a display order and the cards, charts and legends all read off it;
-// this is a sentence rather than a ranking, and the shorter ID first is how it
-// reads aloud.
+// Their order follows the display order (pro first), matching the cards, charts
+// and legends. Both names carry their chart colour so the reader can map the
+// sentence to the lines at a glance.
 //
 // The eyebrow names the two layers the page measures: the inference itself, and
 // the network path the request takes to reach it. That is the page's whole
@@ -78,7 +77,10 @@
 // the h1 for the start of the page — and above the fold rather than in a
 // footer, because a reader who has just read a bad verdict wants it then, not
 // after eight panels.
+import { colorForModel } from "./charts/options";
+
 const CONSOLE_URL = "https://platform.xiaomimimo.com/console";
+const MODELS = ["mimo-v2.5-pro", "mimo-v2.5"];
 
 export function Masthead() {
   return (
@@ -143,10 +145,18 @@ export function Masthead() {
           margin. */}
       <p className="mt-4 max-w-[78ch] font-serif text-[clamp(1rem,2vw,1.3rem)] leading-snug text-ink-dim">
         Latency, throughput, availability and answer correctness for{" "}
-        <span className="num whitespace-nowrap text-[0.92em]">mimo-v2.5</span>{" "}
-        and{" "}
-        <span className="num whitespace-nowrap text-[0.92em]">
+        <span
+          className="num whitespace-nowrap text-[0.92em]"
+          style={{ color: colorForModel("mimo-v2.5-pro", MODELS) }}
+        >
           mimo-v2.5-pro
+        </span>{" "}
+        and{" "}
+        <span
+          className="num whitespace-nowrap text-[0.92em]"
+          style={{ color: colorForModel("mimo-v2.5", MODELS) }}
+        >
+          mimo-v2.5
         </span>
         , separating how long it takes to <em>reach</em> the API endpoint from
         what happens once you are there.
