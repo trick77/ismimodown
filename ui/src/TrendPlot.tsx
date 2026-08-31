@@ -139,16 +139,19 @@ export function TrendPlot({
         })}
         {/* Both marks named, because neither carries a number: the y-axis has
             no labels, so an unexplained dashed line is just a line. The words
-            come off the payload's own spans, like the sentence's do. */}
+            come off the payload's own spans, like the sentence's do — and the
+            shaded one off the span actually shaded, which is the last hour
+            when the tail fired alone. "The compared span" named three hours
+            the shading did not cover. */}
         <span className="num text-micro text-ghost">
-          shaded: the compared span · dashed: the {spanWords(trend.before_s)}{" "}
-          before
+          shaded: the last {spanWords(spanS ?? trend.recent_s)} · dashed: the{" "}
+          {spanWords(trend.before_s)} before
         </span>
         {option.logScale && <LogScaleChip />}
       </div>
       <EChart
         height={TREND_HEIGHT}
-        ariaLabel={`${metric === "ttft" ? "Time to first token" : "Throughput"} over the compared hours and as much again before them, with the compared span shaded and the reference median drawn`}
+        ariaLabel={`${metric === "ttft" ? "Time to first token" : "Throughput"} over the compared hours and as much again before them, with the last ${spanWords(spanS ?? trend.recent_s)} shaded and the reference median drawn`}
         option={option}
       />
     </div>
