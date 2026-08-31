@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { Sample } from "./api/types";
+import { colorForModel } from "./charts/options";
 import { Card } from "./ui";
 import {
   formatAgo,
@@ -104,6 +105,10 @@ const TICK_MS = 30_000;
 
 export function SamplesTable({ perGroup }: { perGroup: Sample[][] }) {
   const rows = newestFirst(perGroup).slice(0, ROWS);
+  const modelIds = useMemo(
+    () => [...new Set(rows.map((s) => s.model_id))],
+    [rows],
+  );
   // The clock the ages are measured against, re-read on the timer above.
   //
   // The browser's, not the daemon's generated_at, and this is the one place
@@ -183,7 +188,13 @@ export function SamplesTable({ perGroup }: { perGroup: Sample[][] }) {
                       {formatAgo(s.at, now)}
                     </time>
                   </td>
-                  <td className="num py-2 pr-4">{s.model_id}</td>
+                  <td className="num py-2 pr-4">
+                    <span
+                      style={{ color: colorForModel(s.model_id, modelIds) }}
+                    >
+                      {s.model_id}
+                    </span>
+                  </td>
                   <td className="num py-2 pr-4 text-right">
                     {formatMs(s.ttft_ms)}
                   </td>
