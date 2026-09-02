@@ -212,11 +212,12 @@ describe("buildVerdict", () => {
     const v = buildVerdict(summary(), summary());
     expect(v.state).toBe("normal");
     // The page's own question, answered: not "everything looks normal", which
-    // is a sentence about the dashboard rather than about the endpoint.
+    // is a sentence about the dashboard rather than about the endpoint. And
+    // nothing under it — the wait is the banner's to add, and a line counting
+    // the clean runs only repeats the headline over two cards already printing
+    // 100%.
     expect(v.headline).toMatch(/Xiaomi MiMo is answering/i);
-    expect(v.detail.join(" ")).toMatch(
-      /every run finished and every answer was correct over the last hour/i,
-    );
+    expect(v.detail).toEqual([]);
   });
 
   it("shows the empty state before any data", () => {

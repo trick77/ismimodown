@@ -2,14 +2,7 @@ import type { ReactNode } from "react";
 import type { Trend } from "./api/types";
 import type { Verdict } from "./verdict";
 import { StateChip } from "./ui";
-import {
-  buildSpeedReading,
-  currentWaits,
-  spanWords,
-  TAIL_S,
-  type CurrentWait,
-} from "./trend";
-import { formatMs } from "./format";
+import { buildSpeedReading } from "./trend";
 import { colorForModel } from "./charts/options";
 import { TrendPlot } from "./TrendPlot";
 
@@ -22,43 +15,6 @@ import { TrendPlot } from "./TrendPlot";
 // claim a state the page is not in. Colour is never the only signal here; the
 // word carries itself, and this only makes the pill and the sentence read as
 // one statement rather than two.
-// The number a visitor came for, in the units they wait in.
-//
-// Under the headline rather than in it: "Xiaomi MiMo is answering" is the
-// answer, and this is how long it takes. Both models, always named, because a
-// single figure over a fleet of two is the one thing this page has learned not
-// to print — they are three seconds apart on an ordinary day.
-//
-// Silent when the trend block cannot produce a reading: the window figures on
-// the cards below are a day's medians and would answer a different question in
-// the same sentence.
-function waitLine(waits: CurrentWait[]): string[] {
-  if (waits.length === 0) return [];
-  const clauses = waits.map((w) => `${formatMs(w.ttftMs)} on ${w.modelID}`);
-  const last = clauses[clauses.length - 1]!;
-  const said =
-    clauses.length === 1
-      ? last
-      : `${clauses.slice(0, -1).join(", ")} and ${last}`;
-  // "right now" is a claim only the last hour earns — the same rule the speed
-  // reading follows (trend.ts, TAIL_S). A median over three hours is quoted as
-  // the three hours it is, or the sentence is naming a span it never measured.
-  const span = Math.max(...waits.map((w) => w.spanS));
-  const when =
-    span === TAIL_S ? "right now" : `over the last ${spanWords(span)}`;
-  return [`First token in about ${said} ${when}.`];
-}
-
-// Model IDs carry their series colour wherever the banner names them, the same
-// tie the masthead subline makes: the reader meets "mimo-v2.5-pro" in the
-// sentence and finds the same orange on the card, the chart line and the
-// legend below. Monospace with it, because a model ID is an identifier and the
-// rest of the sentence is prose.
-//
-// Longest ID first in the alternation — "mimo-v2.5" is a prefix of
-// "mimo-v2.5-pro", and matching the short one first paints half a name and
-// leaves "-pro" in body text. Possessives ("mimo-v2.5's") fall out of that for
-// free: the match ends at the ID and the apostrophe stays prose.
 function paintModels(text: string, models: string[]): ReactNode {
   const ids = [...models].sort((a, b) => b.length - a.length);
   if (ids.length === 0) return text;
@@ -142,12 +98,30 @@ export function VerdictBanner({
           ? "border-fault-edge/25 bg-fault-edge/5"
           : "border-border bg-panel/60";
 
+  // The good day, said in full: nothing is failing AND nothing moved past a
+  // floor, which is the one state in which the page may claim the readings sit
+  // where they usually do.
+  //
+  // Only for "steady". A "minor" reading has crossed a measured floor — that is
+  // why it was detected — so "behaving as usual" would be a false sentence in
+  // exactly the state it looks most at home in, and "quicker" and "recovered"
+  // are each carrying news of their own. They keep the bare headline.
+  //
+  // No figures anywhere in this branch. The wait, the run counts and the
+  // week's medians all sit on the cards below; a visitor asking whether MiMo
+  // is up is not asking for a statistic, and the banner used to hand them two
+  // lines of them under a headline that had already answered the question.
+  const usual = verdict.state === "normal" && !slow && speed.state === "steady";
+  const subject =
+    models.length > 1 ? `both models are` : models.length === 1 ? `it is` : "";
   const headline =
     loading && verdict.state === "unknown"
       ? "Loading…"
       : slow
         ? speed.lead
-        : verdict.headline;
+        : usual && subject !== ""
+          ? `${verdict.headline}, and ${subject} behaving as usual`
+          : verdict.headline;
 
   // The detail lines the verdict already carries, plus the speed sentence — and
   // the speed sentence FIRST when it is the thing being announced, because it
@@ -157,25 +131,15 @@ export function VerdictBanner({
   // the page has said something about speed, so its silence is readable. It
   // sits UNDER the verdict rather than over it, because what it reports is over.
   //
-  // "minor" rides there too: a move that cleared its floor and left a reading
-  // still quick in absolute terms (trend.ts, SLOW_TTFT_MS / SLOW_TPS) is a real
-  // change and a poor headline, so it is stated and not announced. Under the
-  // verdict rather than over it, because whatever the verdict is talking about
-  // is the larger claim by construction.
-  //
-  // The wait leads the detail on an ordinary day: it is what the headline just
-  // claimed, quantified. Never beside a fault — a wait is not the news then,
-  // and the banner takes the fault alone.
-  const waits =
-    verdict.state === "normal" && !slow ? waitLine(currentWaits(trend)) : [];
+  // "steady" no longer rides here: its sentence became the headline's own
+  // clause above, and printed as well it said the same thing twice. "minor"
+  // says nothing at all (trend.ts). So the only speed line left under a normal
+  // verdict is the past tense one.
   const detail = slow
     ? [speed.line, ...verdict.detail]
-    : verdict.state === "normal" &&
-        (speed.state === "steady" ||
-          speed.state === "recovered" ||
-          speed.state === "minor")
-      ? [...waits, ...verdict.detail, speed.line]
-      : [...waits, ...verdict.detail];
+    : verdict.state === "normal" && speed.state === "recovered"
+      ? [...verdict.detail, speed.line]
+      : verdict.detail;
 
   return (
     <div
@@ -225,8 +189,13 @@ export function VerdictBanner({
             : paintModels(headline, models)}
         </p>
       </div>
+      {/* Serif at body size, in the near-white ink, because these lines ARE
+          the answer — they rendered at 13px in muted grey, the smallest type on
+          the page, inside the one box a visitor reads first. The headline says
+          what is happening; these say how much, and a reader who has to squint
+          at them is being told they do not matter. */}
       {detail.length > 0 && (
-        <ul className="mt-2 space-y-1 text-label text-muted">
+        <ul className="mt-3 space-y-1.5 font-serif text-body leading-snug text-ink-dim">
           {detail.map((line) => (
             <li key={line}>{paintModels(line, models)}</li>
           ))}

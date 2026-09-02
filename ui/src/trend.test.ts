@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import type { ModelTrend, Point, Trend } from "./api/types";
 import {
   buildSpeedReading,
-  currentWaits,
   SLOW_TPS,
   SLOW_TTFT_MS,
   TAIL_S,
@@ -621,13 +620,14 @@ describe("buildSpeedReading", () => {
     expect(2016 / 954 - 1).toBeGreaterThan(TTFT_FLOOR);
     expect(2016).toBeLessThan(SLOW_TTFT_MS);
     expect(reading.state).toBe("minor");
-    // Stated, not announced: no headline, no plot, and the figures and the
-    // cost still printed.
+    // Measured and never spoken, exactly as a speed-up is: no headline, no
+    // plot, and no sentence either. A second of extra waiting is not worth a
+    // line in the box a visitor reads first — the plots below carry the shape
+    // for anyone who wants it.
     expect(reading.lead).toBe("");
+    expect(reading.line).toBe("");
     expect(reading.moves).toEqual([]);
     expect(reading.metric).toBeNull();
-    expect(reading.line).toContain("2016 ms against 954 ms");
-    expect(reading.line).toContain("1.1 s");
   });
 
   // The same gate in the throughput's own units: text arriving at 45 tokens a
@@ -640,7 +640,7 @@ describe("buildSpeedReading", () => {
     expect(45).toBeGreaterThan(SLOW_TPS);
     expect(reading.state).toBe("minor");
     expect(reading.lead).toBe("");
-    expect(reading.line).toContain("45.0 against 70.0");
+    expect(reading.line).toBe("");
   });
 
   // ...and the lead is what the gate reads, so a small move riding along with
@@ -666,24 +666,5 @@ describe("buildSpeedReading", () => {
     expect(reading.state).toBe("slower");
     expect(reading.metric).toBe("ttft");
     expect(reading.lead).toContain("slow to start");
-  });
-
-  // One sentence, one span: the wait line names the hours it quotes, so a
-  // model whose hour is readable is not printed under another model's three.
-  it("falls back to the compared span for every model when one hour is thin", () => {
-    const thick = withTail(
-      model("mimo-v2.5", [1000, 1000], [70, 70]),
-      "ttft",
-      [1000, 1000, 1000, 1000],
-    );
-    const thin = withTail(
-      model("mimo-v2.5-pro", [5000, 5000], [70, 70]),
-      "ttft",
-      [5000, 5000],
-      2,
-    );
-    const waits = currentWaits(trendOf([thick, thin], QUARTER));
-    expect(waits).toHaveLength(2);
-    expect(waits.every((w) => w.spanS === 3 * HOUR)).toBe(true);
   });
 });

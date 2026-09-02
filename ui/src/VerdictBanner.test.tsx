@@ -210,17 +210,48 @@ describe("VerdictBanner", () => {
     ).not.toBeInTheDocument();
   });
 
-  // Forgetting is only acceptable if the page says what it forgot: a resting
-  // banner that mentions speed at all is what makes its silence readable.
-  it("says it is running at its usual speed on a quiet day", () => {
+  // Forgetting is only acceptable if the page says what it forgot: the resting
+  // banner claims the readings sit where they usually do, which is what makes
+  // its silence in the other states readable. In the HEADLINE, as a clause —
+  // printed underneath as well it said the same thing twice, the second time
+  // as a statistic nobody asked for.
+  it("says both models are behaving as usual on a quiet day", () => {
     render(
       <VerdictBanner
         verdict={normal}
-        trend={trend([model("mimo-v2.5", [900, 900])])}
+        trend={trend([
+          model("mimo-v2.5", [900, 900]),
+          model("mimo-v2.5-pro", [4000, 4000]),
+        ])}
+        models={["mimo-v2.5-pro", "mimo-v2.5"]}
         loading={false}
       />,
     );
-    expect(screen.getByText(/ordinary spread/)).toBeInTheDocument();
+    expect(screen.getByTestId("verdict")).toHaveTextContent(
+      /Xiaomi MiMo is answering, and both models are behaving as usual/,
+    );
+    // No figures anywhere: the cards below carry every number.
+    expect(screen.getByTestId("verdict")).not.toHaveTextContent(/\d/);
+  });
+
+  // ...and the claim is dropped the moment it stops being true. A "minor"
+  // reading crossed a measured floor — that is why it was noticed — so the
+  // headline falls back to the bare verdict rather than calling it usual.
+  it("does not call a reading usual once it has passed a floor", () => {
+    render(
+      <VerdictBanner
+        verdict={normal}
+        trend={trend([model("mimo-v2.5", [2016, 954])])}
+        models={["mimo-v2.5"]}
+        loading={false}
+      />,
+    );
+    expect(screen.getByTestId("verdict")).toHaveTextContent(
+      /Xiaomi MiMo is answering/,
+    );
+    expect(screen.getByTestId("verdict")).not.toHaveTextContent(
+      /behaving as usual/,
+    );
   });
 
   // The pill and the sentence are one statement, so the word the pill carries
@@ -267,10 +298,10 @@ describe("VerdictBanner", () => {
       "normal",
     );
   });
-  // A move that cleared its floor and left a wait nobody would call slow is
-  // stated, never announced: it rides under the verdict as a plain line, with
-  // no chip claiming a state for it and no plot drawing one.
-  it("states a small slowdown without letting it take the banner", () => {
+  // A move that cleared its floor and left a wait nobody would call slow says
+  // nothing at all: no chip, no plot, and no line either. Six tenths of a
+  // second is not something to hand a visitor in the box they read first.
+  it("says nothing at all about a small slowdown", () => {
     render(
       <VerdictBanner
         verdict={normal}
@@ -284,37 +315,18 @@ describe("VerdictBanner", () => {
     );
     expect(screen.queryByText(/slow to start right now/)).toBeNull();
     expect(screen.queryByTestId("trend-plot")).toBeNull();
-    expect(screen.getByTestId("verdict")).toHaveTextContent(
+    expect(screen.getByTestId("verdict")).not.toHaveTextContent(
       /2016 ms against 954 ms/,
     );
-  });
-  // What a visitor came for, under the headline that claims it: the wait
-  // itself, per model, in the units they wait in. Both models named — they are
-  // seconds apart on an ordinary day, and one figure over the pair describes
-  // neither.
-  it("says how long the wait is when nothing is wrong", () => {
-    render(
-      <VerdictBanner
-        verdict={normal}
-        trend={trend([
-          model("mimo-v2.5", [1030, 1030]),
-          model("mimo-v2.5-pro", [5060, 5060]),
-        ])}
-        loading={false}
-      />,
-    );
-    expect(screen.getByTestId("verdict")).toHaveTextContent(
-      /First token in about 1\.03 s on mimo-v2\.5 and 5\.06 s on mimo-v2\.5-pro/,
-    );
-    // The span the figures were measured over, never "right now" over a median
-    // of three hours.
-    expect(screen.getByTestId("verdict")).toHaveTextContent(
-      /over the last 3 hours/,
+    // ...and the steady sentence must not speak for it either: the reading
+    // moved past its floor, so "inside the ordinary spread" would be false.
+    expect(screen.getByTestId("verdict")).not.toHaveTextContent(
+      /ordinary spread/,
     );
   });
-
-  // A fault is the news, not the wait: the banner takes it alone.
-  it("does not print the wait beside a fault", () => {
+  // A fault is the news: the banner takes it alone, with no speed clause and
+  // no reassurance riding along.
+  it("says nothing about speed beside a fault", () => {
     render(
       <VerdictBanner
         verdict={{

@@ -490,7 +490,6 @@ export function buildVerdict(
       // horizon used to swallow a run that had just dropped, under a sentence
       // claiming every cycle since had been clean.
       detail: [
-        ...cleanHour(summary, recent),
         ...(infra.lastRedAgo !== null
           ? [
               // This is where a LONE failure inside the horizon lands, and it
@@ -714,27 +713,6 @@ export function scoreModelRecent(
     scoreTrack(failures, FAILURE_THRESHOLDS),
     scoreTrack(wrong, WRONG_THRESHOLDS),
   );
-}
-
-// cleanHour is the headline's evidence: the reader is told the endpoint is
-// answering, and this is the count behind it.
-//
-// Only when the hour really is clean — a lone failure has its own sentence in
-// quietFailures below, and printing both would have the banner congratulating
-// itself one line above the run it lost.
-function cleanHour(summary: Summary, recent: RecentCycle[]): string[] {
-  const horizon = Math.min(RECENT_CYCLES, recent.length);
-  if (horizon === 0) return [];
-  for (const model of summary.models) {
-    const { failures, wrong } = modelTracks(model.model_id, recent);
-    if (failures.count > 0 || wrong.count > 0) return [];
-  }
-  if (track(recent, infraRed).count > 0) return [];
-  const when =
-    horizon === RECENT_CYCLES
-      ? "the last hour"
-      : `the last ${horizon} ${plural(horizon, "cycle")}`;
-  return [`Every run finished and every answer was correct over ${when}.`];
 }
 
 // quietFailures is what a lone failed RUN gets instead of a chip.
