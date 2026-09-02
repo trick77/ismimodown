@@ -167,6 +167,14 @@ export type SpeedReading = {
   // The span the plot must shade — the lead move's, which is not always the
   // payload's recent_s. Null when there is nothing to draw.
   spanS: number | null;
+  // Did every model in the block produce a reading at all?
+  //
+  // A model whose spans are too thin leaves no candidate, and the reading is
+  // then decided by the models that did produce one — which is right for
+  // "slower" (something IS slow) and wrong for any sentence that speaks for
+  // the fleet. The banner's "both models are behaving as usual" is exactly
+  // that sentence, and without this it claimed a model nothing had measured.
+  everyModelRead: boolean;
 };
 
 function value(m: TrendMetric, side: "recent" | "before"): number | null {
@@ -430,6 +438,7 @@ export function buildSpeedReading(
       moves: [],
       metric: null,
       spanS: null,
+      everyModelRead: false,
     };
   }
 
@@ -449,6 +458,16 @@ export function buildSpeedReading(
       if (c) all.push(c);
     }
   }
+  // Both metrics on every model, not merely one candidate somewhere: a model
+  // whose throughput is readable and whose first token is not has still not
+  // been measured for the purposes of a sentence about the whole fleet.
+  const everyModelRead =
+    models.length > 0 &&
+    models.every((m) =>
+      (["ttft", "tps"] as const).every((metric) =>
+        all.some((c) => c.modelID === m.model_id && c.metric === metric),
+      ),
+    );
   if (all.length === 0) {
     // Every span was too thin to produce a median. Said in words, never as a
     // zero — the page has nothing to compare, which is not the same as nothing
@@ -464,6 +483,7 @@ export function buildSpeedReading(
       moves: [],
       metric: null,
       spanS: null,
+      everyModelRead: false,
     };
   }
 
@@ -530,6 +550,7 @@ export function buildSpeedReading(
       moves: [],
       metric: null,
       spanS: null,
+      everyModelRead: false,
     };
   }
 
@@ -640,6 +661,7 @@ export function buildSpeedReading(
       moves: fired,
       metric: lead.metric,
       spanS: lead.spanS,
+      everyModelRead,
     };
   }
 
@@ -658,6 +680,7 @@ export function buildSpeedReading(
       moves: [],
       metric: null,
       spanS: null,
+      everyModelRead,
     };
   }
 
@@ -689,6 +712,7 @@ export function buildSpeedReading(
       moves: [],
       metric: null,
       spanS: null,
+      everyModelRead: false,
     };
   }
 
@@ -702,5 +726,6 @@ export function buildSpeedReading(
     moves: [],
     metric: null,
     spanS: null,
+    everyModelRead,
   };
 }

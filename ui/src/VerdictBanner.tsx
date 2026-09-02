@@ -15,6 +15,16 @@ import { TrendPlot } from "./TrendPlot";
 // claim a state the page is not in. Colour is never the only signal here; the
 // word carries itself, and this only makes the pill and the sentence read as
 // one statement rather than two.
+// Model IDs carry their series colour wherever the banner names them, the same
+// tie the masthead subline makes: the reader meets "mimo-v2.5-pro" in the
+// sentence and finds the same orange on the card, the chart line and the legend
+// below. Monospace with it, because a model ID is an identifier and the rest of
+// the sentence is prose.
+//
+// Longest ID first in the alternation — "mimo-v2.5" is a prefix of
+// "mimo-v2.5-pro", and matching the short one first paints half a name and
+// leaves "-pro" in body text. Possessives ("mimo-v2.5's") fall out of that for
+// free: the match ends at the ID and the apostrophe stays prose.
 function paintModels(text: string, models: string[]): ReactNode {
   const ids = [...models].sort((a, b) => b.length - a.length);
   if (ids.length === 0) return text;
@@ -111,9 +121,36 @@ export function VerdictBanner({
   // week's medians all sit on the cards below; a visitor asking whether MiMo
   // is up is not asking for a statistic, and the banner used to hand them two
   // lines of them under a headline that had already answered the question.
-  const usual = verdict.state === "normal" && !slow && speed.state === "steady";
+  // Every gate the sentence needs, and each one for a failure it actually had:
+  //
+  //   verdict.detail is EMPTY — the verdict can be normal and still carry a
+  //   line ("mimo-v2.5 failed 1 of the last 12 runs, 8 minutes ago"), and the
+  //   headline then congratulated the endpoint directly above the run it lost.
+  //   The sentence this replaced was gated on exactly that and the gate was
+  //   dropped with it.
+  //
+  //   speed is STEADY — a "minor" reading crossed a measured floor, which is
+  //   why it was noticed, so "as usual" would be false in the state it looks
+  //   most at home in. "quicker" and "recovered" carry news of their own.
+  //
+  //   every model was READ — steady is decided by the models that produced a
+  //   candidate, so a model with spans too thin to measure left the other one
+  //   speaking for the pair (trend.ts, everyModelRead).
+  const usual =
+    verdict.state === "normal" &&
+    !slow &&
+    speed.state === "steady" &&
+    speed.everyModelRead &&
+    verdict.detail.length === 0;
+  // "both" is a claim about two, and a third model would inherit it silently.
   const subject =
-    models.length > 1 ? `both models are` : models.length === 1 ? `it is` : "";
+    models.length === 2
+      ? "both models are"
+      : models.length > 2
+        ? "every model is"
+        : models.length === 1
+          ? "it is"
+          : "";
   const headline =
     loading && verdict.state === "unknown"
       ? "Loading…"
@@ -147,14 +184,21 @@ export function VerdictBanner({
       // verdict on the page, not as a label for the strip it happens to sit on
       // top of, and it needs the larger gap on the side it is NOT about.
       //
-      // min-h holds two lines of headline, but only on a narrow screen and only
-      // because that is where the headline needs two. "Loading…" is one line
-      // everywhere; "Everything looks normal right now" is one line on a
-      // desktop and two on a phone, so on a phone the banner grew by a line the
+      // min-h reserves the height the loaded banner will take, but only on a
+      // narrow screen and only because that is where the headline wraps.
+      // "Loading…" is one line everywhere; the resting headline is one line on
+      // a desktop and three on a phone, so without this the banner grew the
       // moment the fetch landed and carried the entire page down with it. Above
       // the sm breakpoint there is nothing to reserve, so nothing is: a fixed
       // floor there would be dead space under every headline that ever renders.
-      className={`mb-10 min-h-[99px] rounded-xl border px-5 py-4 sm:min-h-0 ${tone}`}
+      //
+      // MEASURED against the resting headline, which is the one almost every
+      // visit renders: 158.5px at 390px wide, 188.5px at 320px. The floor takes
+      // the 390 figure — reserving for the narrowest phone would leave 30px of
+      // dead space on every other one, and a 320px screen simply grows by a
+      // line as it did before. Re-measure when the headline copy changes; it
+      // was 99px for a two-line headline that no longer exists.
+      className={`mb-10 min-h-[159px] rounded-xl border px-5 py-4 sm:min-h-0 ${tone}`}
       role="status"
       aria-live="polite"
       data-testid="verdict"

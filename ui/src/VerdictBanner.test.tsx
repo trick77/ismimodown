@@ -325,7 +325,9 @@ describe("VerdictBanner", () => {
     );
   });
   // A fault is the news: the banner takes it alone, with no speed clause and
-  // no reassurance riding along.
+  // no reassurance riding along. Asserted on the clause that EXISTS — the old
+  // wording checked for a sentence the source no longer contains, so it could
+  // not fail.
   it("says nothing about speed beside a fault", () => {
     render(
       <VerdictBanner
@@ -338,7 +340,12 @@ describe("VerdictBanner", () => {
         loading={false}
       />,
     );
-    expect(screen.queryByText(/First token in about/)).toBeNull();
+    expect(screen.getByTestId("verdict")).not.toHaveTextContent(
+      /behaving as usual/,
+    );
+    expect(screen.getByTestId("verdict")).not.toHaveTextContent(
+      /slow to start|generating more slowly/,
+    );
   });
 
   // The same tie the masthead subline makes: a model ID carries its series
@@ -363,5 +370,58 @@ describe("VerdictBanner", () => {
     expect(fast).toHaveStyle({ color: colorForModel("mimo-v2.5", MODELS) });
     // The possessive stays prose: the match ends at the ID.
     expect(fast).toHaveTextContent(/^mimo-v2\.5$/);
+  });
+  // The clause is a claim about the run record too, not only about speed. A
+  // verdict can be normal and still carry a line — one failed run inside the
+  // hour is reported in the past tense rather than painted — and the headline
+  // then congratulated the endpoint directly above the run it had just lost.
+  it("does not call it usual over a verdict that still has something to say", () => {
+    render(
+      <VerdictBanner
+        verdict={{
+          state: "normal",
+          headline: "Xiaomi MiMo is answering",
+          detail: [
+            "mimo-v2.5 failed 1 of the last 12 runs, 8 minutes ago. One run is not yet a pattern.",
+          ],
+        }}
+        trend={trend([
+          model("mimo-v2.5", [900, 900]),
+          model("mimo-v2.5-pro", [4000, 4000]),
+        ])}
+        models={["mimo-v2.5-pro", "mimo-v2.5"]}
+        loading={false}
+      />,
+    );
+    expect(screen.getByTestId("verdict")).not.toHaveTextContent(
+      /behaving as usual/,
+    );
+    expect(screen.getByTestId("verdict")).toHaveTextContent(
+      /failed 1 of the last 12 runs/,
+    );
+  });
+
+  // "Both models" may only speak for models that were actually measured: a
+  // model whose spans are too thin produces no reading, and the other one was
+  // left vouching for it.
+  it("does not speak for a model the block could not measure", () => {
+    const unread = model("mimo-v2.5-pro", [4000, 4000]);
+    unread.ttft.recent = {
+      n: 4,
+      sufficient: false,
+      p50_ms: null,
+      p95_ms: null,
+    };
+    render(
+      <VerdictBanner
+        verdict={normal}
+        trend={trend([model("mimo-v2.5", [900, 900]), unread])}
+        models={["mimo-v2.5-pro", "mimo-v2.5"]}
+        loading={false}
+      />,
+    );
+    expect(screen.getByTestId("verdict")).not.toHaveTextContent(
+      /behaving as usual/,
+    );
   });
 });

@@ -62,7 +62,8 @@ added to the wait, never by per cent — the metrics are different sizes.
 
 **Relative alone never takes the banner.** The LEAD move must also leave a reading that is slow
 in absolute terms — `SLOW_TTFT_MS`, `SLOW_TPS` — or the whole reading demotes to `minor`, which
-says NOTHING: no headline, no chip, no plot, no sentence. Nobody cares that a first token costs
+says NOTHING: no headline, no chip, no plot, no sentence. It only withholds the "as usual"
+clause the steady state would carry. Nobody cares that a first token costs
 0.6 s more, and printing it under the headline asks the reader to care about what the page just
 decided does not matter; `minor` exists only so the steady sentence cannot claim an ordinary
 spread the reading sits outside of, exactly as `quicker` does. Tested per MOVE, never on the top
@@ -87,13 +88,18 @@ whole SERVED block, not the last `RECENT_CYCLES`: an hour-wide cutoff makes a st
 rate blink amber and green all day. `unknown` is never softened this way, and neither is a
 payload with no recent block — undated failures are not over.
 
-**The normal banner answers the question, not the dashboard.** "Xiaomi MiMo is answering", with
-the WAIT underneath it per model (`currentWaits`, the last hour when the hour is thick enough,
-the compared span otherwise — never the 24h window median), against the 7-day figure so a
-stranger can read it: "Is 996 ms good?" is unanswerable bare, and that is the question this whole
-scoring module opens with. Both figures or neither — the eye pairs the two lists by position.
-ONE line: a second sentence counting the clean runs only repeats the headline over two cards
-already printing 100%. Only the last hour may be called "right now"; any wider span is named.
+**The quiet banner carries NO figures.** "Xiaomi MiMo is answering, and both models are behaving
+as usual", and nothing under it: the wait, the run counts and the week's medians are all on the
+cards below, and a visitor asking whether MiMo is up is not asking for a statistic. Earlier
+drafts printed the wait per model, then the week's medians beside it, then a line counting the
+clean runs — every one of them cut for the same reason.
+
+The "as usual" clause is a CLAIM, and it needs every gate: the speed reading must be `steady`
+(a `minor` one crossed a measured floor, which is why it was noticed), `everyModelRead` must
+hold (a model with spans too thin to measure must not be vouched for by the other one), and
+`verdict.detail` must be EMPTY (a normal verdict still reports a lone failed run, and the
+headline used to congratulate the endpoint one line above the run it lost). Drop any gate and
+the banner argues with itself.
 
 **The banner's sentences are body-size serif in `ink-dim`, never `text-label text-muted`.** They
 are the answer, in the box a visitor reads first; at 13px in grey the page whispers its own
