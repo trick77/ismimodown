@@ -35,6 +35,33 @@ export const TTFT_FLOOR = 0.7;
 export const TTFT_FLOOR_BOTH = 0.4;
 export const TPS_FLOOR = 0.2;
 
+// How slow the reading itself has to BE before the move that produced it may
+// take the banner. The floors above are relative; these two are absolute, and
+// the page needs both.
+//
+// "mimo-v2.5 is slow to start right now" was published over a first token of
+// 2016 ms, against 954 ms the day before. Every word of the measurement was
+// true — it had doubled, it was well past its floor — and the claim in the
+// largest type on the page was false: two seconds to first token is fast, and
+// the model whose card sat underneath it starts in three and a half. A
+// slowdown is only news if what it left behind is slow.
+//
+// So a relative floor decides whether something MOVED and these decide whether
+// the reader would call the result slow. Chosen, not measured, unlike the
+// floors — no replay can tell you how long a wait has to be before someone
+// minds it, because that is a fact about the reader. They are set where the
+// headline stops being embarrassing to say next to the figure it quotes.
+//
+// Per metric, because a first token and a token rate are not the same wait: an
+// answer that starts inside three seconds is prompt however yesterday looked,
+// and text arriving at 40 tokens a second is faster than anyone reads.
+//
+// Nothing is hidden by them. A move that clears its floor and not this still
+// gets its sentence, with its figures and its cost, in the same slot the steady
+// reading uses — it just does not get the headline, the chip or the plot.
+export const SLOW_TTFT_MS = 3000;
+export const SLOW_TPS = 40;
+
 // The tail: the last hour of buckets, and the only reason the banner is allowed
 // to say "right now".
 //
@@ -79,6 +106,51 @@ export const OUTPUT_TOKENS = 150;
 
 export type SpeedMetric = "ttft" | "tps";
 
+// What a visitor waits for the first token, right now, per model.
+//
+// The last hour when the hour is thick enough to read, the compared span
+// otherwise — never the 24-hour window figure, which is a median of a day and
+// answers a question nobody on this page is asking. `spanS` says which, so the
+// sentence can name the hours it is quoting.
+export type CurrentWait = {
+  modelID: string;
+  ttftMs: number;
+  spanS: number;
+};
+
+export function currentWaits(trend: Trend | null | undefined): CurrentWait[] {
+  const generatedAtS = Date.parse(trend?.generated_at ?? "") / 1000;
+  const bucketS = trend?.bucket_s ?? 0;
+  const recentS = trend?.recent_s ?? 0;
+  const models = trend?.models ?? [];
+
+  // One span for the whole sentence, decided once: the last hour only when
+  // EVERY model's hour is thick enough to read. Mixed, it would have to be said
+  // per clause — the sentence names its span, and an hour-old figure printed
+  // under "over the last 3 hours" is exactly the mislabelling this page is
+  // careful about everywhere else.
+  const tails = models.map((m) => tailOf(m.ttft, generatedAtS, bucketS));
+  const hourly =
+    models.length > 0 && tails.every((t) => t !== null && t.value > 0);
+
+  const waits: CurrentWait[] = [];
+  models.forEach((model, i) => {
+    if (hourly) {
+      waits.push({
+        modelID: model.model_id,
+        ttftMs: tails[i]!.value,
+        spanS: TAIL_S,
+      });
+      return;
+    }
+    const recent = value(model.ttft, "recent");
+    if (recent !== null && recent > 0) {
+      waits.push({ modelID: model.model_id, ttftMs: recent, spanS: recentS });
+    }
+  });
+  return waits;
+}
+
 // One metric on one model that moved past its floor.
 export type SpeedMove = {
   modelID: string;
@@ -116,7 +188,11 @@ export type SpeedReading = {
   // median is still elevated because the spike is still inside it, and the
   // endpoint is fine. It carries no badge and no headline — it is the past
   // tense, and the page answers a present-tense question.
-  state: "slower" | "quicker" | "recovered" | "steady" | "unknown";
+  // "minor" is a move that cleared its floor while the reading it produced is
+  // still quick in absolute terms — real, and not the loudest thing on the
+  // page. Like "recovered" it carries no badge, no headline and no plot: only
+  // the sentence.
+  state: "slower" | "quicker" | "recovered" | "minor" | "steady" | "unknown";
   // The whole answer, in one line, largest type on the page.
   lead: string;
   // One sentence under it: the numbers, what they cost in seconds, and what is
@@ -174,6 +250,13 @@ function censoredIn(
 // nothing downstream of this has to know which is which again.
 function worseOf(metric: SpeedMetric, v: number, before: number): number {
   return metric === "ttft" ? v / before - 1 : before / v - 1;
+}
+
+// Is the reading itself slow, in the units a reader waits in? Higher is slower
+// for a first token and lower is slower for a throughput, the same asymmetry
+// worseOf carries, and for the same reason nothing downstream has to know it.
+function isSlow(m: SpeedMove): boolean {
+  return m.metric === "ttft" ? m.recent >= SLOW_TTFT_MS : m.recent <= SLOW_TPS;
 }
 
 // One metric on one model before any floor has touched it: the two medians a
@@ -469,8 +552,29 @@ export function buildSpeedReading(
   // Ranked by seconds added to the wait, never by per cent — see SpeedMove.
   fired.sort((a, b) => b.secondsAdded - a.secondsAdded);
 
-  if (fired.length > 0) {
+  // Which moves may LEAD: the ones whose reading is slow in its own units.
+  //
+  // Tested per move rather than on the biggest, because the ranking is
+  // cross-metric and the floors are not. A throughput drop to 41 tok/s adds
+  // more seconds than a first token going to 3100 ms, sorts above it, and is
+  // not slow — and testing only the top of the list let it demote a first token
+  // the page's own floor calls slow. Whichever slow move costs the most leads;
+  // the rest ride along as they always did.
+  const leadable = fired.filter(isSlow);
+  if (fired.length > 0 && leadable.length === 0) {
     const lead = fired[0]!;
+    return {
+      state: "minor",
+      lead: "",
+      line: `${movePhrase(lead, refSpan, true, true)} — about ${seconds(lead.secondsAdded)} of extra waiting on a full-length answer.`,
+      moves: [],
+      metric: null,
+      spanS: null,
+    };
+  }
+
+  if (leadable.length > 0) {
+    const lead = leadable[0]!;
     // "Both models" is a claim about THIS metric, not about the page. Saying it
     // whenever two models appear anywhere in the list asserts the lead's metric
     // of every model — so a page where one model started slowly and the other

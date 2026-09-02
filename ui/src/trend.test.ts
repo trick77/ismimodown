@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import type { ModelTrend, Point, Trend } from "./api/types";
 import {
   buildSpeedReading,
+  currentWaits,
+  SLOW_TPS,
+  SLOW_TTFT_MS,
   TAIL_S,
   TPS_FLOOR,
   TTFT_FLOOR,
@@ -134,15 +137,15 @@ describe("buildSpeedReading", () => {
 
   it("names a first token past the floor, with the numbers and the seconds", () => {
     const reading = buildSpeedReading(
-      trendOf([model("mimo-v2.5", [1700, 900], [70, 70])]),
+      trendOf([model("mimo-v2.5", [3400, 1800], [70, 70])]),
     );
     expect(reading.state).toBe("slower");
     expect(reading.lead).toContain("mimo-v2.5");
     expect(reading.lead).toContain("slow to start");
-    expect(reading.line).toContain("1700 ms");
-    expect(reading.line).toContain("900 ms");
+    expect(reading.line).toContain("3400 ms");
+    expect(reading.line).toContain("1800 ms");
     // Seconds, because a percentage on a metric is not something anyone feels.
-    expect(reading.line).toContain("0.8 s");
+    expect(reading.line).toContain("1.6 s");
     expect(reading.metric).toBe("ttft");
   });
 
@@ -151,9 +154,9 @@ describe("buildSpeedReading", () => {
   // first-token-only reading would have called normal.
   it("catches a throughput drop while the first token holds", () => {
     const reading = buildSpeedReading(
-      trendOf([model("mimo-v2.5", [900, 900], [49, 70])]),
+      trendOf([model("mimo-v2.5", [900, 900], [39, 70])]),
     );
-    expect(70 / 49 - 1).toBeGreaterThan(TPS_FLOOR);
+    expect(70 / 39 - 1).toBeGreaterThan(TPS_FLOOR);
     expect(reading.state).toBe("slower");
     expect(reading.metric).toBe("tps");
     expect(reading.lead).toContain("generating more slowly");
@@ -164,7 +167,7 @@ describe("buildSpeedReading", () => {
   // has to lead the sentence even though its percentage is smaller.
   it("leads with the move that costs the most seconds, not the largest percentage", () => {
     const reading = buildSpeedReading(
-      trendOf([model("mimo-v2.5", [1700, 900], [40, 70])]),
+      trendOf([model("mimo-v2.5", [3400, 1800], [40, 70])]),
     );
     expect(reading.state).toBe("slower");
     expect(reading.metric).toBe("tps");
@@ -180,7 +183,7 @@ describe("buildSpeedReading", () => {
   it("does not claim both models moved when they moved on different metrics", () => {
     const reading = buildSpeedReading(
       trendOf([
-        model("mimo-v2.5", [1700, 900], [70, 70]),
+        model("mimo-v2.5", [3400, 1800], [70, 70]),
         model("mimo-v2.5-pro", [900, 900], [45, 70]),
       ]),
     );
@@ -195,7 +198,7 @@ describe("buildSpeedReading", () => {
   // models by any reading.
   it("never says both models when the block carries one", () => {
     const reading = buildSpeedReading(
-      trendOf([model("mimo-v2.5", [1700, 900], [45, 70])]),
+      trendOf([model("mimo-v2.5", [3400, 1800], [45, 70])]),
     );
     expect(reading.lead).not.toContain("Both models");
     expect(reading.lead).toContain("mimo-v2.5");
@@ -207,13 +210,13 @@ describe("buildSpeedReading", () => {
   it("costs the wait in the lead model's own seconds, not the sum across models", () => {
     const reading = buildSpeedReading(
       trendOf([
-        model("mimo-v2.5", [1700, 900], [70, 70]),
-        model("mimo-v2.5-pro", [1700, 900], [70, 70]),
+        model("mimo-v2.5", [3400, 1800], [70, 70]),
+        model("mimo-v2.5-pro", [3400, 1800], [70, 70]),
       ]),
     );
-    // 800 ms on one model, not 1.6 s across two.
-    expect(reading.line).toContain("0.8 s");
-    expect(reading.line).not.toContain("1.6 s");
+    // 1.6 s on one model, not 3.2 s across two.
+    expect(reading.line).toContain("1.6 s");
+    expect(reading.line).not.toContain("3.2 s");
   });
 
   // Both models moving together is rarer than either moving alone, and it is
@@ -221,18 +224,18 @@ describe("buildSpeedReading", () => {
   it("uses the lower floor when both models move together", () => {
     const both = buildSpeedReading(
       trendOf([
-        model("mimo-v2.5", [1350, 900], [70, 70]),
-        model("mimo-v2.5-pro", [1350, 900], [70, 70]),
+        model("mimo-v2.5", [3000, 2000], [70, 70]),
+        model("mimo-v2.5-pro", [3000, 2000], [70, 70]),
       ]),
     );
     const alone = buildSpeedReading(
       trendOf([
-        model("mimo-v2.5", [1350, 900], [70, 70]),
+        model("mimo-v2.5", [3000, 2000], [70, 70]),
         model("mimo-v2.5-pro", [900, 900], [70, 70]),
       ]),
     );
-    expect(1350 / 900 - 1).toBeGreaterThan(TTFT_FLOOR_BOTH);
-    expect(1350 / 900 - 1).toBeLessThan(TTFT_FLOOR);
+    expect(3000 / 2000 - 1).toBeGreaterThan(TTFT_FLOOR_BOTH);
+    expect(3000 / 2000 - 1).toBeLessThan(TTFT_FLOOR);
     expect(both.state).toBe("slower");
     expect(both.lead).toContain("Both models");
     expect(alone.state).toBe("steady");
@@ -243,7 +246,7 @@ describe("buildSpeedReading", () => {
   // to say so rather than claiming nothing went wrong.
   it("says the change is understated when the compared span was censored", () => {
     const reading = buildSpeedReading(
-      trendOf([model("mimo-v2.5", [1700, 900], [70, 70], 2)]),
+      trendOf([model("mimo-v2.5", [3400, 1800], [70, 70], 2)]),
     );
     expect(reading.line).toContain("at least this large");
     expect(reading.line).not.toContain("Nothing failed");
@@ -254,7 +257,7 @@ describe("buildSpeedReading", () => {
   // large. Claiming "at least this large" there says the opposite of the truth.
   it("says the change may be smaller when only the reference day was censored", () => {
     const reading = buildSpeedReading(
-      trendOf([model("mimo-v2.5", [1700, 900], [70, 70], 0, 2)]),
+      trendOf([model("mimo-v2.5", [3400, 1800], [70, 70], 0, 2)]),
     );
     expect(reading.line).toContain("may be smaller than this");
     expect(reading.line).not.toContain("at least this large");
@@ -264,7 +267,7 @@ describe("buildSpeedReading", () => {
   // direction is left to claim.
   it("claims no direction when both periods were censored", () => {
     const reading = buildSpeedReading(
-      trendOf([model("mimo-v2.5", [1700, 900], [70, 70], 2, 2)]),
+      trendOf([model("mimo-v2.5", [3400, 1800], [70, 70], 2, 2)]),
     );
     expect(reading.line).toContain("either side of it");
     expect(reading.line).not.toContain("at least this large");
@@ -277,7 +280,7 @@ describe("buildSpeedReading", () => {
   // the caveat to the reassuring direction, which is the inversion the split
   // exists to prevent.
   it("claims no direction when the censored bucket straddles the boundary", () => {
-    const straddling = model("mimo-v2.5", [1700, 900], [70, 70]);
+    const straddling = model("mimo-v2.5", [3400, 1800], [70, 70]);
     // Half a bucket before the boundary, so it carries runs from either side.
     straddling.ttft.points = [
       {
@@ -324,7 +327,7 @@ describe("buildSpeedReading", () => {
   // sentence at once.
   it("leaves the sentence that was already stated against the old figure", () => {
     const slower = buildSpeedReading(
-      trendOf([model("mimo-v2.5", [1620, 900], [70, 70])]),
+      trendOf([model("mimo-v2.5", [3240, 1800], [70, 70])]),
     );
     expect(slower.line).toContain("80 % longer");
   });
@@ -334,8 +337,8 @@ describe("buildSpeedReading", () => {
   it("gives each model its own figures when both moved", () => {
     const reading = buildSpeedReading(
       trendOf([
-        model("mimo-v2.5", [1800, 900], [70, 70]),
-        model("mimo-v2.5-pro", [1400, 900], [70, 70]),
+        model("mimo-v2.5", [3600, 1800], [70, 70]),
+        model("mimo-v2.5-pro", [2800, 1800], [70, 70]),
       ]),
     );
     expect(reading.lead).toContain("Both models");
@@ -343,8 +346,8 @@ describe("buildSpeedReading", () => {
       "mimo-v2.5's first token takes 100 % longer",
     );
     expect(reading.line).toContain("mimo-v2.5-pro's first token takes 56 %");
-    expect(reading.line).toContain("1800 ms against 900 ms");
-    expect(reading.line).toContain("1400 ms against 900 ms");
+    expect(reading.line).toContain("3600 ms against 1800 ms");
+    expect(reading.line).toContain("2800 ms against 1800 ms");
     expect(reading.line).not.toContain("Its first token");
   });
 
@@ -353,15 +356,15 @@ describe("buildSpeedReading", () => {
   it("splits the extra wait per model when the two differ", () => {
     const reading = buildSpeedReading(
       trendOf([
-        model("mimo-v2.5", [1800, 900], [70, 70]),
-        model("mimo-v2.5-pro", [1400, 900], [70, 70]),
+        model("mimo-v2.5", [3600, 1800], [70, 70]),
+        model("mimo-v2.5-pro", [2800, 1800], [70, 70]),
       ]),
     );
     // The unit is said once, so only the first figure carries the phrase.
     expect(reading.line).toContain(
-      "0.9 s of extra waiting on a full-length answer for mimo-v2.5",
+      "1.8 s of extra waiting on a full-length answer for mimo-v2.5",
     );
-    expect(reading.line).toContain("0.5 s for mimo-v2.5-pro");
+    expect(reading.line).toContain("1.0 s for mimo-v2.5-pro");
     expect(reading.line).not.toContain("each");
   });
 
@@ -369,12 +372,12 @@ describe("buildSpeedReading", () => {
   it("says each only when both models cost the same wait", () => {
     const reading = buildSpeedReading(
       trendOf([
-        model("mimo-v2.5", [1350, 900], [70, 70]),
-        model("mimo-v2.5-pro", [1350, 900], [70, 70]),
+        model("mimo-v2.5", [3000, 2000], [70, 70]),
+        model("mimo-v2.5-pro", [3000, 2000], [70, 70]),
       ]),
     );
     expect(reading.line).toContain(
-      "0.5 s of extra waiting on a full-length answer, each.",
+      "1.0 s of extra waiting on a full-length answer, each.",
     );
   });
 
@@ -429,9 +432,9 @@ describe("buildSpeedReading", () => {
       trendOf(
         [
           withTail(
-            model("mimo-v2.5", [2016, 954], [70, 70]),
+            model("mimo-v2.5", [4032, 1908], [70, 70]),
             "ttft",
-            [2000, 1900, 2100, 2000],
+            [4000, 3800, 4200, 4000],
           ),
         ],
         QUARTER,
@@ -445,9 +448,9 @@ describe("buildSpeedReading", () => {
       trendOf(
         [
           withTail(
-            model("mimo-v2.5", [2016, 954], [70, 70]),
+            model("mimo-v2.5", [4032, 1908], [70, 70]),
             "ttft",
-            [1430, 1430, 1430, 1430],
+            [2860, 2860, 2860, 2860],
           ),
         ],
         QUARTER,
@@ -463,9 +466,9 @@ describe("buildSpeedReading", () => {
       trendOf(
         [
           withTail(
-            model("mimo-v2.5", [2016, 954], [70, 70]),
+            model("mimo-v2.5", [4032, 1908], [70, 70]),
             "ttft",
-            [950, 940],
+            [1900, 1880],
             2,
           ),
         ],
@@ -485,7 +488,7 @@ describe("buildSpeedReading", () => {
           withTail(
             model("mimo-v2.5", [900, 900], [70, 70]),
             "ttft",
-            [1700, 1750, 1700, 1800],
+            [3400, 3500, 3400, 3600],
           ),
         ],
         QUARTER,
@@ -494,7 +497,7 @@ describe("buildSpeedReading", () => {
     expect(reading.state).toBe("slower");
     // The TAIL's figures, never the compared median — which is 900 here and
     // supports none of this sentence.
-    expect(reading.line).toContain("1700 ms against 900 ms");
+    expect(reading.line).toContain("3400 ms against 900 ms");
     expect(reading.line).toContain("over the last hour");
     expect(reading.moves[0]!.spanS).toBe(TAIL_S);
   });
@@ -544,14 +547,14 @@ describe("buildSpeedReading", () => {
       trendOf(
         [
           withTail(
-            model("mimo-v2.5", [1800, 900], [70, 70]),
+            model("mimo-v2.5", [3600, 1800], [70, 70]),
             "ttft",
-            [900, 910, 890, 900],
+            [1800, 1810, 1790, 1800],
           ),
           withTail(
-            model("mimo-v2.5-pro", [1400, 900], [70, 70]),
+            model("mimo-v2.5-pro", [2800, 1800], [70, 70]),
             "ttft",
-            [900, 890, 910, 900],
+            [1800, 1790, 1810, 1800],
           ),
         ],
         QUARTER,
@@ -560,8 +563,8 @@ describe("buildSpeedReading", () => {
     expect(reading.state).toBe("recovered");
     expect(reading.line).toContain("mimo-v2.5's first token was slower");
     expect(reading.line).toContain("mimo-v2.5-pro's first token was slower");
-    expect(reading.line).toContain("1800 ms against 900 ms");
-    expect(reading.line).toContain("1400 ms against 900 ms");
+    expect(reading.line).toContain("3600 ms against 1800 ms");
+    expect(reading.line).toContain("2800 ms against 1800 ms");
   });
 
   // The two spans can now differ inside one reading: one model fired off its
@@ -572,7 +575,7 @@ describe("buildSpeedReading", () => {
     const hot = withTail(
       model("mimo-v2.5", [900, 900], [70, 70]),
       "ttft",
-      [2400, 2400, 2400, 2400],
+      [3400, 3400, 3400, 3400],
     );
     const censoredEarlier = model("mimo-v2.5-pro", [1700, 900], [70, 70]);
     censoredEarlier.ttft = {
@@ -606,5 +609,81 @@ describe("buildSpeedReading", () => {
     expect(reading.state).toBe("quicker");
     expect(reading.lead).toBe("");
     expect(reading.line).toBe("");
+  });
+  // A doubling is a real move and a two-second first token is not a headline.
+  // The page published exactly this — "mimo-v2.5 is slow to start right now"
+  // over 2016 ms — while the other model, three and a half seconds to first
+  // token, sat underneath it with a chip on its card.
+  it("keeps a doubled first token off the headline while the wait is still short", () => {
+    const reading = buildSpeedReading(
+      trendOf([model("mimo-v2.5", [2016, 954], [70, 70])]),
+    );
+    expect(2016 / 954 - 1).toBeGreaterThan(TTFT_FLOOR);
+    expect(2016).toBeLessThan(SLOW_TTFT_MS);
+    expect(reading.state).toBe("minor");
+    // Stated, not announced: no headline, no plot, and the figures and the
+    // cost still printed.
+    expect(reading.lead).toBe("");
+    expect(reading.moves).toEqual([]);
+    expect(reading.metric).toBeNull();
+    expect(reading.line).toContain("2016 ms against 954 ms");
+    expect(reading.line).toContain("1.1 s");
+  });
+
+  // The same gate in the throughput's own units: text arriving at 45 tokens a
+  // second is faster than anyone reads, however fast it arrived yesterday.
+  it("keeps a throughput drop off the headline while the rate is still quick", () => {
+    const reading = buildSpeedReading(
+      trendOf([model("mimo-v2.5", [900, 900], [45, 70])]),
+    );
+    expect(70 / 45 - 1).toBeGreaterThan(TPS_FLOOR);
+    expect(45).toBeGreaterThan(SLOW_TPS);
+    expect(reading.state).toBe("minor");
+    expect(reading.lead).toBe("");
+    expect(reading.line).toContain("45.0 against 70.0");
+  });
+
+  // ...and the lead is what the gate reads, so a small move riding along with
+  // a big one does not have to pass it on its own.
+  it("leads once the reading itself is slow", () => {
+    const reading = buildSpeedReading(
+      trendOf([model("mimo-v2.5", [3400, 1800], [45, 70])]),
+    );
+    expect(3400).toBeGreaterThanOrEqual(SLOW_TTFT_MS);
+    expect(reading.state).toBe("slower");
+    expect(reading.lead).toContain("slow to start");
+  });
+  // The ranking is cross-metric and the absolute floors are not, so the
+  // demotion cannot be decided on the top of the list alone: a throughput drop
+  // that is not slow outranks, by seconds, a first token that is.
+  it("lets a slow first token lead past a quicker throughput move", () => {
+    const reading = buildSpeedReading(
+      trendOf([model("mimo-v2.5", [3100, 1000], [41, 100])]),
+    );
+    // Both cleared their relative floors, and only the first token is slow.
+    expect(41).toBeGreaterThan(SLOW_TPS);
+    expect(3100).toBeGreaterThanOrEqual(SLOW_TTFT_MS);
+    expect(reading.state).toBe("slower");
+    expect(reading.metric).toBe("ttft");
+    expect(reading.lead).toContain("slow to start");
+  });
+
+  // One sentence, one span: the wait line names the hours it quotes, so a
+  // model whose hour is readable is not printed under another model's three.
+  it("falls back to the compared span for every model when one hour is thin", () => {
+    const thick = withTail(
+      model("mimo-v2.5", [1000, 1000], [70, 70]),
+      "ttft",
+      [1000, 1000, 1000, 1000],
+    );
+    const thin = withTail(
+      model("mimo-v2.5-pro", [5000, 5000], [70, 70]),
+      "ttft",
+      [5000, 5000],
+      2,
+    );
+    const waits = currentWaits(trendOf([thick, thin], QUARTER));
+    expect(waits).toHaveLength(2);
+    expect(waits.every((w) => w.spanS === 3 * HOUR)).toBe(true);
   });
 });

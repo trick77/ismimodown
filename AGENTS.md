@@ -60,10 +60,35 @@ live readings. So `+70%` first token (`+40%` when both models move), `−20%` th
 10% fires on 70% of readings and makes amber the resting state. Rank several moves by SECONDS
 added to the wait, never by per cent — the metrics are different sizes.
 
+**Relative alone never takes the banner.** The LEAD move must also leave a reading that is slow
+in absolute terms — `SLOW_TTFT_MS`, `SLOW_TPS` — or the whole reading demotes to `minor`: the
+sentence with its figures and its cost, no headline, no chip, no plot. Tested per MOVE, never on
+the top of the list — the ranking is cross-metric and the floors are not, so a throughput drop
+that is not slow would otherwise silence a first token that is. A doubled first token of
+2016 ms is true and is not news while the other model starts in 3.3 s. These two are CHOSEN, not
+measured, and say so: no replay can tell you how long a wait has to be before a reader minds it.
+
 **One claim per page.** The banner is the only surface that states a state; panels and cards
 print numbers. A slowdown is folded into the banner sentence with its own chip word `slower`
 (never `elevated`, which is spent on faults) — "normal" and "slower" must never appear together.
-A fault outranks speed and takes the banner alone. A speed-up is MEASURED and never said: faster is
+A fault outranks speed and takes the banner alone — and a fault includes the WINDOW's own
+availability and correctness (`scoreModel`, same bands as the card), so a bad day can never put a
+chip on a card under a banner announcing something smaller.
+
+**A state is PRESENT TENSE, on every surface.** A window figure may only produce a chip or a
+headline while that model's own track is still producing events — `stillHappening`, read by
+`scoreModel` and by the card. Six runs cut off ten hours ago are a fact about the day, not
+something the endpoint is doing: the figures and the censored note keep saying so, and nothing
+announces it. PER TRACK (a wrong answer is no evidence about dropped runs) and dated off the
+whole SERVED block, not the last `RECENT_CYCLES`: an hour-wide cutoff makes a steady low failure
+rate blink amber and green all day. `unknown` is never softened this way, and neither is a
+payload with no recent block — undated failures are not over.
+
+**The normal banner answers the question, not the dashboard.** "Xiaomi MiMo is answering", with
+the WAIT underneath it per model (`currentWaits`, the last hour when the hour is thick enough,
+the compared span otherwise — never the 24h window median). It read "Everything looks normal
+right now", which says nothing a visitor came for. Only the last hour may be called "right now";
+any wider span is named. A speed-up is MEASURED and never said: faster is
 not the question, so `quicker` carries no lead, no line and no plot — it exists only so the steady
 sentence cannot claim an ordinary spread the reading is outside of.
 

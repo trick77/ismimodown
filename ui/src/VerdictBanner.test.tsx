@@ -3,6 +3,9 @@ import { describe, expect, it, vi } from "vitest";
 import { VerdictBanner } from "./VerdictBanner";
 import type { ModelTrend, Trend } from "./api/types";
 import type { Verdict } from "./verdict";
+import { colorForModel } from "./charts/options";
+
+const MODELS = ["mimo-v2.5-pro", "mimo-v2.5"];
 
 // The plot renders to a canvas jsdom cannot exercise, so the wrapper is mocked
 // here as it is in every other panel test — what this file asserts is the
@@ -63,7 +66,7 @@ const recoveredModel = (id: string, ttft: [number, number]): ModelTrend => ({
 
 const normal: Verdict = {
   state: "normal",
-  headline: "Everything looks normal right now",
+  headline: "Xiaomi MiMo is answering",
   detail: [],
 };
 
@@ -75,7 +78,7 @@ describe("VerdictBanner", () => {
     render(
       <VerdictBanner
         verdict={normal}
-        trend={trend([model("mimo-v2.5", [1700, 900])])}
+        trend={trend([model("mimo-v2.5", [3400, 1800])])}
         loading={false}
       />,
     );
@@ -84,7 +87,7 @@ describe("VerdictBanner", () => {
       "slower",
     );
     expect(screen.queryAllByTestId("state-chip")).toHaveLength(1);
-    expect(screen.queryByText(/Everything looks normal/)).toBeNull();
+    expect(screen.queryByText(/Xiaomi MiMo is answering/)).toBeNull();
     expect(screen.getByText(/slow to start right now/)).toBeInTheDocument();
   });
 
@@ -98,7 +101,7 @@ describe("VerdictBanner", () => {
           headline: "mimo-v2.5 is failing requests right now",
           detail: ["Nine of the last twenty came back as errors."],
         }}
-        trend={trend([model("mimo-v2.5", [1700, 900])])}
+        trend={trend([model("mimo-v2.5", [3400, 1800])])}
         loading={false}
       />,
     );
@@ -116,7 +119,7 @@ describe("VerdictBanner", () => {
     const { rerender } = render(
       <VerdictBanner
         verdict={normal}
-        trend={trend([model("mimo-v2.5", [1700, 900])])}
+        trend={trend([model("mimo-v2.5", [3400, 1800])])}
         loading={false}
       />,
     );
@@ -133,7 +136,7 @@ describe("VerdictBanner", () => {
     // The headline is split across elements now — the state word carries the
     // chip's colour — so it is read off the paragraph rather than matched whole.
     expect(screen.getByTestId("verdict")).toHaveTextContent(
-      "Everything looks normal right now",
+      "Xiaomi MiMo is answering",
     );
   });
 
@@ -150,7 +153,7 @@ describe("VerdictBanner", () => {
       />,
     );
     expect(screen.getByTestId("verdict")).toHaveTextContent(
-      "Everything looks normal right now",
+      "Xiaomi MiMo is answering",
     );
     expect(screen.queryByTestId("trend-plot")).toBeNull();
     expect(
@@ -175,7 +178,7 @@ describe("VerdictBanner", () => {
       "normal",
     );
     expect(screen.getByTestId("verdict")).toHaveTextContent(
-      "Everything looks normal right now",
+      "Xiaomi MiMo is answering",
     );
     expect(screen.queryByTestId("trend-plot")).toBeNull();
     expect(
@@ -193,7 +196,7 @@ describe("VerdictBanner", () => {
         verdict={normal}
         trend={trend([
           model("mimo-v2.5", [900, 900]),
-          model("mimo-v2.5-pro", [1700, 900]),
+          model("mimo-v2.5-pro", [3400, 1800]),
         ])}
         loading={false}
       />,
@@ -231,7 +234,7 @@ describe("VerdictBanner", () => {
       />,
     );
     const word = screen.getByTestId("headline-state");
-    expect(word).toHaveTextContent("normal");
+    expect(word).toHaveTextContent("answering");
     expect(word).toHaveClass("text-online");
   });
 
@@ -257,11 +260,96 @@ describe("VerdictBanner", () => {
   it("renders the plain verdict when the block is missing", () => {
     render(<VerdictBanner verdict={normal} loading={false} />);
     expect(screen.getByTestId("verdict")).toHaveTextContent(
-      "Everything looks normal right now",
+      "Xiaomi MiMo is answering",
     );
     expect(screen.getByTestId("state-chip")).toHaveAttribute(
       "data-state",
       "normal",
     );
+  });
+  // A move that cleared its floor and left a wait nobody would call slow is
+  // stated, never announced: it rides under the verdict as a plain line, with
+  // no chip claiming a state for it and no plot drawing one.
+  it("states a small slowdown without letting it take the banner", () => {
+    render(
+      <VerdictBanner
+        verdict={normal}
+        trend={trend([model("mimo-v2.5", [2016, 954])])}
+        loading={false}
+      />,
+    );
+    expect(screen.getByTestId("state-chip")).toHaveAttribute(
+      "data-state",
+      "normal",
+    );
+    expect(screen.queryByText(/slow to start right now/)).toBeNull();
+    expect(screen.queryByTestId("trend-plot")).toBeNull();
+    expect(screen.getByTestId("verdict")).toHaveTextContent(
+      /2016 ms against 954 ms/,
+    );
+  });
+  // What a visitor came for, under the headline that claims it: the wait
+  // itself, per model, in the units they wait in. Both models named — they are
+  // seconds apart on an ordinary day, and one figure over the pair describes
+  // neither.
+  it("says how long the wait is when nothing is wrong", () => {
+    render(
+      <VerdictBanner
+        verdict={normal}
+        trend={trend([
+          model("mimo-v2.5", [1030, 1030]),
+          model("mimo-v2.5-pro", [5060, 5060]),
+        ])}
+        loading={false}
+      />,
+    );
+    expect(screen.getByTestId("verdict")).toHaveTextContent(
+      /First token in about 1\.03 s on mimo-v2\.5 and 5\.06 s on mimo-v2\.5-pro/,
+    );
+    // The span the figures were measured over, never "right now" over a median
+    // of three hours.
+    expect(screen.getByTestId("verdict")).toHaveTextContent(
+      /over the last 3 hours/,
+    );
+  });
+
+  // A fault is the news, not the wait: the banner takes it alone.
+  it("does not print the wait beside a fault", () => {
+    render(
+      <VerdictBanner
+        verdict={{
+          state: "degraded",
+          headline: "mimo-v2.5 is having problems right now",
+          detail: [],
+        }}
+        trend={trend([model("mimo-v2.5", [1030, 1030])])}
+        loading={false}
+      />,
+    );
+    expect(screen.queryByText(/First token in about/)).toBeNull();
+  });
+
+  // The same tie the masthead subline makes: a model ID carries its series
+  // colour wherever the page names it, so the reader finds the same orange on
+  // the card, the chart line and the legend below.
+  it("colours the model names it says, longest ID first", () => {
+    render(
+      <VerdictBanner
+        verdict={{
+          state: "degraded",
+          headline: "mimo-v2.5-pro is having problems right now",
+          detail: ["mimo-v2.5's first token is fine."],
+        }}
+        models={["mimo-v2.5-pro", "mimo-v2.5"]}
+        loading={false}
+      />,
+    );
+    const pro = screen.getByText("mimo-v2.5-pro");
+    const fast = screen.getByText("mimo-v2.5");
+    // Painted, and two different hues — the prefix must not swallow the suffix.
+    expect(pro).toHaveStyle({ color: colorForModel("mimo-v2.5-pro", MODELS) });
+    expect(fast).toHaveStyle({ color: colorForModel("mimo-v2.5", MODELS) });
+    // The possessive stays prose: the match ends at the ID.
+    expect(fast).toHaveTextContent(/^mimo-v2\.5$/);
   });
 });

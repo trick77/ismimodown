@@ -296,6 +296,7 @@ export default function App() {
           <VerdictBanner
             verdict={verdict}
             trend={data?.trend ?? null}
+            models={models}
             loading={loading}
           />
           <div className="mb-6">
