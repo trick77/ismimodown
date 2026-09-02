@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import type { Trend } from "./api/types";
 import type { Verdict } from "./verdict";
 import { StateChip } from "./ui";
@@ -9,6 +10,7 @@ import {
   type CurrentWait,
 } from "./trend";
 import { formatMs } from "./format";
+import { colorForModel } from "./charts/options";
 import { TrendPlot } from "./TrendPlot";
 
 // The one word in the headline that is also a state, painted the colour of the
@@ -47,6 +49,38 @@ function waitLine(waits: CurrentWait[]): string[] {
   return [`First token in about ${said} ${when}.`];
 }
 
+// Model IDs carry their series colour wherever the banner names them, the same
+// tie the masthead subline makes: the reader meets "mimo-v2.5-pro" in the
+// sentence and finds the same orange on the card, the chart line and the
+// legend below. Monospace with it, because a model ID is an identifier and the
+// rest of the sentence is prose.
+//
+// Longest ID first in the alternation — "mimo-v2.5" is a prefix of
+// "mimo-v2.5-pro", and matching the short one first paints half a name and
+// leaves "-pro" in body text. Possessives ("mimo-v2.5's") fall out of that for
+// free: the match ends at the ID and the apostrophe stays prose.
+function paintModels(text: string, models: string[]): ReactNode {
+  const ids = [...models].sort((a, b) => b.length - a.length);
+  if (ids.length === 0) return text;
+  const pattern = new RegExp(
+    `(${ids.map((id) => id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})`,
+    "g",
+  );
+  return text.split(pattern).map((part, i) =>
+    ids.includes(part) ? (
+      <span
+        key={`${part}-${i}`}
+        className="num whitespace-nowrap text-[0.95em]"
+        style={{ color: colorForModel(part, models) }}
+      >
+        {part}
+      </span>
+    ) : (
+      part
+    ),
+  );
+}
+
 function paintState(headline: string, word: string) {
   const at = headline.indexOf(word);
   if (at === -1) return headline;
@@ -76,10 +110,14 @@ function paintState(headline: string, word: string) {
 export function VerdictBanner({
   verdict,
   trend,
+  models = [],
   loading,
 }: {
   verdict: Verdict;
   trend?: Trend | null;
+  // The IDs the sentences may name, in the page's own order — the same list the
+  // charts colour from, so a name reads the same wherever it appears.
+  models?: string[];
   loading: boolean;
 }) {
   const speed = buildSpeedReading(trend);
@@ -182,13 +220,13 @@ export function VerdictBanner({
         >
           {verdict.state === "normal" && !slow
             ? paintState(headline, "answering")
-            : headline}
+            : paintModels(headline, models)}
         </p>
       </div>
       {detail.length > 0 && (
         <ul className="mt-2 space-y-1 text-label text-muted">
           {detail.map((line) => (
-            <li key={line}>{line}</li>
+            <li key={line}>{paintModels(line, models)}</li>
           ))}
         </ul>
       )}

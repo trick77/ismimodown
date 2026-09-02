@@ -3,6 +3,9 @@ import { describe, expect, it, vi } from "vitest";
 import { VerdictBanner } from "./VerdictBanner";
 import type { ModelTrend, Trend } from "./api/types";
 import type { Verdict } from "./verdict";
+import { colorForModel } from "./charts/options";
+
+const MODELS = ["mimo-v2.5-pro", "mimo-v2.5"];
 
 // The plot renders to a canvas jsdom cannot exercise, so the wrapper is mocked
 // here as it is in every other panel test — what this file asserts is the
@@ -324,5 +327,29 @@ describe("VerdictBanner", () => {
       />,
     );
     expect(screen.queryByText(/First token in about/)).toBeNull();
+  });
+
+  // The same tie the masthead subline makes: a model ID carries its series
+  // colour wherever the page names it, so the reader finds the same orange on
+  // the card, the chart line and the legend below.
+  it("colours the model names it says, longest ID first", () => {
+    render(
+      <VerdictBanner
+        verdict={{
+          state: "degraded",
+          headline: "mimo-v2.5-pro is having problems right now",
+          detail: ["mimo-v2.5's first token is fine."],
+        }}
+        models={["mimo-v2.5-pro", "mimo-v2.5"]}
+        loading={false}
+      />,
+    );
+    const pro = screen.getByText("mimo-v2.5-pro");
+    const fast = screen.getByText("mimo-v2.5");
+    // Painted, and two different hues — the prefix must not swallow the suffix.
+    expect(pro).toHaveStyle({ color: colorForModel("mimo-v2.5-pro", MODELS) });
+    expect(fast).toHaveStyle({ color: colorForModel("mimo-v2.5", MODELS) });
+    // The possessive stays prose: the match ends at the ID.
+    expect(fast).toHaveTextContent(/^mimo-v2\.5$/);
   });
 });
