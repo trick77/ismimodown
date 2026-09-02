@@ -211,7 +211,12 @@ describe("buildVerdict", () => {
   it("says everything is normal when it is", () => {
     const v = buildVerdict(summary(), summary());
     expect(v.state).toBe("normal");
-    expect(v.headline).toMatch(/normal/i);
+    // The page's own question, answered: not "everything looks normal", which
+    // is a sentence about the dashboard rather than about the endpoint.
+    expect(v.headline).toMatch(/Xiaomi MiMo is answering/i);
+    expect(v.detail.join(" ")).toMatch(
+      /every run finished and every answer was correct over the last hour/i,
+    );
   });
 
   it("shows the empty state before any data", () => {
@@ -503,7 +508,7 @@ describe("buildVerdict", () => {
       summary(),
     );
     expect(v.state).toBe("normal");
-    expect(v.headline).toMatch(/everything looks normal/i);
+    expect(v.headline).toMatch(/Xiaomi MiMo is answering/i);
     expect(v.detail.join(" ")).toMatch(
       /mimo-v2\.5 failed 1 of the last 12 runs, 10 minutes ago\. One run is not yet a pattern\./i,
     );
@@ -627,5 +632,129 @@ describe("buildVerdict", () => {
     );
     expect(v.state).toBe("degraded");
     expect(v.detail.join(" ")).toMatch(/3 of the last 12 questions wrongly/i);
+  });
+  // The severity inversion this fold exists to end: six runs of 288 cut off by
+  // the timeout ladder put an ELEVATED chip on the model card while the banner
+  // over it talked about the other model being slower than it was that morning.
+  // The banner is the only surface allowed to state a state, so it has to know
+  // what the chips below it know.
+  it("speaks for a day of cut-off runs while they are still happening", () => {
+    const v = buildVerdict(
+      summary({
+        recent: recentModelFailures([1]),
+        models: [
+          model({
+            attempts: 288,
+            succeeded: 282,
+            censored: 6,
+            available_pct: 97.9,
+            answered: 282,
+            correct: 282,
+          }),
+        ],
+      }),
+      summary(),
+    );
+    expect(v.state).toBe("elevated");
+    expect(v.headline).toMatch(/mimo-v2\.5 is showing early signs of trouble/i);
+    expect(v.detail.join(" ")).toMatch(
+      /did not finish 6 of its last 288 runs — all of them cut off by the timeout limits/i,
+    );
+  });
+
+  // Cut off and dropped are not the same event, and a mixed day has to say so:
+  // a censored run reached MiMo and was still going when our own ladder ended
+  // it, which is not an endpoint that never came back.
+  it("separates the cut-off runs from the rest of a bad day", () => {
+    const v = buildVerdict(
+      summary({
+        recent: recentModelFailures([1]),
+        models: [
+          model({
+            attempts: 288,
+            succeeded: 270,
+            censored: 6,
+            available_pct: 93.75,
+            answered: 270,
+            correct: 270,
+          }),
+        ],
+      }),
+      summary(),
+    );
+    expect(v.state).toBe("degraded");
+    expect(v.detail.join(" ")).toMatch(
+      /did not finish 18 of its last 288 runs — 6 of them cut off by the timeout limits/i,
+    );
+  });
+
+  // A day's record is not a state. Six runs cut off ten hours ago, with a clean
+  // hour since, is something that HAPPENED — the figures below keep saying so
+  // — and a banner claiming trouble over it is answering a question nobody
+  // asked.
+  it("says nothing about a bad stretch the hour has moved past", () => {
+    const v = buildVerdict(
+      summary({
+        models: [
+          model({
+            attempts: 288,
+            succeeded: 282,
+            censored: 6,
+            available_pct: 97.9,
+            answered: 282,
+            correct: 282,
+          }),
+        ],
+      }),
+      summary(),
+    );
+    expect(v.state).toBe("normal");
+    expect(v.headline).toMatch(/Xiaomi MiMo is answering/i);
+    expect(v.detail.join(" ")).not.toMatch(/did not finish/i);
+  });
+
+  // The floors are the card's own, so the banner cannot go amber over a
+  // rounding error the card is silent about.
+  it("says nothing about three cut-off runs in a day", () => {
+    const v = buildVerdict(
+      summary({
+        models: [
+          model({
+            attempts: 288,
+            succeeded: 285,
+            censored: 3,
+            available_pct: 98.96,
+            answered: 285,
+            correct: 285,
+          }),
+        ],
+      }),
+      summary(),
+    );
+    expect(v.state).toBe("normal");
+  });
+
+  // Wrong answers over the window reach the banner the same way, and in the
+  // page's own words for them — the expected fact, not a grade.
+  it("reports a day of wrong answers, not only the last hour of them", () => {
+    const v = buildVerdict(
+      summary({
+        recent: recentModelFailures([], { wrong: [1] }),
+        models: [
+          model({
+            attempts: 288,
+            succeeded: 288,
+            answered: 288,
+            correct: 270,
+            correct_pct: 93.75,
+          }),
+        ],
+      }),
+      summary(),
+    );
+    expect(v.state).toBe("degraded");
+    expect(v.detail.join(" ")).toMatch(
+      /missed the expected fact in 18 of its last 288 answers/i,
+    );
   });
 });

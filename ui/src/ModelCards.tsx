@@ -3,6 +3,7 @@ import { Figure, StateChip } from "./ui";
 import { formatMs, formatPct, formatTps, plural } from "./format";
 import type { State } from "./verdict";
 import {
+  hasRecentTrouble,
   MIN_FAILURES_FOR_STATE,
   scoreAvailability,
   scoreCorrectness,
@@ -112,14 +113,32 @@ export function ModelCards({
         // that sits above it. scoreAvailability needs both integers to tell
         // those apart; available_pct is derived from the same two and adds
         // nothing.
-        const availability = scoreAvailability(m.succeeded, m.attempts);
-        const correctness = scoreCorrectness(
-          m.correct_pct,
-          m.answered - m.correct,
+        //
+        // Both are gated on the window's failures still being LIVE, the same
+        // rule the banner follows (verdict.ts, scoreModel): a chip is a claim
+        // in the present tense, and six runs that were cut off ten hours ago
+        // are not something the endpoint is doing. The FIGURES keep saying
+        // 97.9% and the note keeps explaining it — the day's record is not
+        // hidden, it just stops being announced as a state.
+        const cycles = summary?.recent ?? [];
+        const stillFailing = scoreModelRecent(m.model_id, cycles);
+        // No recent block, no dating: a payload that cannot say WHEN the
+        // window's failures happened is not evidence that they are over, so the
+        // window score stands. And "unknown" is never softened to normal —
+        // absence of evidence is not evidence of health, which is the rule the
+        // header chip already follows.
+        const live =
+          cycles.length === 0 || hasRecentTrouble(m.model_id, cycles);
+        const present = (state: State): State =>
+          live || state === "unknown" ? state : "normal";
+        const availability = present(
+          scoreAvailability(m.succeeded, m.attempts),
+        );
+        const correctness = present(
+          scoreCorrectness(m.correct_pct, m.answered - m.correct),
         );
         const ttft = scoreRatio(m.ttft.p50_ms, base?.ttft.p50_ms ?? null);
-        const recentState = scoreModelRecent(m.model_id, summary?.recent ?? []);
-        const card = chipState(availability, correctness, ttft, recentState);
+        const card = chipState(availability, correctness, ttft, stillFailing);
 
         return (
           <section
@@ -151,6 +170,12 @@ export function ModelCards({
                   when availability moved to a confidence bound, because a
                   quieter window figure is exactly what would have opened the
                   gap.
+
+                  The banner folds the other direction now: it scores the same
+                  availability and correctness bands over the fixed `now`
+                  window (verdict.ts, scoreModel), so a day of cut-off runs can
+                  no longer put a chip on this card under a banner announcing
+                  something smaller.
 
                   Latency is not covered by that, and deliberately so. The
                   banner scores TTFT on the fixed `now` window while this scores

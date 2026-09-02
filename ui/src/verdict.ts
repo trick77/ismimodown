@@ -473,16 +473,24 @@ export function buildVerdict(
   if (state === "normal" || struggling.length === 0) {
     return {
       state: "normal",
+      // The question this page is named after, answered in the present tense.
+      // It used to read "Everything looks normal right now" — true, and a
+      // sentence about the page rather than about the endpoint: a visitor
+      // arrives asking whether Xiaomi MiMo is up and how long they will wait,
+      // and "normal" answers neither. The wait itself is added underneath by
+      // the banner, which is the surface that holds the trend block.
+      //
       // Forgetting is only acceptable if the page says what it forgot. Without
-      // this line, a banner that has gone quiet is indistinguishable from one
-      // that never had anything to report.
-      headline: "Everything looks normal right now",
+      // the lines below, a banner that has gone quiet is indistinguishable from
+      // one that never had anything to report.
+      headline: "Xiaomi MiMo is answering",
       // Concatenated, never an either/or. lastRedAgo indexes the whole served
       // block — three hours of it — while a failed inference run is a separate
       // event from a failed cycle, so one network red aged well past the
       // horizon used to swallow a run that had just dropped, under a sentence
       // claiming every cycle since had been clean.
       detail: [
+        ...cleanHour(summary, recent),
         ...(infra.lastRedAgo !== null
           ? [
               // This is where a LONE failure inside the horizon lands, and it
@@ -676,6 +684,23 @@ function modelTracks(
 // become. That matters more now than it did: the window score was deliberately
 // loosened, and this fold is the only reason loosening it cannot leave the chip
 // greener than the sentence above it.
+//
+// The fold now runs both ways — scoreModel reads the window's availability and
+// correctness off the fixed `now` block — so the two surfaces disagree in one
+// place only, and deliberately: the card's figures describe the SELECTED
+// window, the banner's the fixed 24 hours.
+// hasRecentTrouble is "is this still happening": one failed run or one wrong
+// answer inside the horizon is enough, which is deliberately below every
+// threshold that produces a state on its own. It does not judge — it says
+// whether a judgement about the WINDOW is still describing the present.
+export function hasRecentTrouble(
+  modelId: string,
+  recent: RecentCycle[],
+): boolean {
+  const { failures, wrong } = modelTracks(modelId, recent);
+  return failures.count > 0 || wrong.count > 0;
+}
+
 export function scoreModelRecent(
   modelId: string,
   recent: RecentCycle[],
@@ -685,6 +710,27 @@ export function scoreModelRecent(
     scoreTrack(failures, FAILURE_THRESHOLDS),
     scoreTrack(wrong, WRONG_THRESHOLDS),
   );
+}
+
+// cleanHour is the headline's evidence: the reader is told the endpoint is
+// answering, and this is the count behind it.
+//
+// Only when the hour really is clean — a lone failure has its own sentence in
+// quietFailures below, and printing both would have the banner congratulating
+// itself one line above the run it lost.
+function cleanHour(summary: Summary, recent: RecentCycle[]): string[] {
+  const horizon = Math.min(RECENT_CYCLES, recent.length);
+  if (horizon === 0) return [];
+  for (const model of summary.models) {
+    const { failures, wrong } = modelTracks(model.model_id, recent);
+    if (failures.count > 0 || wrong.count > 0) return [];
+  }
+  if (track(recent, infraRed).count > 0) return [];
+  const when =
+    horizon === RECENT_CYCLES
+      ? "the last hour"
+      : `the last ${horizon} ${plural(horizon, "cycle")}`;
+  return [`Every run finished and every answer was correct over ${when}.`];
 }
 
 // quietFailures is what a lone failed RUN gets instead of a chip.
@@ -726,11 +772,25 @@ function quietFailures(summary: Summary, recent: RecentCycle[]): string[] {
   return lines;
 }
 
-// scoreModel reads availability and correctness from the recent cycles rather
-// than from the window's percentages: the banner is about now, and a percentage
-// over a day of cycles cannot say whether the failures in it are still
-// happening. The latency comparison stays on the window, because a percentile
-// needs more samples than an hour holds.
+// scoreModel judges one model on BOTH horizons: the recent cycles, which say
+// whether something is happening now, and the fixed window's own figures,
+// which say whether enough went wrong today to be worth a word. The two ask
+// different questions and neither answers the other.
+//
+// The window half was missing, and its absence was a severity inversion the
+// page published: six runs of 288 cut off by the timeout ladder put an
+// ELEVATED chip on the model card, while the banner over it announced that the
+// OTHER model — the fast one, still answering in two seconds — was slower than
+// it had been that morning. The louder claim was the smaller problem, and the
+// bigger one was a chip the reader had to scroll to. The banner is the only
+// surface allowed to state a state, so it has to know everything the chips
+// below it know.
+//
+// Same floors as the card, because it is the same reading: the confidence
+// bound for availability (scoreAvailability) and MIN_FAILURES_FOR_STATE for
+// correctness. Same fixed window too — `now` is 24h and never the selected
+// range, so nothing here can be held open for three months by one bad cycle,
+// which is the stickiness the recent-scoped rules above were written to end.
 function scoreModel(
   model: ModelSummary,
   baseline: ModelSummary | null,
@@ -772,5 +832,61 @@ function scoreModel(
     );
   }
 
-  return { state: worst(availability, correctness, ttft), detail };
+  // The window's own two figures, scored exactly as the model card scores
+  // them. They reach back a fixed 24 hours, so they keep speaking after the
+  // recent block has forgotten — which is the point: a burst of cut-off runs
+  // three hours ago is over as an event and still the most important thing
+  // about the day.
+  //
+  // Counts, not available_pct: scoreAvailability needs both integers to tell
+  // three cut-off runs in a day from an endpoint that simply sits under the
+  // band, and the percentage is derived from the same two anyway.
+  //
+  // Gated on the failures still being LIVE. Six cut-off runs that all landed
+  // ten hours ago are a fact about the day and not a state anything is in, and
+  // a banner that says "showing early signs of trouble" over a morning that has
+  // been clean since is answering a question nobody asked. The window decides
+  // whether the day was bad enough to matter; the recent block decides whether
+  // it is still going. Both, or neither speaks.
+  const live = failures.count > 0 || wrong.count > 0;
+  const windowAvailability = live
+    ? scoreAvailability(model.succeeded, model.attempts)
+    : "normal";
+  if (windowAvailability !== "normal" && windowAvailability !== "unknown") {
+    const unfinished = model.attempts - model.succeeded;
+    // Cut off and dropped are not the same event, and one must not be rounded
+    // into the other: a censored run reached MiMo and was still going when our
+    // own timeout ladder ended it, which is an answer we refused to wait for
+    // rather than an endpoint that never came back.
+    const cut =
+      model.censored <= 0
+        ? ""
+        : model.censored >= unfinished
+          ? " — all of them cut off by the timeout limits"
+          : ` — ${model.censored} of them cut off by the timeout limits`;
+    detail.push(
+      `${model.model_id} did not finish ${unfinished} of its last ${model.attempts} ${plural(model.attempts, "run")}${cut}.`,
+    );
+  }
+
+  const windowCorrectness = live
+    ? scoreCorrectness(model.correct_pct, model.answered - model.correct)
+    : "normal";
+  if (windowCorrectness !== "normal" && windowCorrectness !== "unknown") {
+    const missed = model.answered - model.correct;
+    detail.push(
+      `${model.model_id} missed the expected fact in ${missed} of its last ${model.answered} ${plural(model.answered, "answer")}.`,
+    );
+  }
+
+  return {
+    state: worst(
+      availability,
+      correctness,
+      ttft,
+      windowAvailability,
+      windowCorrectness,
+    ),
+    detail,
+  };
 }

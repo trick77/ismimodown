@@ -1,7 +1,14 @@
 import type { Trend } from "./api/types";
 import type { Verdict } from "./verdict";
 import { StateChip } from "./ui";
-import { buildSpeedReading } from "./trend";
+import {
+  buildSpeedReading,
+  currentWaits,
+  spanWords,
+  TAIL_S,
+  type CurrentWait,
+} from "./trend";
+import { formatMs } from "./format";
 import { TrendPlot } from "./TrendPlot";
 
 // The one word in the headline that is also a state, painted the colour of the
@@ -13,6 +20,33 @@ import { TrendPlot } from "./TrendPlot";
 // claim a state the page is not in. Colour is never the only signal here; the
 // word carries itself, and this only makes the pill and the sentence read as
 // one statement rather than two.
+// The number a visitor came for, in the units they wait in.
+//
+// Under the headline rather than in it: "Xiaomi MiMo is answering" is the
+// answer, and this is how long it takes. Both models, always named, because a
+// single figure over a fleet of two is the one thing this page has learned not
+// to print — they are three seconds apart on an ordinary day.
+//
+// Silent when the trend block cannot produce a reading: the window figures on
+// the cards below are a day's medians and would answer a different question in
+// the same sentence.
+function waitLine(waits: CurrentWait[]): string[] {
+  if (waits.length === 0) return [];
+  const clauses = waits.map((w) => `${formatMs(w.ttftMs)} on ${w.modelID}`);
+  const last = clauses[clauses.length - 1]!;
+  const said =
+    clauses.length === 1
+      ? last
+      : `${clauses.slice(0, -1).join(", ")} and ${last}`;
+  // "right now" is a claim only the last hour earns — the same rule the speed
+  // reading follows (trend.ts, TAIL_S). A median over three hours is quoted as
+  // the three hours it is, or the sentence is naming a span it never measured.
+  const span = Math.max(...waits.map((w) => w.spanS));
+  const when =
+    span === TAIL_S ? "right now" : `over the last ${spanWords(span)}`;
+  return [`First token in about ${said} ${when}.`];
+}
+
 function paintState(headline: string, word: string) {
   const at = headline.indexOf(word);
   if (at === -1) return headline;
@@ -53,10 +87,12 @@ export function VerdictBanner({
   // branch is what keeps "slower" from ever appearing beside one.
   //
   // A slowdown and nothing else: speed.state can also be "quicker", which this
-  // page measures and never mentions, and "recovered", which is a slowdown the
-  // last hour has already undone. Neither takes the headline or the plot — a
-  // banner shouting about hours that are over is the reason the tail gate
-  // exists (trend.ts, TAIL_S).
+  // page measures and never mentions, "recovered", which is a slowdown the last
+  // hour has already undone, and "minor", which is one that never cost enough
+  // to lead. None of the three takes the headline or the plot — a banner
+  // shouting about hours that are over is the reason the tail gate exists
+  // (trend.ts, TAIL_S), and one shouting about a second of extra waiting is the
+  // reason LEAD_SECONDS does.
   const slow = verdict.state === "normal" && speed.state === "slower";
 
   const tone =
@@ -82,12 +118,24 @@ export function VerdictBanner({
   // "recovered" rides in the same slot as "steady", and for the same reason:
   // the page has said something about speed, so its silence is readable. It
   // sits UNDER the verdict rather than over it, because what it reports is over.
+  //
+  // "minor" rides there too: a move that cleared its floor and cost less than
+  // LEAD_SECONDS is a real change and a poor headline, so it is stated and not
+  // announced. Under the verdict rather than over it, because whatever the
+  // verdict is talking about is the larger claim by construction.
+  // The wait leads the detail on an ordinary day: it is what the headline just
+  // claimed, quantified. Never beside a fault — a wait is not the news then,
+  // and the banner takes the fault alone.
+  const waits =
+    verdict.state === "normal" && !slow ? waitLine(currentWaits(trend)) : [];
   const detail = slow
     ? [speed.line, ...verdict.detail]
     : verdict.state === "normal" &&
-        (speed.state === "steady" || speed.state === "recovered")
-      ? [...verdict.detail, speed.line]
-      : verdict.detail;
+        (speed.state === "steady" ||
+          speed.state === "recovered" ||
+          speed.state === "minor")
+      ? [...waits, ...verdict.detail, speed.line]
+      : [...waits, ...verdict.detail];
 
   return (
     <div
@@ -133,7 +181,7 @@ export function VerdictBanner({
           }`}
         >
           {verdict.state === "normal" && !slow
-            ? paintState(headline, "normal")
+            ? paintState(headline, "answering")
             : headline}
         </p>
       </div>
