@@ -757,4 +757,53 @@ describe("buildVerdict", () => {
       /missed the expected fact in 18 of its last 288 answers/i,
     );
   });
+  // The gate is per TRACK. A wrong answer says nothing about whether runs are
+  // still being dropped, and one shared flag let a single wrong answer twenty
+  // minutes old unlock a sentence about runs cut off before breakfast.
+  it("does not let a wrong answer speak for a stale availability figure", () => {
+    const v = buildVerdict(
+      summary({
+        recent: recentModelFailures([], { wrong: [1] }),
+        models: [
+          model({
+            attempts: 288,
+            succeeded: 282,
+            censored: 6,
+            available_pct: 97.9,
+            answered: 282,
+            correct: 281,
+            correct_pct: 99.65,
+          }),
+        ],
+      }),
+      summary(),
+    );
+    expect(v.detail.join(" ")).not.toMatch(/did not finish/i);
+  });
+
+  // ...and the softener must not disclaim the sentence above it: "one run is
+  // not yet a pattern" under "did not finish 9 of its last 288 runs" argues
+  // with the chip it is standing next to.
+  it("drops the lone-failure softener once the window has spoken", () => {
+    const v = buildVerdict(
+      summary({
+        recent: recentModelFailures([1]),
+        models: [
+          model({
+            attempts: 288,
+            succeeded: 279,
+            censored: 0,
+            available_pct: 96.9,
+            answered: 279,
+            correct: 279,
+          }),
+        ],
+      }),
+      summary(),
+    );
+    expect(v.detail.join(" ")).toMatch(
+      /did not finish 9 of its last 288 runs/i,
+    );
+    expect(v.detail.join(" ")).not.toMatch(/not yet a pattern/i);
+  });
 });

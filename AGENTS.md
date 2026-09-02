@@ -62,7 +62,9 @@ added to the wait, never by per cent — the metrics are different sizes.
 
 **Relative alone never takes the banner.** The LEAD move must also leave a reading that is slow
 in absolute terms — `SLOW_TTFT_MS`, `SLOW_TPS` — or the whole reading demotes to `minor`: the
-sentence with its figures and its cost, no headline, no chip, no plot. A doubled first token of
+sentence with its figures and its cost, no headline, no chip, no plot. Tested per MOVE, never on
+the top of the list — the ranking is cross-metric and the floors are not, so a throughput drop
+that is not slow would otherwise silence a first token that is. A doubled first token of
 2016 ms is true and is not news while the other model starts in 3.3 s. These two are CHOSEN, not
 measured, and say so: no replay can tell you how long a wait has to be before a reader minds it.
 
@@ -74,10 +76,12 @@ availability and correctness (`scoreModel`, same bands as the card), so a bad da
 chip on a card under a banner announcing something smaller.
 
 **A state is PRESENT TENSE, on every surface.** A window figure may only produce a chip or a
-headline while that model still has a failed run or a wrong answer inside `RECENT_CYCLES` —
-`hasRecentTrouble`, read by `scoreModel` and by the card. Six runs cut off ten hours ago are a
-fact about the day, not something the endpoint is doing: the figures and the censored note keep
-saying so, and nothing announces it. `unknown` is never softened this way, and neither is a
+headline while that model's own track is still producing events — `stillHappening`, read by
+`scoreModel` and by the card. Six runs cut off ten hours ago are a fact about the day, not
+something the endpoint is doing: the figures and the censored note keep saying so, and nothing
+announces it. PER TRACK (a wrong answer is no evidence about dropped runs) and dated off the
+whole SERVED block, not the last `RECENT_CYCLES`: an hour-wide cutoff makes a steady low failure
+rate blink amber and green all day. `unknown` is never softened this way, and neither is a
 payload with no recent block — undated failures are not over.
 
 **The normal banner answers the question, not the dashboard.** "Xiaomi MiMo is answering", with

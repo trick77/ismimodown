@@ -126,11 +126,11 @@ export function VerdictBanner({
   //
   // A slowdown and nothing else: speed.state can also be "quicker", which this
   // page measures and never mentions, "recovered", which is a slowdown the last
-  // hour has already undone, and "minor", which is one that never cost enough
-  // to lead. None of the three takes the headline or the plot — a banner
-  // shouting about hours that are over is the reason the tail gate exists
-  // (trend.ts, TAIL_S), and one shouting about a second of extra waiting is the
-  // reason LEAD_SECONDS does.
+  // hour has already undone, and "minor", which left a wait nobody would call
+  // slow. None of the three takes the headline or the plot — a banner shouting
+  // about hours that are over is the reason the tail gate exists (trend.ts,
+  // TAIL_S), and one shouting about a two-second first token is the reason
+  // SLOW_TTFT_MS does.
   const slow = verdict.state === "normal" && speed.state === "slower";
 
   const tone =
@@ -157,10 +157,12 @@ export function VerdictBanner({
   // the page has said something about speed, so its silence is readable. It
   // sits UNDER the verdict rather than over it, because what it reports is over.
   //
-  // "minor" rides there too: a move that cleared its floor and cost less than
-  // LEAD_SECONDS is a real change and a poor headline, so it is stated and not
-  // announced. Under the verdict rather than over it, because whatever the
-  // verdict is talking about is the larger claim by construction.
+  // "minor" rides there too: a move that cleared its floor and left a reading
+  // still quick in absolute terms (trend.ts, SLOW_TTFT_MS / SLOW_TPS) is a real
+  // change and a poor headline, so it is stated and not announced. Under the
+  // verdict rather than over it, because whatever the verdict is talking about
+  // is the larger claim by construction.
+  //
   // The wait leads the detail on an ordinary day: it is what the headline just
   // claimed, quantified. Never beside a fault — a wait is not the news then,
   // and the banner takes the fault alone.

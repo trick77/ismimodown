@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { ModelTrend, Point, Trend } from "./api/types";
 import {
   buildSpeedReading,
+  currentWaits,
   SLOW_TPS,
   SLOW_TTFT_MS,
   TAIL_S,
@@ -651,5 +652,38 @@ describe("buildSpeedReading", () => {
     expect(3400).toBeGreaterThanOrEqual(SLOW_TTFT_MS);
     expect(reading.state).toBe("slower");
     expect(reading.lead).toContain("slow to start");
+  });
+  // The ranking is cross-metric and the absolute floors are not, so the
+  // demotion cannot be decided on the top of the list alone: a throughput drop
+  // that is not slow outranks, by seconds, a first token that is.
+  it("lets a slow first token lead past a quicker throughput move", () => {
+    const reading = buildSpeedReading(
+      trendOf([model("mimo-v2.5", [3100, 1000], [41, 100])]),
+    );
+    // Both cleared their relative floors, and only the first token is slow.
+    expect(41).toBeGreaterThan(SLOW_TPS);
+    expect(3100).toBeGreaterThanOrEqual(SLOW_TTFT_MS);
+    expect(reading.state).toBe("slower");
+    expect(reading.metric).toBe("ttft");
+    expect(reading.lead).toContain("slow to start");
+  });
+
+  // One sentence, one span: the wait line names the hours it quotes, so a
+  // model whose hour is readable is not printed under another model's three.
+  it("falls back to the compared span for every model when one hour is thin", () => {
+    const thick = withTail(
+      model("mimo-v2.5", [1000, 1000], [70, 70]),
+      "ttft",
+      [1000, 1000, 1000, 1000],
+    );
+    const thin = withTail(
+      model("mimo-v2.5-pro", [5000, 5000], [70, 70]),
+      "ttft",
+      [5000, 5000],
+      2,
+    );
+    const waits = currentWaits(trendOf([thick, thin], QUARTER));
+    expect(waits).toHaveLength(2);
+    expect(waits.every((w) => w.spanS === 3 * HOUR)).toBe(true);
   });
 });

@@ -689,16 +689,20 @@ function modelTracks(
 // correctness off the fixed `now` block — so the two surfaces disagree in one
 // place only, and deliberately: the card's figures describe the SELECTED
 // window, the banner's the fixed 24 hours.
-// hasRecentTrouble is "is this still happening": one failed run or one wrong
-// answer inside the horizon is enough, which is deliberately below every
-// threshold that produces a state on its own. It does not judge — it says
-// whether a judgement about the WINDOW is still describing the present.
-export function hasRecentTrouble(
+// stillHappening is "is this track still producing events": one failed run, or
+// one wrong answer, anywhere in the SERVED block. It does not judge — it says
+// whether a judgement about the WINDOW is still describing the present, which
+// is why it sits below every threshold that makes a state on its own.
+//
+// Per track and over the whole block, for the two reasons scoreModel sets out:
+// a wrong answer is no evidence about dropped runs, and an hour-wide cutoff
+// makes a steady low failure rate blink amber and green all day.
+export function stillHappening(
   modelId: string,
   recent: RecentCycle[],
+  track: "failures" | "wrong",
 ): boolean {
-  const { failures, wrong } = modelTracks(modelId, recent);
-  return failures.count > 0 || wrong.count > 0;
+  return modelTracks(modelId, recent)[track].lastRedAgo !== null;
 }
 
 export function scoreModelRecent(
@@ -761,6 +765,17 @@ function quietFailures(summary: Summary, recent: RecentCycle[]): string[] {
     const { failures } = modelTracks(model.model_id, recent);
     if (failures.count === 0) continue;
     if (scoreTrack(failures, FAILURE_THRESHOLDS) !== "normal") continue;
+    // ...and not while the WINDOW has already spoken for this model. "One run
+    // is not yet a pattern" under "did not finish 9 of its last 288 runs"
+    // disclaims the evidence the chip beside it is standing on — the same
+    // self-contradiction the softener exists to prevent, pointing the other
+    // way.
+    if (
+      failures.lastRedAgo !== null &&
+      scoreAvailability(model.succeeded, model.attempts) !== "normal"
+    ) {
+      continue;
+    }
     const when =
       failures.lastRedMinutes === null
         ? "just now"
@@ -846,12 +861,26 @@ function scoreModel(
   // ten hours ago are a fact about the day and not a state anything is in, and
   // a banner that says "showing early signs of trouble" over a morning that has
   // been clean since is answering a question nobody asked. The window decides
-  // whether the day was bad enough to matter; the recent block decides whether
+  // whether the day was bad enough to matter; the block below decides whether
   // it is still going. Both, or neither speaks.
-  const live = failures.count > 0 || wrong.count > 0;
-  const windowAvailability = live
-    ? scoreAvailability(model.succeeded, model.attempts)
-    : "normal";
+  //
+  // Per TRACK, not one flag for the pair: a wrong answer says nothing about
+  // whether the endpoint is still dropping runs, and one shared gate let a
+  // single wrong answer twenty minutes old unlock a sentence about six runs cut
+  // off before breakfast — the stale claim this gate exists to stop, wearing
+  // the other track's evidence.
+  //
+  // Dated off the WHOLE served block rather than the last RECENT_CYCLES.
+  // A one-hour cutoff sounds tighter and flaps: at nine scattered failures a
+  // day, each one holds the gate open for an hour and drops it at minute 61, so
+  // the banner and both card chips blink amber and green all day over a window
+  // score that never moved. The served block reaches back hours, which is long
+  // enough that an ongoing low rate reads as ongoing, and still far short of
+  // the day the window figure covers.
+  const windowAvailability =
+    failures.lastRedAgo !== null
+      ? scoreAvailability(model.succeeded, model.attempts)
+      : "normal";
   if (windowAvailability !== "normal" && windowAvailability !== "unknown") {
     const unfinished = model.attempts - model.succeeded;
     // Cut off and dropped are not the same event, and one must not be rounded
@@ -869,9 +898,10 @@ function scoreModel(
     );
   }
 
-  const windowCorrectness = live
-    ? scoreCorrectness(model.correct_pct, model.answered - model.correct)
-    : "normal";
+  const windowCorrectness =
+    wrong.lastRedAgo !== null
+      ? scoreCorrectness(model.correct_pct, model.answered - model.correct)
+      : "normal";
   if (windowCorrectness !== "normal" && windowCorrectness !== "unknown") {
     const missed = model.answered - model.correct;
     detail.push(

@@ -122,22 +122,32 @@ export function currentWaits(trend: Trend | null | undefined): CurrentWait[] {
   const generatedAtS = Date.parse(trend?.generated_at ?? "") / 1000;
   const bucketS = trend?.bucket_s ?? 0;
   const recentS = trend?.recent_s ?? 0;
+  const models = trend?.models ?? [];
+
+  // One span for the whole sentence, decided once: the last hour only when
+  // EVERY model's hour is thick enough to read. Mixed, it would have to be said
+  // per clause — the sentence names its span, and an hour-old figure printed
+  // under "over the last 3 hours" is exactly the mislabelling this page is
+  // careful about everywhere else.
+  const tails = models.map((m) => tailOf(m.ttft, generatedAtS, bucketS));
+  const hourly =
+    models.length > 0 && tails.every((t) => t !== null && t.value > 0);
+
   const waits: CurrentWait[] = [];
-  for (const model of trend?.models ?? []) {
-    const tail = tailOf(model.ttft, generatedAtS, bucketS);
-    if (tail !== null && tail.value > 0) {
+  models.forEach((model, i) => {
+    if (hourly) {
       waits.push({
         modelID: model.model_id,
-        ttftMs: tail.value,
+        ttftMs: tails[i]!.value,
         spanS: TAIL_S,
       });
-      continue;
+      return;
     }
     const recent = value(model.ttft, "recent");
     if (recent !== null && recent > 0) {
       waits.push({ modelID: model.model_id, ttftMs: recent, spanS: recentS });
     }
-  }
+  });
   return waits;
 }
 
@@ -542,11 +552,16 @@ export function buildSpeedReading(
   // Ranked by seconds added to the wait, never by per cent — see SpeedMove.
   fired.sort((a, b) => b.secondsAdded - a.secondsAdded);
 
-  // The largest move decides whether ANY of them may take the banner, for the
-  // same reason it decides the headline: it is the biggest thing that happened
-  // here, so if the wait it left behind is not slow, nothing else on this list
-  // is either.
-  if (fired.length > 0 && !isSlow(fired[0]!)) {
+  // Which moves may LEAD: the ones whose reading is slow in its own units.
+  //
+  // Tested per move rather than on the biggest, because the ranking is
+  // cross-metric and the floors are not. A throughput drop to 41 tok/s adds
+  // more seconds than a first token going to 3100 ms, sorts above it, and is
+  // not slow — and testing only the top of the list let it demote a first token
+  // the page's own floor calls slow. Whichever slow move costs the most leads;
+  // the rest ride along as they always did.
+  const leadable = fired.filter(isSlow);
+  if (fired.length > 0 && leadable.length === 0) {
     const lead = fired[0]!;
     return {
       state: "minor",
@@ -558,8 +573,8 @@ export function buildSpeedReading(
     };
   }
 
-  if (fired.length > 0) {
-    const lead = fired[0]!;
+  if (leadable.length > 0) {
+    const lead = leadable[0]!;
     // "Both models" is a claim about THIS metric, not about the page. Saying it
     // whenever two models appear anywhere in the list asserts the lead's metric
     // of every model — so a page where one model started slowly and the other

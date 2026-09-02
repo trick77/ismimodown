@@ -3,12 +3,12 @@ import { Figure, StateChip } from "./ui";
 import { formatMs, formatPct, formatTps, plural } from "./format";
 import type { State } from "./verdict";
 import {
-  hasRecentTrouble,
   MIN_FAILURES_FOR_STATE,
   scoreAvailability,
   scoreCorrectness,
   scoreModelRecent,
   scoreRatio,
+  stillHappening,
   worst,
 } from "./verdict";
 import { colorForModel } from "./charts/options";
@@ -127,14 +127,22 @@ export function ModelCards({
         // window score stands. And "unknown" is never softened to normal —
         // absence of evidence is not evidence of health, which is the rule the
         // header chip already follows.
-        const live =
-          cycles.length === 0 || hasRecentTrouble(m.model_id, cycles);
-        const present = (state: State): State =>
-          live || state === "unknown" ? state : "normal";
-        const availability = present(
+        //
+        // Per track, and never across them: a wrong answer is no evidence that
+        // runs are still being dropped, and one shared flag let either unlock
+        // the other's stale sentence. The banner reads the same rule
+        // (verdict.ts, scoreModel).
+        const present =
+          (track: "failures" | "wrong") =>
+          (state: State): State => {
+            const live =
+              cycles.length === 0 || stillHappening(m.model_id, cycles, track);
+            return live || state === "unknown" ? state : "normal";
+          };
+        const availability = present("failures")(
           scoreAvailability(m.succeeded, m.attempts),
         );
-        const correctness = present(
+        const correctness = present("wrong")(
           scoreCorrectness(m.correct_pct, m.answered - m.correct),
         );
         const ttft = scoreRatio(m.ttft.p50_ms, base?.ttft.p50_ms ?? null);
