@@ -296,7 +296,6 @@ export default function App() {
           <VerdictBanner
             verdict={verdict}
             trend={data?.trend ?? null}
-            baseline={data?.baseline ?? null}
             models={models}
             loading={loading}
           />

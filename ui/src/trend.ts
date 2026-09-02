@@ -106,51 +106,6 @@ export const OUTPUT_TOKENS = 150;
 
 export type SpeedMetric = "ttft" | "tps";
 
-// What a visitor waits for the first token, right now, per model.
-//
-// The last hour when the hour is thick enough to read, the compared span
-// otherwise — never the 24-hour window figure, which is a median of a day and
-// answers a question nobody on this page is asking. `spanS` says which, so the
-// sentence can name the hours it is quoting.
-export type CurrentWait = {
-  modelID: string;
-  ttftMs: number;
-  spanS: number;
-};
-
-export function currentWaits(trend: Trend | null | undefined): CurrentWait[] {
-  const generatedAtS = Date.parse(trend?.generated_at ?? "") / 1000;
-  const bucketS = trend?.bucket_s ?? 0;
-  const recentS = trend?.recent_s ?? 0;
-  const models = trend?.models ?? [];
-
-  // One span for the whole sentence, decided once: the last hour only when
-  // EVERY model's hour is thick enough to read. Mixed, it would have to be said
-  // per clause — the sentence names its span, and an hour-old figure printed
-  // under "over the last 3 hours" is exactly the mislabelling this page is
-  // careful about everywhere else.
-  const tails = models.map((m) => tailOf(m.ttft, generatedAtS, bucketS));
-  const hourly =
-    models.length > 0 && tails.every((t) => t !== null && t.value > 0);
-
-  const waits: CurrentWait[] = [];
-  models.forEach((model, i) => {
-    if (hourly) {
-      waits.push({
-        modelID: model.model_id,
-        ttftMs: tails[i]!.value,
-        spanS: TAIL_S,
-      });
-      return;
-    }
-    const recent = value(model.ttft, "recent");
-    if (recent !== null && recent > 0) {
-      waits.push({ modelID: model.model_id, ttftMs: recent, spanS: recentS });
-    }
-  });
-  return waits;
-}
-
 // One metric on one model that moved past its floor.
 export type SpeedMove = {
   modelID: string;
@@ -737,10 +692,13 @@ export function buildSpeedReading(
     };
   }
 
+  // No sentence: the banner says this in its headline now ("…and both models
+  // are behaving as usual"), and printed here as well it said the same thing
+  // twice, the second time as a statistic nobody asked for.
   return {
     state: "steady",
     lead: "",
-    line: `First token and throughput are both inside this endpoint's ordinary spread for the last ${span}.`,
+    line: "",
     moves: [],
     metric: null,
     spanS: null,
