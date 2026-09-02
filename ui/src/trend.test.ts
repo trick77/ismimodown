@@ -621,13 +621,14 @@ describe("buildSpeedReading", () => {
     expect(2016 / 954 - 1).toBeGreaterThan(TTFT_FLOOR);
     expect(2016).toBeLessThan(SLOW_TTFT_MS);
     expect(reading.state).toBe("minor");
-    // Stated, not announced: no headline, no plot, and the figures and the
-    // cost still printed.
+    // Measured and never spoken, exactly as a speed-up is: no headline, no
+    // plot, and no sentence either. A second of extra waiting is not worth a
+    // line in the box a visitor reads first — the plots below carry the shape
+    // for anyone who wants it.
     expect(reading.lead).toBe("");
+    expect(reading.line).toBe("");
     expect(reading.moves).toEqual([]);
     expect(reading.metric).toBeNull();
-    expect(reading.line).toContain("2016 ms against 954 ms");
-    expect(reading.line).toContain("1.1 s");
   });
 
   // The same gate in the throughput's own units: text arriving at 45 tokens a
@@ -640,7 +641,7 @@ describe("buildSpeedReading", () => {
     expect(45).toBeGreaterThan(SLOW_TPS);
     expect(reading.state).toBe("minor");
     expect(reading.lead).toBe("");
-    expect(reading.line).toContain("45.0 against 70.0");
+    expect(reading.line).toBe("");
   });
 
   // ...and the lead is what the gate reads, so a small move riding along with

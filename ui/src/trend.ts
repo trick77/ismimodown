@@ -189,9 +189,15 @@ export type SpeedReading = {
   // endpoint is fine. It carries no badge and no headline — it is the past
   // tense, and the page answers a present-tense question.
   // "minor" is a move that cleared its floor while the reading it produced is
-  // still quick in absolute terms — real, and not the loudest thing on the
-  // page. Like "recovered" it carries no badge, no headline and no plot: only
-  // the sentence.
+  // still quick in absolute terms. It carries no badge, no headline, no plot
+  // AND no sentence: 20% fewer tokens per second, costing six tenths of a
+  // second on a full-length answer, is a true measurement and not news, and
+  // printing it under the headline in the page's most important box asks the
+  // reader to care about something the page has just decided does not matter.
+  //
+  // It exists for the same reason "quicker" does, and does exactly as much: it
+  // keeps the steady sentence from claiming a spread the reading is outside of.
+  // The plots below carry the shape for anyone who wants it.
   state: "slower" | "quicker" | "recovered" | "minor" | "steady" | "unknown";
   // The whole answer, in one line, largest type on the page.
   lead: string;
@@ -562,11 +568,10 @@ export function buildSpeedReading(
   // the rest ride along as they always did.
   const leadable = fired.filter(isSlow);
   if (fired.length > 0 && leadable.length === 0) {
-    const lead = fired[0]!;
     return {
       state: "minor",
       lead: "",
-      line: `${movePhrase(lead, refSpan, true, true)} — about ${seconds(lead.secondsAdded)} of extra waiting on a full-length answer.`,
+      line: "",
       moves: [],
       metric: null,
       spanS: null,

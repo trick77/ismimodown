@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import type { Trend } from "./api/types";
+import type { Summary, Trend } from "./api/types";
 import type { Verdict } from "./verdict";
 import { StateChip } from "./ui";
 import {
@@ -32,7 +32,10 @@ import { TrendPlot } from "./TrendPlot";
 // Silent when the trend block cannot produce a reading: the window figures on
 // the cards below are a day's medians and would answer a different question in
 // the same sentence.
-function waitLine(waits: CurrentWait[]): string[] {
+function waitLine(
+  waits: CurrentWait[],
+  baseline: Summary | null | undefined,
+): string[] {
   if (waits.length === 0) return [];
   const clauses = waits.map((w) => `${formatMs(w.ttftMs)} on ${w.modelID}`);
   const last = clauses[clauses.length - 1]!;
@@ -46,7 +49,20 @@ function waitLine(waits: CurrentWait[]): string[] {
   const span = Math.max(...waits.map((w) => w.spanS));
   const when =
     span === TAIL_S ? "right now" : `over the last ${spanWords(span)}`;
-  return [`First token in about ${said} ${when}.`];
+
+  // ...against the week behind it, in the same order, so the reader can answer
+  // "is that good" without scrolling to a chart. Dropped entirely when the
+  // baseline cannot cover every model named — half a comparison is worse than
+  // none, since the eye pairs the lists by position.
+  const usual = waits.map(
+    (w) =>
+      baseline?.models.find((m) => m.model_id === w.modelID)?.ttft.p50_ms ??
+      null,
+  );
+  const reference = usual.every((v) => v !== null && v > 0)
+    ? `, against ${usual.map((v) => formatMs(v)).join(" and ")} over the past week`
+    : "";
+  return [`First token in about ${said} ${when}${reference}.`];
 }
 
 // Model IDs carry their series colour wherever the banner names them, the same
@@ -110,11 +126,16 @@ function paintState(headline: string, word: string) {
 export function VerdictBanner({
   verdict,
   trend,
+  baseline,
   models = [],
   loading,
 }: {
   verdict: Verdict;
   trend?: Trend | null;
+  // The 7-day block, so the wait can be read against what it usually is. The
+  // banner states no verdict on it — that is scoreRatio's job, in verdict.ts —
+  // it just prints the pair.
+  baseline?: Summary | null;
   // The IDs the sentences may name, in the page's own order — the same list the
   // charts colour from, so a name reads the same wherever it appears.
   models?: string[];
@@ -167,7 +188,9 @@ export function VerdictBanner({
   // claimed, quantified. Never beside a fault — a wait is not the news then,
   // and the banner takes the fault alone.
   const waits =
-    verdict.state === "normal" && !slow ? waitLine(currentWaits(trend)) : [];
+    verdict.state === "normal" && !slow
+      ? waitLine(currentWaits(trend), baseline)
+      : [];
   const detail = slow
     ? [speed.line, ...verdict.detail]
     : verdict.state === "normal" &&
@@ -225,8 +248,13 @@ export function VerdictBanner({
             : paintModels(headline, models)}
         </p>
       </div>
+      {/* Serif at body size, in the near-white ink, because these lines ARE
+          the answer — they rendered at 13px in muted grey, the smallest type on
+          the page, inside the one box a visitor reads first. The headline says
+          what is happening; these say how much, and a reader who has to squint
+          at them is being told they do not matter. */}
       {detail.length > 0 && (
-        <ul className="mt-2 space-y-1 text-label text-muted">
+        <ul className="mt-3 space-y-1.5 font-serif text-body leading-snug text-ink-dim">
           {detail.map((line) => (
             <li key={line}>{paintModels(line, models)}</li>
           ))}

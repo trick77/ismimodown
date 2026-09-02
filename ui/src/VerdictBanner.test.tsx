@@ -267,10 +267,10 @@ describe("VerdictBanner", () => {
       "normal",
     );
   });
-  // A move that cleared its floor and left a wait nobody would call slow is
-  // stated, never announced: it rides under the verdict as a plain line, with
-  // no chip claiming a state for it and no plot drawing one.
-  it("states a small slowdown without letting it take the banner", () => {
+  // A move that cleared its floor and left a wait nobody would call slow says
+  // nothing at all: no chip, no plot, and no line either. Six tenths of a
+  // second is not something to hand a visitor in the box they read first.
+  it("says nothing at all about a small slowdown", () => {
     render(
       <VerdictBanner
         verdict={normal}
@@ -284,8 +284,13 @@ describe("VerdictBanner", () => {
     );
     expect(screen.queryByText(/slow to start right now/)).toBeNull();
     expect(screen.queryByTestId("trend-plot")).toBeNull();
-    expect(screen.getByTestId("verdict")).toHaveTextContent(
+    expect(screen.getByTestId("verdict")).not.toHaveTextContent(
       /2016 ms against 954 ms/,
+    );
+    // ...and the steady sentence must not speak for it either: the reading
+    // moved past its floor, so "inside the ordinary spread" would be false.
+    expect(screen.getByTestId("verdict")).not.toHaveTextContent(
+      /ordinary spread/,
     );
   });
   // What a visitor came for, under the headline that claims it: the wait

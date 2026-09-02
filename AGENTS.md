@@ -61,10 +61,13 @@ live readings. So `+70%` first token (`+40%` when both models move), `−20%` th
 added to the wait, never by per cent — the metrics are different sizes.
 
 **Relative alone never takes the banner.** The LEAD move must also leave a reading that is slow
-in absolute terms — `SLOW_TTFT_MS`, `SLOW_TPS` — or the whole reading demotes to `minor`: the
-sentence with its figures and its cost, no headline, no chip, no plot. Tested per MOVE, never on
-the top of the list — the ranking is cross-metric and the floors are not, so a throughput drop
-that is not slow would otherwise silence a first token that is. A doubled first token of
+in absolute terms — `SLOW_TTFT_MS`, `SLOW_TPS` — or the whole reading demotes to `minor`, which
+says NOTHING: no headline, no chip, no plot, no sentence. Nobody cares that a first token costs
+0.6 s more, and printing it under the headline asks the reader to care about what the page just
+decided does not matter; `minor` exists only so the steady sentence cannot claim an ordinary
+spread the reading sits outside of, exactly as `quicker` does. Tested per MOVE, never on the top
+of the list — the ranking is cross-metric and the floors are not, so a throughput drop that is
+not slow would otherwise silence a first token that is. A doubled first token of
 2016 ms is true and is not news while the other model starts in 3.3 s. These two are CHOSEN, not
 measured, and say so: no replay can tell you how long a wait has to be before a reader minds it.
 
@@ -86,9 +89,15 @@ payload with no recent block — undated failures are not over.
 
 **The normal banner answers the question, not the dashboard.** "Xiaomi MiMo is answering", with
 the WAIT underneath it per model (`currentWaits`, the last hour when the hour is thick enough,
-the compared span otherwise — never the 24h window median). It read "Everything looks normal
-right now", which says nothing a visitor came for. Only the last hour may be called "right now";
-any wider span is named. A speed-up is MEASURED and never said: faster is
+the compared span otherwise — never the 24h window median), against the 7-day figure so a
+stranger can read it: "Is 996 ms good?" is unanswerable bare, and that is the question this whole
+scoring module opens with. Both figures or neither — the eye pairs the two lists by position.
+ONE line: a second sentence counting the clean runs only repeats the headline over two cards
+already printing 100%. Only the last hour may be called "right now"; any wider span is named.
+
+**The banner's sentences are body-size serif in `ink-dim`, never `text-label text-muted`.** They
+are the answer, in the box a visitor reads first; at 13px in grey the page whispers its own
+finding. A speed-up is MEASURED and never said: faster is
 not the question, so `quicker` carries no lead, no line and no plot — it exists only so the steady
 sentence cannot claim an ordinary spread the reading is outside of.
 
