@@ -443,16 +443,17 @@ describe("App", () => {
   });
 
   // "Loading…" is one line at every width. The headline that replaces it is one
-  // line on a desktop and two on a phone, so on a phone the banner grew by a
-  // line the moment the fetch landed and carried the whole page down with it.
-  // jsdom does no layout, so the reservation is asserted where it is declared.
-  it("reserves the headline's second line on a narrow screen", async () => {
+  // line on a desktop and three on a phone, so on a phone the banner grew the
+  // moment the fetch landed and carried the whole page down with it. jsdom does
+  // no layout, so the reservation is asserted where it is declared; the figure
+  // itself is measured in a real browser (VerdictBanner.tsx).
+  it("reserves the wrapped headline on a narrow screen", async () => {
     vi.stubGlobal("fetch", mockFetch());
     render(<App />);
 
     await screen.findByTestId("model-card-mimo-v2.5");
     const banner = screen.getByTestId("verdict");
-    expect(banner).toHaveClass("min-h-[99px]");
+    expect(banner).toHaveClass("min-h-[159px]");
     // And gives it back where the headline fits on one line, rather than
     // leaving a floor under every desktop banner that ever renders.
     expect(banner).toHaveClass("sm:min-h-0");
