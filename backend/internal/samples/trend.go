@@ -38,10 +38,16 @@ const (
 // three the sentence measures plus as much again in front of them — so the
 // bucket has to be narrow enough that six hours is a shape rather than a
 // zigzag: 24 points, where half-hour buckets gave 12 and a slowdown's onset
-// landed between two of them. The full 27 hours still ship, because the
-// censoring caveat is read off the reference day's buckets and it cannot be
-// pointed the right way without them. 108 buckets, two models, two metrics is
-// ~430 points — the same order as the panels already serve.
+// landed between two of them.
+//
+// The window is sized by the comparison it belongs to rather than by what the
+// client currently draws: the plot takes the last six hours of it and the tail
+// gate reads the last one, so most of these buckets go unread. They stay
+// because the span is the daemon's statement of what the comparison covers and
+// a client that wanted to show it could — 108 buckets, two models, two metrics
+// is ~430 points, the same order as the panels already serve. The reference
+// LEVEL is not among them: Before is its own percentile query over the rows,
+// and the plot dashes it from that.
 //
 // The page draws this rather than the selected window's series because the
 // series a reader has selected may not contain three hours at all: the 30d
@@ -66,9 +72,9 @@ type TrendMetric struct {
 	Recent Stats `json:"recent"`
 	Before Stats `json:"before"`
 	// Points is the whole span, oldest first. Each carries its own censored
-	// count, which is what lets the client say the delta is understated: both
-	// medians are computed over runs that FINISHED, so a period whose slowest
-	// runs were cut off publishes a flattering figure.
+	// count: both medians are computed over runs that FINISHED, so a period
+	// whose slowest runs were cut off publishes a flattering figure, and the
+	// plot's bands are what say so over the hours it draws.
 	Points []Point `json:"points"`
 }
 
