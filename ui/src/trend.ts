@@ -548,11 +548,18 @@ export function buildSpeedReading(
     // rather than with the slowdown.
     //
     // Off the ROUNDED medians for a first token, not off secondsAdded, so the
-    // wait is the difference of the two figures the sentence just printed and
-    // not a third rounding of the same measurement. secondsAdded keeps its full
+    // wait is the difference of the two figures the sentence printed and not a
+    // third rounding of the same measurement. secondsAdded keeps its full
     // precision because the moves are ranked by it. A throughput move is left
     // alone: its cost is 150 tokens divided two ways, which is not a
     // subtraction anyone is going to check against the printed rates.
+    //
+    // It is still the model's WHOLE cost: a model whose first token and whose
+    // decoding both moved makes the reader wait for both, and quoting half of
+    // that understates a wait they are really having. That is the one case
+    // where the wait is not the gap between the two medians above it — the
+    // sentence says "in total" there, because the figures are now in one unit
+    // and a reader who subtracts them would otherwise catch the line out.
     const costOf = (modelID: string) =>
       fired
         .filter((m) => m.modelID === modelID)
@@ -568,6 +575,11 @@ export function buildSpeedReading(
       modelID: m.modelID,
       words: seconds(costOf(m.modelID)),
     }));
+    // True the moment any quoted model is paying for more than the one metric
+    // its medians were printed for.
+    const summed = costs.some(
+      (c) => fired.filter((m) => m.modelID === c.modelID).length > 1,
+    );
     // "each" is only true when the models cost the same — the figure is one
     // model's, and handing it to the other one overstated a 0.5 s model as 0.9 s.
     // Compared as the WORDS, not the seconds: two waits that print identically
@@ -575,11 +587,11 @@ export function buildSpeedReading(
     const sameCost = costs.every((c) => c.words === costs[0]!.words);
     parts.push(
       sameCost
-        ? `That is about ${costs[0]!.words} of extra waiting on a full-length answer${everyModel ? ", each" : ""}.`
+        ? `That is about ${costs[0]!.words} of extra waiting on a full-length answer${summed ? " in total" : ""}${everyModel ? ", each" : ""}.`
         : // The unit is said once. Repeating "of extra waiting on a full-length
           // answer" per model made the sentence longer than the reading it
           // qualifies.
-          `That is about ${costs[0]!.words} of extra waiting on a full-length answer for ${costs[0]!.modelID}, and ${costs
+          `That is about ${costs[0]!.words} of extra waiting on a full-length answer${summed ? " in total" : ""} for ${costs[0]!.modelID}, and ${costs
             .slice(1)
             .map((c) => `${c.words} for ${c.modelID}`)
             .join(", ")}.`,

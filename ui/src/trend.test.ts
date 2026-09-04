@@ -163,6 +163,32 @@ describe("buildSpeedReading", () => {
     expect(reading.line).not.toContain(" ms");
   });
 
+  // A model can be paying for both metrics at once, and then the wait is the
+  // sum of the two and not the gap between the two medians the sentence just
+  // printed. Quoting only the first token's share would understate a wait the
+  // reader is really having, so the figure stays whole and says that it is —
+  // without "in total", the line invites a subtraction it fails.
+  it("says the wait is a total when one model moved on both metrics", () => {
+    const reading = buildSpeedReading(
+      trendOf([model("mimo-v2.5", [3400, 1800], [45, 70])]),
+    );
+    expect(reading.metric).toBe("ttft");
+    expect(reading.line).toContain("at 3.4 s, against 1.8 s");
+    expect(reading.line).toContain(
+      "about 2.8 s of extra waiting on a full-length answer in total",
+    );
+    expect(reading.line).toContain("is generating more slowly too");
+  });
+
+  // ...and it is NOT a total when the quoted metric is the only one that moved,
+  // where the wait is exactly the gap between the two printed medians.
+  it("leaves the wait unqualified when only the quoted metric moved", () => {
+    const reading = buildSpeedReading(
+      trendOf([model("mimo-v2.5", [3400, 1800], [70, 70])]),
+    );
+    expect(reading.line).not.toContain("in total");
+  });
+
   // The three figures are one unit now, so the reader can subtract them — and
   // rounding each on its own publishes a line that fails its own arithmetic.
   // 3449 against 1651 is 1.798 s of difference, which rounds AWAY from the
