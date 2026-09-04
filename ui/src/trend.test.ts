@@ -141,11 +141,39 @@ describe("buildSpeedReading", () => {
     expect(reading.state).toBe("slower");
     expect(reading.lead).toContain("mimo-v2.5");
     expect(reading.lead).toContain("slow to start");
-    expect(reading.line).toContain("3400 ms");
-    expect(reading.line).toContain("1800 ms");
+    expect(reading.line).toContain("3.4 s");
+    expect(reading.line).toContain("1.8 s");
     // Seconds, because a percentage on a metric is not something anyone feels.
     expect(reading.line).toContain("1.6 s");
     expect(reading.metric).toBe("ttft");
+  });
+
+  // One measurement, said once. The per cent, the pair of medians and the wait
+  // were three renderings of the same subtraction, and the line was rewritten
+  // several times before anyone noticed that was why it would not get shorter.
+  it("states the move without a percentage and without milliseconds", () => {
+    const reading = buildSpeedReading(
+      trendOf([model("mimo-v2.5", [3400, 1800], [70, 70])]),
+    );
+    expect(reading.line).toBe(
+      "First token is at 3.4 s, against 1.8 s over the day before. " +
+        "That is about 1.6 s of extra waiting on a full-length answer.",
+    );
+    expect(reading.line).not.toContain("%");
+    expect(reading.line).not.toContain(" ms");
+  });
+
+  // The three figures are one unit now, so the reader can subtract them — and
+  // rounding each on its own publishes a line that fails its own arithmetic.
+  // 3449 against 1651 is 1.798 s of difference, which rounds AWAY from the
+  // 1.7 s the two printed medians leave between them.
+  it("prints a wait that is the difference of the two printed medians", () => {
+    const reading = buildSpeedReading(
+      trendOf([model("mimo-v2.5", [3449, 1651], [70, 70])]),
+    );
+    expect(reading.line).toContain("at 3.4 s, against 1.7 s");
+    expect(reading.line).toContain("about 1.7 s of extra waiting");
+    expect(reading.line).not.toContain("1.8 s");
   });
 
   // Throughput is the quiet metric — measured spread 10-12% against first
@@ -241,71 +269,41 @@ describe("buildSpeedReading", () => {
   });
 
   // Both medians are computed over runs that FINISHED, so a period whose
-  // slowest runs were cut off publishes a flattering figure. The sentence has
-  // to say so rather than claiming nothing went wrong.
-  it("says the change is understated when the compared span was censored", () => {
-    const reading = buildSpeedReading(
-      trendOf([model("mimo-v2.5", [3400, 1800], [70, 70], 2)]),
-    );
-    expect(reading.line).toContain("at least this large");
-    expect(reading.line).not.toContain("Nothing failed");
+  // slowest runs were cut off publishes a flattering figure. The banner used to
+  // say so, in a sentence that pointed the right way and read as though it
+  // pointed the other: "are not in that median" sounds like a reason not to
+  // care, when their absence is the whole reason the figure moves. It is also
+  // more statistics than a verdict owes anyone. The page still shows it, on the
+  // surfaces where a reader has gone looking for detail — the model card note
+  // (ModelCards.tsx) and the shaded bands on the plot (SeriesPanel.tsx).
+  it("keeps the censoring caveat out of the banner, whichever side lost runs", () => {
+    for (const [recent, before] of [
+      [2, 0],
+      [0, 2],
+      [2, 2],
+    ]) {
+      const reading = buildSpeedReading(
+        trendOf([model("mimo-v2.5", [3400, 1800], [70, 70], recent, before)]),
+      );
+      expect(reading.state).toBe("slower");
+      expect(reading.line).not.toContain("cut off");
+      expect(reading.line).not.toContain("timeout");
+      expect(reading.line).not.toContain("at least this large");
+      expect(reading.line).not.toContain("may be smaller than this");
+    }
   });
 
-  // Truncation cuts the SLOWEST runs, so a censored reference day publishes a
-  // faster past than it had and the change measured against it comes out too
-  // large. Claiming "at least this large" there says the opposite of the truth.
-  it("says the change may be smaller when only the reference day was censored", () => {
-    const reading = buildSpeedReading(
-      trendOf([model("mimo-v2.5", [3400, 1800], [70, 70], 0, 2)]),
-    );
-    expect(reading.line).toContain("may be smaller than this");
-    expect(reading.line).not.toContain("at least this large");
-  });
-
-  // With both sides truncated the two errors pull against each other, and no
-  // direction is left to claim.
-  it("claims no direction when both periods were censored", () => {
-    const reading = buildSpeedReading(
-      trendOf([model("mimo-v2.5", [3400, 1800], [70, 70], 2, 2)]),
-    );
-    expect(reading.line).toContain("either side of it");
-    expect(reading.line).not.toContain("at least this large");
-    expect(reading.line).not.toContain("may be smaller than this");
-  });
-
-  // Buckets are floored to bucket_s and the boundary is not on that grid, so one
-  // bucket holds runs from both spans. Read by its START it counted entirely as
-  // reference — and a run cut off minutes INTO the compared span then flipped
-  // the caveat to the reassuring direction, which is the inversion the split
-  // exists to prevent.
-  it("claims no direction when the censored bucket straddles the boundary", () => {
-    const straddling = model("mimo-v2.5", [3400, 1800], [70, 70]);
-    // Half a bucket before the boundary, so it carries runs from either side.
-    straddling.ttft.points = [
-      {
-        t: GENERATED_AT_S - 3 * HOUR - 900,
-        n: 6,
-        censored: 2,
-        p50: 900,
-        p95: 1200,
-      },
-    ];
-    const reading = buildSpeedReading(trendOf([straddling]));
-    expect(reading.line).toContain("either side of it");
-    expect(reading.line).not.toContain("may be smaller than this");
-  });
-
-  // "Fewer tokens per second" is a share of the rate the reader used to get, and
-  // the ratio behind it is computed the other way round. Spending one as the
-  // other published "100 % fewer" for a rate that had halved — with both figures
-  // in the same sentence.
-  it("states a throughput drop as a share of the rate it fell from", () => {
+  // A throughput move states the two rates and nothing else. The share it fell
+  // by was where "100 % fewer tokens per second" came from for a rate that had
+  // halved; a figure nobody prints cannot be spent the wrong way round.
+  it("states a throughput drop as the two rates, without a share", () => {
     const reading = buildSpeedReading(
       trendOf([model("mimo-v2.5", [900, 900], [35, 70])]),
     );
-    expect(reading.line).toContain("50 % fewer tokens per second");
-    expect(reading.line).not.toContain("100 %");
-    expect(reading.line).toContain("35.0 against 70.0");
+    expect(reading.line).toContain(
+      "It is producing 35.0 tokens per second, against 70.0 over the day before",
+    );
+    expect(reading.line).not.toContain("%");
   });
 
   // The same reading the other way round is measured and never printed: a
@@ -321,16 +319,6 @@ describe("buildSpeedReading", () => {
     expect(reading.metric).toBeNull();
   });
 
-  // "Longer" was already a share of the old reading, and must not be restated:
-  // this is the assertion that catches the conversion being applied to every
-  // sentence at once.
-  it("leaves the sentence that was already stated against the old figure", () => {
-    const slower = buildSpeedReading(
-      trendOf([model("mimo-v2.5", [3240, 1800], [70, 70])]),
-    );
-    expect(slower.line).toContain("80 % longer");
-  });
-
   // Under "Both models", one pair of medians described a measurement only one of
   // them took — and the singular pronoun said so out loud.
   it("gives each model its own figures when both moved", () => {
@@ -342,11 +330,11 @@ describe("buildSpeedReading", () => {
     );
     expect(reading.lead).toContain("Both models");
     expect(reading.line).toContain(
-      "mimo-v2.5's first token takes 100 % longer",
+      "mimo-v2.5's first token is at 3.6 s, against 1.8 s over the day before",
     );
-    expect(reading.line).toContain("mimo-v2.5-pro's first token takes 56 %");
-    expect(reading.line).toContain("3600 ms against 1800 ms");
-    expect(reading.line).toContain("2800 ms against 1800 ms");
+    expect(reading.line).toContain("mimo-v2.5-pro's first token is at 2.8 s");
+    // The reference span rides on the first clause only.
+    expect(reading.line).toContain("at 2.8 s, against 1.8 s.");
     expect(reading.line).not.toContain("Its first token");
   });
 
@@ -419,7 +407,7 @@ describe("buildSpeedReading", () => {
     expect(reading.moves).toEqual([]);
     expect(reading.metric).toBeNull();
     expect(reading.line).toContain("was slower earlier in the last 3 hours");
-    expect(reading.line).toContain("2016 ms against 954 ms");
+    expect(reading.line).toContain("2.0 s against 1.0 s");
     expect(reading.line).toContain("back to normal for the last hour");
   });
 
@@ -496,8 +484,7 @@ describe("buildSpeedReading", () => {
     expect(reading.state).toBe("slower");
     // The TAIL's figures, never the compared median — which is 900 here and
     // supports none of this sentence.
-    expect(reading.line).toContain("3400 ms against 900 ms");
-    expect(reading.line).toContain("over the last hour");
+    expect(reading.line).toContain("at 3.4 s, against 0.9 s");
     expect(reading.moves[0]!.spanS).toBe(TAIL_S);
   });
 
@@ -562,40 +549,8 @@ describe("buildSpeedReading", () => {
     expect(reading.state).toBe("recovered");
     expect(reading.line).toContain("mimo-v2.5's first token was slower");
     expect(reading.line).toContain("mimo-v2.5-pro's first token was slower");
-    expect(reading.line).toContain("3600 ms against 1800 ms");
-    expect(reading.line).toContain("2800 ms against 1800 ms");
-  });
-
-  // The two spans can now differ inside one reading: one model fired off its
-  // last hour and the other off the compared ones. A caveat worded from the
-  // lead then said "in the last hour" about runs cut off two hours before it —
-  // a sentence about a span that does not contain what it describes.
-  it("names the widest censored span, not the lead's", () => {
-    const hot = withTail(
-      model("mimo-v2.5", [900, 900], [70, 70]),
-      "ttft",
-      [3400, 3400, 3400, 3400],
-    );
-    const censoredEarlier = model("mimo-v2.5-pro", [1700, 900], [70, 70]);
-    censoredEarlier.ttft = {
-      ...censoredEarlier.ttft,
-      points: [
-        REFERENCE_BUCKET,
-        {
-          t: GENERATED_AT_S - 2 * HOUR,
-          n: 6,
-          censored: 2,
-          p50: 1700,
-          p95: 2000,
-        },
-      ],
-    };
-    const reading = buildSpeedReading(trendOf([hot, censoredEarlier], QUARTER));
-    expect(reading.state).toBe("slower");
-    // The lead is the hour-old move, and the cut-off runs are not in it.
-    expect(reading.moves[0]!.spanS).toBe(TAIL_S);
-    expect(reading.line).toContain("Some requests in the last 3 hours");
-    expect(reading.line).not.toContain("Some requests in the last hour");
+    expect(reading.line).toContain("3.6 s against 1.8 s");
+    expect(reading.line).toContain("2.8 s against 1.8 s");
   });
 
   // Faster is not what this page is asked about, so it says nothing — and in

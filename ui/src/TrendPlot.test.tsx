@@ -91,7 +91,6 @@ const move = (modelID: string, spanS = RECENT_S): SpeedMove => ({
   spanS,
   worseBy: 1,
   secondsAdded: 0.9,
-  censored: { recent: false, before: false },
 });
 
 describe("TrendPlot", () => {
@@ -161,7 +160,7 @@ describe("TrendPlot", () => {
     );
     expect(captured.option!.series[0]!.markLine!.data).toHaveLength(1);
     expect(captured.option!.series[0]!.markArea!.data).toHaveLength(1);
-    expect(screen.getByText(/dashed: the 24 hours before/)).toBeInTheDocument();
+    expect(screen.getByText(/dashed: the day before/)).toBeInTheDocument();
   });
 
   // The shading names WHICH hours the sentence is about, so it follows the

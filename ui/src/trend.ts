@@ -125,10 +125,6 @@ export type SpeedMove = {
   // different sizes — a 50% first-token jump adds 0.4 s, a 30% throughput drop
   // adds three.
   secondsAdded: number;
-  // Which spans had runs cut off by the timeout ladder. Both medians are drawn
-  // from the runs that FINISHED, so a censored recent span understates the move
-  // and a censored reference day overstates it — see censoredIn.
-  censored: { recent: boolean; before: boolean };
 };
 
 export type SpeedReading = {
@@ -182,39 +178,6 @@ function value(m: TrendMetric, side: "recent" | "before"): number | null {
   return stats.sufficient && stats.p50_ms !== null ? stats.p50_ms : null;
 }
 
-// Censoring is read off the points rather than served as a count: each bucket
-// carries its own, and summing them is free.
-//
-// Which SIDE it fell on decides what the sentence may claim, so the two are
-// counted apart. Truncation removes the slowest runs from a median, so a
-// censored recent span understates the change and a censored reference day
-// overstates it — the same fact, pointing opposite ways.
-//
-// Counted by OVERLAP, not by where the bucket starts. Buckets are floored to
-// bucket_s (samples/queries.go) and the boundary is generated_at minus the span,
-// which is not on that grid: a bucket straddling it holds runs from both sides,
-// and reading its start alone filed every one of them under the reference day.
-// A cut-off run eight minutes into the compared span would then have flipped the
-// caveat to "may be smaller than this" — the inversion this counts sides to
-// avoid. Straddling means both are true, which lands on the hedged sentence, and
-// that is the only claim such a bucket supports.
-// The two sides take two boundaries, because they are no longer the same one.
-// spanFromS is where the median being quoted starts — the compared hours, or
-// the tail when the tail is what fired — while the reference day always ends at
-// recentFromS. A bucket between the two belongs to neither median when the tail
-// fired, and is counted on neither side.
-function censoredIn(
-  m: TrendMetric,
-  spanFromS: number,
-  recentFromS: number,
-  bucketS: number,
-): { recent: boolean; before: boolean } {
-  return {
-    recent: m.points.some((p) => p.censored > 0 && p.t + bucketS > spanFromS),
-    before: m.points.some((p) => p.censored > 0 && p.t < recentFromS),
-  };
-}
-
 // Higher is worse for a first token, lower is worse for a throughput, and
 // nothing downstream of this has to know which is which again.
 function worseOf(metric: SpeedMetric, v: number, before: number): number {
@@ -233,7 +196,6 @@ function isSlow(m: SpeedMove): boolean {
 type Candidate = {
   modelID: string;
   metric: SpeedMetric;
-  block: TrendMetric;
   before: number;
   window: number;
   // The tail's median and the bucket medians behind it, or null and empty when
@@ -242,10 +204,10 @@ type Candidate = {
   tailBuckets: number[];
 };
 
-// The last hour of buckets, taken by OVERLAP rather than by start — the same
-// rule censoredIn follows, and for the same reason: buckets are floored to
-// bucket_s and the hour boundary is not on that grid, so reading a straddling
-// bucket by its start drops it from an hour it holds runs from.
+// The last hour of buckets, taken by OVERLAP rather than by start: buckets are
+// floored to bucket_s (samples/queries.go) and the hour boundary is not on that
+// grid, so reading a straddling bucket by its start drops it from an hour it
+// holds runs from.
 //
 // The value is the median of the bucket MEDIANS, which is what the payload
 // carries at this resolution; the daemon's own nearest rank is used on them so
@@ -294,7 +256,6 @@ function candidateFor(
   return {
     modelID: model.model_id,
     metric,
-    block,
     before,
     window: recent,
     tail: usable?.value ?? null,
@@ -305,14 +266,7 @@ function candidateFor(
 // A candidate, plus the decision about WHICH of its two readings the sentence
 // quotes. Everything downstream reads the move and never the candidate, so a
 // figure and the span it was measured over cannot drift apart.
-function makeMove(
-  c: Candidate,
-  recent: number,
-  spanS: number,
-  generatedAtS: number,
-  recentFromS: number,
-  bucketS: number,
-): SpeedMove {
+function makeMove(c: Candidate, recent: number, spanS: number): SpeedMove {
   return {
     modelID: c.modelID,
     metric: c.metric,
@@ -324,7 +278,6 @@ function makeMove(
       c.metric === "ttft"
         ? (recent - c.before) / 1000
         : OUTPUT_TOKENS / recent - OUTPUT_TOKENS / c.before,
-    censored: censoredIn(c.block, generatedAtS - spanS, recentFromS, bucketS),
   };
 }
 
@@ -333,35 +286,41 @@ function floorFor(metric: SpeedMetric, bothMoved: boolean): number {
   return bothMoved ? TTFT_FLOOR_BOTH : TTFT_FLOOR;
 }
 
-function pct(v: number): string {
-  return `${Math.round(Math.abs(v) * 100)} %`;
-}
-
-// A ratio restated against the figure it started from.
-//
-// Both "fewer tokens per second" sentences claim a share of the OLD reading,
-// while the ratio behind them was computed the other way round, against the new
-// one. Spending one as the other published "100 % fewer tokens per second" for a
-// rate that had halved, with "35.0 against 70.0" printed in the same breath;
-// "100 % fewer" is no tokens at all. The first-token sentence ("longer") is
-// already a share of the old reading and must NOT be passed through here.
-//
-// The FLOORS keep testing the symmetric figure — a fraction is not symmetric
-// about zero, and comparing the two directions against one threshold is what
-// that measurement is for. Only the words the reader sees change.
-function ofBefore(v: number): number {
-  return v / (1 + v);
-}
-
 function seconds(v: number): string {
   const abs = Math.abs(v);
   return abs < 10 ? `${abs.toFixed(1)} s` : `${Math.round(abs)} s`;
 }
 
+// The same rounding seconds() prints, as a NUMBER, so the wait a sentence
+// derives can be subtracted from the two medians the same sentence just showed.
+//
+// Both readings used to print in milliseconds and the wait in seconds, so no
+// reader ever put the three together. In one unit they will: 3449 ms and
+// 1651 ms round to "3.4 s" and "1.7 s" while their true difference rounds to
+// "1.8 s", and the sentence contradicts itself in a subtraction a reader can do
+// in their head. Rounding first and subtracting after costs a hundredth of a
+// second of accuracy and keeps the line checkable against itself — the same
+// trade the multi-model cost already makes by comparing WORDS and not seconds.
+function roundSeconds(ms: number): number {
+  const s = Math.abs(ms) / 1000;
+  return s < 10 ? Math.round(s * 10) / 10 : Math.round(s);
+}
+
+// A median in the reader's unit. Never milliseconds: the wait beside it is
+// spoken in seconds, and one sentence carrying both units asks the reader to
+// convert before they can tell whether the two agree.
+function median(ms: number): string {
+  return seconds(roundSeconds(ms));
+}
+
 // hours turns the payload's span into the words the sentence uses, so a change
 // to TrendRecent on the daemon changes the copy rather than contradicting it.
+// A day is said as one, not as the 24 hours it is made of: "against 2.0 s over
+// the 24 hours before" makes the reader count, and the reference span is the
+// one figure in the sentence nobody is checking.
 export function spanWords(seconds: number): string {
   const h = Math.round(seconds / 3600);
+  if (h === 24) return "day";
   return h <= 1 ? "hour" : `${h} ${plural(h, "hour")}`;
 }
 
@@ -372,33 +331,28 @@ const METRIC_WORDS: Record<SpeedMetric, { slow: string }> = {
   tps: { slow: "generating more slowly" },
 };
 
-// One model's move, in the reader's units: the per cent, then the two medians it
-// was computed from, so the sentence can always be checked against itself.
+// One model's move: the reading it is at now, against the one it was at.
+//
+// The per cent is gone. It said the same thing as the pair of medians beside
+// it, which said the same thing as the wait in the sentence after — one
+// measurement published three ways, which is why rewording the line never
+// shortened it. The two medians stay because they are the only figures a reader
+// can act on; the ratio between them is arithmetic they did not ask for.
+//
+// The compared span goes with it. The present tense carries it ("is at"), and
+// naming it was a standing hazard: a reading the last hour raised on its own
+// quotes the last hour, so a clause was always one refactor away from
+// describing three hours it never measured.
 //
 // Used when BOTH models moved, so every clause carries its own model's name and
 // its own figures — one pair of readings printed under "Both models" described a
 // measurement only one of them took. The reference span rides on the first
 // clause only; repeating it in the second says nothing new.
-// The compared span is named because it is no longer always the same one: a
-// reading the last hour raised on its own quotes the last hour, and a sentence
-// that said only "takes 111 % longer" would be describing three hours it never
-// measured. It is also what the plot shades, so naming it makes the shading
-// readable without a caption.
-//
-// `showSpan` is off for a clause whose span the reader has already been given —
-// the clause before it said the same words — and back on the moment two clauses
-// disagree about their hours.
-function movePhrase(
-  m: SpeedMove,
-  refSpan: string,
-  showSpan: boolean,
-  showRef: boolean,
-): string {
-  const span = showSpan ? ` over the last ${spanWords(m.spanS)}` : "";
-  const against = `${span}${showRef ? ` than over the ${refSpan} before` : ""}`;
+function movePhrase(m: SpeedMove, refSpan: string, showRef: boolean): string {
+  const against = showRef ? ` over the ${refSpan} before` : "";
   return m.metric === "ttft"
-    ? `${m.modelID}'s first token takes ${pct(m.worseBy)} longer${against} — ${Math.round(m.recent)} ms against ${Math.round(m.before)} ms`
-    : `${m.modelID} produces ${pct(ofBefore(m.worseBy))} fewer tokens per second${against} — ${m.recent.toFixed(1)} against ${m.before.toFixed(1)}`;
+    ? `${m.modelID}'s first token is at ${median(m.recent)}, against ${median(m.before)}${against}`
+    : `${m.modelID} is producing ${m.recent.toFixed(1)} tokens per second, against ${m.before.toFixed(1)}${against}`;
 }
 
 // The past tense: what moved, and that it is over.
@@ -412,7 +366,7 @@ function recoveredPhrase(m: SpeedMove, refSpan: string): string {
   const tail = spanWords(TAIL_S);
   const what =
     m.metric === "ttft"
-      ? `${m.modelID}'s first token was slower earlier in the last ${span} — ${Math.round(m.recent)} ms against ${Math.round(m.before)} ms over the ${refSpan} before`
+      ? `${m.modelID}'s first token was slower earlier in the last ${span} — ${median(m.recent)} against ${median(m.before)} over the ${refSpan} before`
       : `${m.modelID} was generating more slowly earlier in the last ${span} — ${m.recent.toFixed(1)} against ${m.before.toFixed(1)} over the ${refSpan} before`;
   return `${what} — and has been back to normal for the last ${tail}.`;
 }
@@ -442,14 +396,13 @@ export function buildSpeedReading(
     };
   }
 
-  // Where the compared span begins, off the payload rather than off a constant
-  // here — the daemon owns the spans. Only the censoring caveat reads it, and an
-  // unparseable stamp leaves it NaN, which makes every comparison false: no side
-  // is then claimed to be censored, which is the safe way to be wrong.
+  // Off the payload rather than off a constant here — the daemon owns the
+  // spans. An unparseable stamp leaves generatedAtS NaN, which makes every
+  // comparison against it false: the last hour then reads as unmeasured and no
+  // claim is raised, which is the safe way to be wrong.
   const generatedAtS = Date.parse(trend?.generated_at ?? "") / 1000;
   const recentS = trend?.recent_s ?? 0;
   const bucketS = trend?.bucket_s ?? 0;
-  const recentFromS = generatedAtS - recentS;
 
   const all: Candidate[] = [];
   for (const model of models) {
@@ -500,7 +453,7 @@ export function buildSpeedReading(
     worse(metric).every((c) => windowWorse(c) >= TTFT_FLOOR_BOTH);
 
   const move = (c: Candidate, recent: number, spanS: number) =>
-    makeMove(c, recent, spanS, generatedAtS, recentFromS, bucketS);
+    makeMove(c, recent, spanS);
 
   const fired: SpeedMove[] = [];
   const recovered: SpeedMove[] = [];
@@ -579,26 +532,38 @@ export function buildSpeedReading(
       // though it described the whole fleet, while the other model was at 1400.
       parts.push(
         `${sameMetric
-          .map((m, i) =>
-            movePhrase(m, refSpan, i === 0 || m.spanS !== lead.spanS, i === 0),
-          )
+          .map((m, i) => movePhrase(m, refSpan, i === 0))
           .join(". ")}.`,
       );
     } else {
       parts.push(
         lead.metric === "ttft"
-          ? `Its first token takes ${pct(lead.worseBy)} longer over the last ${spanWords(lead.spanS)} than over the ${refSpan} before — ${Math.round(lead.recent)} ms against ${Math.round(lead.before)} ms.`
-          : `It produces ${pct(ofBefore(lead.worseBy))} fewer tokens per second over the last ${spanWords(lead.spanS)} than over the ${refSpan} before — ${lead.recent.toFixed(1)} against ${lead.before.toFixed(1)}.`,
+          ? `First token is at ${median(lead.recent)}, against ${median(lead.before)} over the ${refSpan} before.`
+          : `It is producing ${lead.recent.toFixed(1)} tokens per second, against ${lead.before.toFixed(1)} over the ${refSpan} before.`,
       );
     }
     // One model's own cost, never the sum across models. No single request is
     // answered by both models, so adding their penalties together states a wait
     // nobody can ever experience — and it would grow with the size of the fleet
     // rather than with the slowdown.
+    //
+    // Off the ROUNDED medians for a first token, not off secondsAdded, so the
+    // wait is the difference of the two figures the sentence just printed and
+    // not a third rounding of the same measurement. secondsAdded keeps its full
+    // precision because the moves are ranked by it. A throughput move is left
+    // alone: its cost is 150 tokens divided two ways, which is not a
+    // subtraction anyone is going to check against the printed rates.
     const costOf = (modelID: string) =>
       fired
         .filter((m) => m.modelID === modelID)
-        .reduce((sum, m) => sum + m.secondsAdded, 0);
+        .reduce(
+          (sum, m) =>
+            sum +
+            (m.metric === "ttft"
+              ? roundSeconds(m.recent) - roundSeconds(m.before)
+              : m.secondsAdded),
+          0,
+        );
     const costs = (everyModel ? sameMetric : [lead]).map((m) => ({
       modelID: m.modelID,
       words: seconds(costOf(m.modelID)),
@@ -624,36 +589,6 @@ export function buildSpeedReading(
         `${others.map((m) => `${m.modelID} is ${METRIC_WORDS[m.metric].slow}`).join(", ")} too.`,
       );
     }
-    // Which side lost runs decides which way the caveat points; saying "at least
-    // this large" for censoring that sat in the reference day claimed the
-    // opposite of what it does, because a flattered reference INFLATES the
-    // change. With both sides truncated the two pull against each other and
-    // neither direction can be claimed.
-    const censoredRecent = fired.some((m) => m.censored.recent);
-    // Named off the WIDEST span that lost runs, not off the lead's. The two are
-    // the same until one move fires off the tail and another off the compared
-    // hours, and then a caveat worded "in the last hour" was covering runs cut
-    // off two hours before it — a sentence about a span that does not contain
-    // what it is describing, which is the inversion this whole block is careful
-    // about. The widest always contains them.
-    const censoredSpan = Math.max(
-      ...fired.filter((m) => m.censored.recent).map((m) => m.spanS),
-    );
-    const censoredBefore = fired.some((m) => m.censored.before);
-    if (censoredRecent && censoredBefore) {
-      parts.push(
-        `Requests were cut off by the timeout limits in both periods and are in neither median, so this figure is drawn from the runs that finished and the real change could be either side of it.`,
-      );
-    } else if (censoredRecent) {
-      parts.push(
-        `Some requests in the last ${spanWords(censoredSpan)} were cut off by the timeout limits and are not in that median, so the real change is at least this large.`,
-      );
-    } else if (censoredBefore) {
-      parts.push(
-        `Some requests in the ${refSpan} before were cut off by the timeout limits and are not in that median, so the real change may be smaller than this.`,
-      );
-    }
-
     return {
       state: "slower",
       lead: `${subject} ${words} right now`,
