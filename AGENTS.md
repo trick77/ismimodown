@@ -57,10 +57,15 @@ echo request fragments. A test asserts this.
 **The speed-trend floors are MEASURED, never rounded** (`ui/src/trend.ts`). A 3h median sits
 20–35% off the previous day's for `ttft_ms` and 10–12% for `output_tps` — replayed over 7 days of
 live readings. So `+70%` first token (`+40%` when both models move), `−20%` throughput; a round
-10% fires on 70% of readings and makes amber the resting state. Rank several moves by SECONDS
-added to the wait, never by per cent — the metrics are different sizes.
+10% fires on 70% of readings and makes amber the resting state. Rank a MODEL'S moves by SECONDS
+added to the wait, never by per cent — the metrics are different sizes. Across models seconds do
+NOT rank: the banner leads with the first model in display order (`config.DefaultModels`, the
+pro one) that moved at all, so the flagship is never the one riding in the "too" clause. Sorting
+`fired` by that order is also what keeps `TrendPlot`'s reference level right — it reads the
+dashed level off the first move carrying the plotted metric, and every move of the lead's model
+sits at the head of the list.
 
-**Relative alone never takes the banner.** The LEAD move must also leave a reading that is slow
+**Relative alone never takes the banner.** SOME move must also leave a reading that is slow
 in absolute terms — `SLOW_TTFT_MS`, `SLOW_TPS` — or the whole reading demotes to `minor`, which
 says NOTHING: no headline, no chip, no plot, no sentence. It only withholds the "as usual"
 clause the steady state would carry. Nobody cares that a first token costs
@@ -68,7 +73,10 @@ clause the steady state would carry. Nobody cares that a first token costs
 decided does not matter; `minor` exists only so the steady sentence cannot claim an ordinary
 spread the reading sits outside of, exactly as `quicker` does. Tested per MOVE, never on the top
 of the list — the ranking is cross-metric and the floors are not, so a throughput drop that is
-not slow would otherwise silence a first token that is. A doubled first token of
+not slow would otherwise silence a first token that is. It gates WHETHER the page speaks, not
+WHO it names: once one move anywhere is slow, the flagship leads even where its own figure sits
+inside the floors, and inside the lead model the slow move still outranks a costlier quick one.
+A doubled first token of
 2016 ms is true and is not news while the other model starts in 3.3 s. These two are CHOSEN, not
 measured, and say so: no replay can tell you how long a wait has to be before a reader minds it.
 

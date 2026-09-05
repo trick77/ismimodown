@@ -86,6 +86,9 @@ export function TrendPlot({
   }
   // The reference line is drawn for the model the sentence leads with, so the
   // dashes and the numbers in the sentence are the same measurement.
+  // buildSpeedReading puts that move at the head of `moves` for exactly this
+  // read — the rest of the list is in the page's model order, which is not the
+  // same thing.
   const lead = moves.find((m) => m.metric === metric);
   const leadModel = trend.models.find((m) => m.model_id === lead?.modelID);
   const referenceLevel = leadModel?.[metric].before.p50_ms ?? null;

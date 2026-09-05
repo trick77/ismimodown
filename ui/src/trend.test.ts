@@ -634,6 +634,75 @@ describe("buildSpeedReading", () => {
     expect(reading.state).toBe("slower");
     expect(reading.lead).toContain("slow to start");
   });
+  // The banner names one model, and when both moved it is the flagship — the
+  // first entry in the page's model order — however the seconds came out. The
+  // small model's bigger wait rides along in the clause after it.
+  it("leads with the flagship when both models are slow", () => {
+    const reading = buildSpeedReading(
+      trendOf([
+        model("mimo-v2.5-pro", [900, 900], [40, 70]),
+        model("mimo-v2.5", [4100, 2000], [70, 70]),
+      ]),
+    );
+    expect(reading.state).toBe("slower");
+    // The smaller model's first token adds 2.1 s; the flagship's throughput
+    // drop adds under 1.2 s, and still takes the headline.
+    expect(reading.lead).toBe(
+      "mimo-v2.5-pro is generating more slowly right now",
+    );
+    expect(reading.metric).toBe("tps");
+    expect(reading.moves[0]!.modelID).toBe("mimo-v2.5-pro");
+    expect(reading.line).toContain("mimo-v2.5 is slow to start too.");
+  });
+
+  // The absolute floors decide WHETHER the page speaks, not who it names: the
+  // small model's slow first token is what buys the banner here, and the
+  // flagship is still the model the sentence is about.
+  it("leads with the flagship even where its own reading is not slow", () => {
+    const reading = buildSpeedReading(
+      trendOf([
+        model("mimo-v2.5-pro", [900, 900], [45, 70]),
+        model("mimo-v2.5", [4100, 2000], [70, 70]),
+      ]),
+    );
+    expect(45).toBeGreaterThan(SLOW_TPS);
+    expect(4100).toBeGreaterThanOrEqual(SLOW_TTFT_MS);
+    expect(reading.state).toBe("slower");
+    expect(reading.lead).toBe(
+      "mimo-v2.5-pro is generating more slowly right now",
+    );
+    expect(reading.metric).toBe("tps");
+    expect(reading.moves[0]!.modelID).toBe("mimo-v2.5-pro");
+    expect(reading.line).toContain("mimo-v2.5 is slow to start too.");
+  });
+
+  // ...and nothing slow anywhere still says nothing at all. The flagship rule
+  // moves the name, never the threshold.
+  it("stays minor when neither model is slow in absolute terms", () => {
+    const reading = buildSpeedReading(
+      trendOf([
+        model("mimo-v2.5-pro", [900, 900], [45, 70]),
+        model("mimo-v2.5", [2000, 1000], [70, 70]),
+      ]),
+    );
+    expect(reading.state).toBe("minor");
+    expect(reading.lead).toBe("");
+  });
+
+  // Inside the lead model, the slow move still leads over a costlier one that
+  // is not slow — the ranking is cross-metric and the floors are not.
+  it("leads with the flagship's slow metric, not its costliest one", () => {
+    const reading = buildSpeedReading(
+      trendOf([
+        model("mimo-v2.5-pro", [3100, 1000], [41, 100]),
+        model("mimo-v2.5", [900, 900], [70, 70]),
+      ]),
+    );
+    expect(41).toBeGreaterThan(SLOW_TPS);
+    expect(reading.metric).toBe("ttft");
+    expect(reading.lead).toBe("mimo-v2.5-pro is slow to start right now");
+  });
+
   // The ranking is cross-metric and the absolute floors are not, so the
   // demotion cannot be decided on the top of the list alone: a throughput drop
   // that is not slow outranks, by seconds, a first token that is.
