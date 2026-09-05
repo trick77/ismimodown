@@ -537,12 +537,24 @@ export function buildSpeedReading(
 
   if (leadable.length > 0) {
     // The flagship leads the sentence, and inside it the slow move that costs
-    // the most seconds does — falling back to its costliest move when none of
-    // its own cleared the absolute floors. fired is model-ordered, so its head
-    // is the first model in display order that moved at all; its moves are the
-    // run at the front of the list, already ranked by seconds.
+    // the most seconds does. fired is model-ordered, so its head is the first
+    // model in display order that moved at all; its moves are the run at the
+    // front of the list, already ranked by seconds.
+    //
+    // When none of the flagship's own moves cleared the absolute floors, the
+    // metric is picked from the ones that ARE slow somewhere in the fleet
+    // before falling back to its costliest. The two metrics do not make the
+    // same size of claim: "slow to start" is an absolute one, and a headline
+    // saying it of a 2.0 s first token — while the reading that bought the
+    // banner was a throughput the page calls slow — asserts the one thing the
+    // floors exist to stop it asserting. "Generating more slowly" is relative
+    // and survives the same reading intact.
+    const slowMetrics = new Set(leadable.map((m) => m.metric));
     const ofLead = fired.filter((m) => m.modelID === fired[0]!.modelID);
-    const lead = ofLead.find(isSlow) ?? ofLead[0]!;
+    const lead =
+      ofLead.find(isSlow) ??
+      ofLead.find((m) => slowMetrics.has(m.metric)) ??
+      ofLead[0]!;
     // "Both models" is a claim about THIS metric, not about the page. Saying it
     // whenever two models appear anywhere in the list asserts the lead's metric
     // of every model — so a page where one model started slowly and the other

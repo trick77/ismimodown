@@ -689,6 +689,28 @@ describe("buildSpeedReading", () => {
     expect(reading.lead).toBe("");
   });
 
+  // "Slow to start" is an absolute claim and "generating more slowly" is a
+  // relative one, so a flagship with nothing slow of its own takes the metric
+  // the fleet's slow reading is on rather than its own costliest move. Here the
+  // flagship's first token costs more seconds than its throughput and would
+  // have led the page with "slow to start" at 2.0 s.
+  it("keeps an absolute claim off a flagship reading that is not slow", () => {
+    const reading = buildSpeedReading(
+      trendOf([
+        model("mimo-v2.5-pro", [2000, 900], [50, 70]),
+        model("mimo-v2.5", [900, 900], [30, 70]),
+      ]),
+    );
+    expect(2000).toBeLessThan(SLOW_TTFT_MS);
+    expect(30).toBeLessThanOrEqual(SLOW_TPS);
+    expect(reading.state).toBe("slower");
+    expect(reading.metric).toBe("tps");
+    expect(reading.lead).toBe(
+      "Both models are generating more slowly right now",
+    );
+    expect(reading.lead).not.toContain("slow to start");
+  });
+
   // Inside the lead model, the slow move still leads over a costlier one that
   // is not slow — the ranking is cross-metric and the floors are not.
   it("leads with the flagship's slow metric, not its costliest one", () => {
