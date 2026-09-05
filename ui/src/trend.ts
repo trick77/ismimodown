@@ -120,10 +120,11 @@ export type SpeedMove = {
   // token and a lower throughput both come out positive. Colour is never the
   // only signal on this page, and neither is a sign.
   worseBy: number;
-  // What it adds to one full-length answer, in seconds. This is what the moves
-  // are ranked by: percentages lie about importance because the metrics are
-  // different sizes — a 50% first-token jump adds 0.4 s, a 30% throughput drop
-  // adds three.
+  // What it adds to one full-length answer, in seconds. This is what a model's
+  // own moves are ranked by: percentages lie about importance because the
+  // metrics are different sizes — a 50% first-token jump adds 0.4 s, a 30%
+  // throughput drop adds three. It does NOT rank one model against another;
+  // display order does, so that the flagship leads.
   secondsAdded: number;
 };
 
@@ -483,17 +484,44 @@ export function buildSpeedReading(
       c.tailBuckets.every((b) => worseOf(c.metric, b, c.before) >= floor);
     if (hot && c.tail !== null) fired.push(move(c, c.tail, TAIL_S));
   }
-  // Ranked by seconds added to the wait, never by per cent — see SpeedMove.
-  fired.sort((a, b) => b.secondsAdded - a.secondsAdded);
+  // The flagship first, and seconds rank what is left.
+  //
+  // `models` arrives in the daemon's own display order (config.DefaultModels,
+  // the pro model first) — the sequence that already decides the left model
+  // card and the first legend entry. When both models moved, the banner still
+  // names ONE of them, and picking that one by seconds handed the headline to
+  // whichever model happened to cost more: a page saying the small model is
+  // slow to start, with the flagship's own slowdown in the "too" clause after
+  // it. The reader asking whether Xiaomi MiMo is slow is asking about the
+  // flagship, and it is never the model that rides along.
+  //
+  // Seconds added still rank a model's own moves, and never per cent — see
+  // SpeedMove.secondsAdded: the metrics are different sizes, so a 50% first
+  // token jump adds 0.4 s where a 30% throughput drop adds three.
+  const rank = (modelID: string) => {
+    const i = models.findIndex((m) => m.model_id === modelID);
+    return i < 0 ? models.length : i;
+  };
+  fired.sort(
+    (a, b) =>
+      rank(a.modelID) - rank(b.modelID) || b.secondsAdded - a.secondsAdded,
+  );
 
-  // Which moves may LEAD: the ones whose reading is slow in its own units.
+  // Which moves may raise the banner at all: the ones whose reading is slow in
+  // its own units.
   //
   // Tested per move rather than on the biggest, because the ranking is
   // cross-metric and the floors are not. A throughput drop to 41 tok/s adds
   // more seconds than a first token going to 3100 ms, sorts above it, and is
   // not slow — and testing only the top of the list let it demote a first token
-  // the page's own floor calls slow. Whichever slow move costs the most leads;
-  // the rest ride along as they always did.
+  // the page's own floor calls slow.
+  //
+  // It decides WHETHER the page speaks, and no longer WHO it names: one slow
+  // move anywhere in the fleet is what buys the banner, and the flagship is
+  // then the model it is about even where the flagship's own figure sits inside
+  // the floors. The alternative was a headline naming the small model while the
+  // flagship's slowdown rode in the clause after it, which is the wrong way
+  // round for every reader this page has.
   const leadable = fired.filter(isSlow);
   if (fired.length > 0 && leadable.length === 0) {
     return {
@@ -508,7 +536,25 @@ export function buildSpeedReading(
   }
 
   if (leadable.length > 0) {
-    const lead = leadable[0]!;
+    // The flagship leads the sentence, and inside it the slow move that costs
+    // the most seconds does. fired is model-ordered, so its head is the first
+    // model in display order that moved at all; its moves are the run at the
+    // front of the list, already ranked by seconds.
+    //
+    // When none of the flagship's own moves cleared the absolute floors, the
+    // metric is picked from the ones that ARE slow somewhere in the fleet
+    // before falling back to its costliest. The two metrics do not make the
+    // same size of claim: "slow to start" is an absolute one, and a headline
+    // saying it of a 2.0 s first token — while the reading that bought the
+    // banner was a throughput the page calls slow — asserts the one thing the
+    // floors exist to stop it asserting. "Generating more slowly" is relative
+    // and survives the same reading intact.
+    const slowMetrics = new Set(leadable.map((m) => m.metric));
+    const ofLead = fired.filter((m) => m.modelID === fired[0]!.modelID);
+    const lead =
+      ofLead.find(isSlow) ??
+      ofLead.find((m) => slowMetrics.has(m.metric)) ??
+      ofLead[0]!;
     // "Both models" is a claim about THIS metric, not about the page. Saying it
     // whenever two models appear anywhere in the list asserts the lead's metric
     // of every model — so a page where one model started slowly and the other
@@ -605,6 +651,10 @@ export function buildSpeedReading(
       state: "slower",
       lead: `${subject} ${words} right now`,
       line: parts.join(" "),
+      // Left in the page's model order. TrendPlot reads the plot's dashed
+      // reference level off the FIRST move carrying the plotted metric, and
+      // that is the lead: every move of the lead's model sits at the head of
+      // this list, so no other model's median can be found first.
       moves: fired,
       metric: lead.metric,
       spanS: lead.spanS,
