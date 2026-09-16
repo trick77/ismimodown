@@ -3,6 +3,7 @@ package samples
 import (
 	"context"
 	"encoding/json"
+	"reflect"
 	"testing"
 	"time"
 
@@ -1138,4 +1139,98 @@ func TestSummarizeCarriesTheRecentBlock(t *testing.T) {
 	if len(sum.Recent) != 4 {
 		t.Fatalf("recent = %d, want 4", len(sum.Recent))
 	}
+}
+
+// The fused summary query ranks three columns in one pass. Each distribution
+// must come out exactly as the per-column reference query produces it, on a
+// window that holds every shape a row can take: successes with three
+// different orderings across the columns, failed runs with NULL timings,
+// censored runs, and runs on cycles nothing could reach.
+func TestFusedSummaryMatchesThePerColumnPercentiles(t *testing.T) {
+	s := New(openTestDB(t))
+	now := time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC)
+	ctx := context.Background()
+
+	// 30 successes whose three metrics are NOT co-ordered: a row that is slow
+	// to start is fast to run and vice versa, so a single sort could not serve
+	// all three.
+	for i := 0; i < 30; i++ {
+		yes := i%3 != 0
+		if _, err := s.Save(ctx, Cycle{
+			StartedAt: now.Add(-time.Duration(i+1) * time.Minute), Net: okNet(),
+			Infer: []probe.InferResult{{
+				ModelID: "mimo-v2.5", OK: true, AnswerOK: &yes, QuestionID: "capital-france",
+				TTFTMs: float64(100 * (i + 1)), TTFATMs: float64(100 * (i + 1)),
+				TotalMs: float64(1000 + 37*((i*7)%30)), ITLP50Ms: float64(50 - i), ITLP95Ms: 60,
+				OutputTPS: float64(20 + (i*11)%30),
+				Usage:     probe.TokenUsage{PromptTokens: 34, CompletionTokens: 59},
+			}},
+		}); err != nil {
+			t.Fatalf("Save: %v", err)
+		}
+	}
+	// Failed runs: two censored by the ladder, one refused, one on a cycle
+	// where nothing at all answered.
+	for i, class := range []string{
+		probe.ErrClassTTFTTimeout, probe.ErrClassStalled, probe.ErrClassRefused,
+	} {
+		if _, err := s.Save(ctx, Cycle{
+			StartedAt: now.Add(-time.Duration(40+i) * time.Minute), Net: okNet(),
+			Infer: []probe.InferResult{failedInfer("mimo-v2.5", class, 60000)},
+		}); err != nil {
+			t.Fatalf("Save: %v", err)
+		}
+	}
+	if _, err := s.Save(ctx, Cycle{
+		StartedAt: now.Add(-50 * time.Minute), Net: deadNet(),
+		Infer: []probe.InferResult{failedInfer("mimo-v2.5", probe.ErrClassTimeout, 60000)},
+	}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	w, _ := LookupWindow("24h")
+	since := now.Add(-w.Duration)
+	ms, err := s.modelSummary(ctx, "mimo-v2.5", since)
+	if err != nil {
+		t.Fatalf("modelSummary: %v", err)
+	}
+
+	for _, tc := range []struct {
+		column string
+		got    Stats
+	}{
+		{"ttft_ms", ms.TTFT}, {"itl_p50_ms", ms.ITL}, {"output_tps", ms.TPS},
+	} {
+		want, err := s.stats(ctx, tc.column, "mimo-v2.5", since)
+		if err != nil {
+			t.Fatalf("stats(%s): %v", tc.column, err)
+		}
+		if !reflect.DeepEqual(tc.got, want) {
+			t.Errorf("%s: fused = %s, per-column = %s", tc.column, statsString(tc.got), statsString(want))
+		}
+		if !tc.got.Sufficient || tc.got.P50 == nil || tc.got.P95 == nil {
+			t.Errorf("%s: expected a full distribution from 30 successes, got %s", tc.column, statsString(tc.got))
+		}
+	}
+
+	// The counts: 30 successes plus the three failures on reachable cycles;
+	// the run on the dead cycle is not MiMo's. Two of the three were cut off
+	// by the ladder.
+	if ms.Attempts != 33 || ms.Succeeded != 30 {
+		t.Errorf("attempts = %d, succeeded = %d, want 33 and 30", ms.Attempts, ms.Succeeded)
+	}
+	if ms.Censored != 2 {
+		t.Errorf("censored = %d, want 2", ms.Censored)
+	}
+	if ms.Answered != 30 || ms.Correct != 20 {
+		t.Errorf("answered = %d, correct = %d, want 30 and 20", ms.Answered, ms.Correct)
+	}
+	if ms.CorrectPct == nil || *ms.CorrectPct < 66.6 || *ms.CorrectPct > 66.7 {
+		t.Errorf("correct_pct = %v, want 66.67", ms.CorrectPct)
+	}
+}
+
+func statsString(st Stats) string {
+	b, _ := json.Marshal(st)
+	return string(b)
 }
