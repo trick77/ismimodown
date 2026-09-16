@@ -154,6 +154,9 @@ func run() error {
 	// holding http.Server.Shutdown open until its timeout expires.
 	shutdownCh := make(chan struct{})
 
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
 	apiServer := httpapi.NewServer(httpapi.Deps{
 		Version:         version.Version,
 		DB:              db,
@@ -189,14 +192,27 @@ func run() error {
 		MimoAMSHost: cfg.MimoAMSHost,
 		RefAMSHost:  cfg.RefAMSHost,
 		OnCycle: func(cycleID int64) {
-			// Drop the cached responses first, THEN notify: a client that reacts
-			// to the event by refetching must not be served the pre-cycle
-			// payload it was just told is stale.
-			apiServer.OnCycle()
+			// Rebuild every window first, THEN notify. Every open tab refetches
+			// the moment the event arrives, so the cache must already hold the
+			// new cycle: dropping it here and letting the tabs fill it made
+			// each of them a cold build, on one CPU, all at once — five
+			// concurrent cold requests measured 19 s each on the live site.
+			//
+			// A failed warm-up has already dropped the cache, so the tabs still
+			// see the new cycle, built on demand and coalesced; and the client
+			// refetches on its own interval regardless of whether this event
+			// ever goes out.
+			warmCache(ctx, apiServer)
 			broker.Publish([]byte(fmt.Sprintf(`{"cycle_id":%d}`, cycleID)))
 		},
 	})
 	sweeper := retention.New(sampleStore, cfg.Retention)
+
+	// Once at startup too, or the first visitor after a deploy is the builder.
+	// Before listening rather than beside it: the healthcheck flips to ready
+	// when the socket answers, and a proxy that sends traffic then would send
+	// it into the one cold build this whole arrangement exists to avoid.
+	warmCache(ctx, apiServer)
 
 	srv := &http.Server{
 		Addr:    cfg.Addr,
@@ -207,9 +223,6 @@ func run() error {
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       120 * time.Second,
 	}
-
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 
 	// The probe loop and the sweeper share the signal context, so SIGTERM stops
 	// them at the same moment it stops accepting requests. Waited on below via
@@ -261,6 +274,19 @@ func run() error {
 	err = srv.Shutdown(shutdownCtx)
 	wg.Wait()
 	return err
+}
+
+// warmCache rebuilds every dashboard window into the response cache and logs
+// how long it took: the sweep runs on the scheduler's goroutine between one
+// cycle and the next, and its duration is the one number that says whether
+// the build cost is creeping toward the cycle interval.
+func warmCache(ctx context.Context, apiServer *httpapi.Server) {
+	started := time.Now()
+	if err := apiServer.Warm(ctx); err != nil {
+		slog.Error("dashboard warm-up failed", "err", err)
+		return
+	}
+	slog.Info("dashboard warmed", "took", time.Since(started).Round(time.Millisecond))
 }
 
 func setupLogging(level string) {
