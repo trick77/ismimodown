@@ -65,5 +65,21 @@ func Migrate(db *sql.DB) error {
 			return err
 		}
 	}
+
+	// Refresh the planner's statistics once per start.
+	//
+	// Without them the planner drives every windowed query from the model
+	// index and walks the model's WHOLE history to test each row's started_at
+	// — the 24h summary reads 90 days. With sqlite_stat1 populated it drives
+	// the short windows from idx_cycles_started_at instead: measured on 90
+	// days of synthetic cycles, the 24h build fell from 180 ms to 25 ms and
+	// 7d from 277 ms to 142 ms, for 47 ms of ANALYZE. The 3mo window has to
+	// read everything either way and does not move.
+	//
+	// Once per start rather than per cycle: the shape of the data does not
+	// change between deploys, and the statistics persist in the file.
+	if _, err := db.Exec(`ANALYZE`); err != nil {
+		return fmt.Errorf("analyze: %w", err)
+	}
 	return nil
 }
