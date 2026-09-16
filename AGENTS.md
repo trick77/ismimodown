@@ -1,242 +1,57 @@
 # AGENTS.md
 
-Latency monitor for MiMo. Go backend + React dashboard, public read-only.
+Latency monitor for MiMo. Go backend + React dashboard, public read-only. Rationale is in code comments; this is the rule list.
 
-## Never commit secrets
+## Secrets
 
-`BACKEND_MIMO_API_KEY` (`tp-…`) is live and billable; repo is public. Key lives in `.env`
-only — never in `.env.example`, a fixture, a commit message or a log line.
+`BACKEND_MIMO_API_KEY` is live, billable, repo public: `.env` only, never `.env.example`, fixtures, commits, logs. `BACKEND_MIMO_BASE_URL` takes no userinfo/query (`config.Load` refuses); same for any new value a public endpoint echoes. `error_detail` is operator-only, never served (tested).
 
-`BACKEND_MIMO_BASE_URL` takes no userinfo, no query string; `config.Load` refuses both, so a
-key pasted there cannot travel. Same treatment for any NEW config value a public endpoint echoes.
+## Measurement invariants
 
-## Git
+- Always send `config.DefaultSystemPrompt`. Without it MiMo injects its own: 250 prompt tokens, ~192 `cached_tokens`, prefill becomes a cache lookup.
+- `cached_tokens` near 0, `reasoning_tokens` exactly 0 (send `thinking.type=disabled` AND `enable_thinking:false`). Reasoning is the primary alarm.
+- Failed rows out of percentiles, into availability; residual is "server-side time", never "model time". Timeout = recorded sample (`ok=0`, `error_class`).
+- Publish `censored` beside every percentile. Classes only in `probe.CensoringErrorClasses`. Connection failures are not censoring. Never fold censored back in.
+- API always publishes counts; UI may gate PROSE below `MIN_FAILURES_FOR_STATE`, never data.
+- ONE inference call in flight process-wide, `DispatchGap` apart (one key; concurrent models 429'd, published as a MiMo outage). Slot BLOCKS, never skips; overrun logged by `logMissedTicks`, never fixed by shortening later deadlines.
+- `itl_p50_ms` is a chunk gap (0.0075 ms at 70 tok/s). Lead with `output_tps`.
+- Ping TCP-only, IPv4-only at resolve and dial. Amsterdam charted, never attributed (`AttributeFault`, `Summary.Net` stay SGP; `Save` requires the SGP pair). Subtraction JOINs on `cycle_id`.
 
-Feature branch per phase. Conventional commits. (Branching, commit identity and default branch follow the global rules.)
+## Banner (`ui/src/trend.ts`, `verdict.ts`)
 
-## Measurement invariants — break these and the numbers lie silently
-
-**Always send a system message** (`config.DefaultSystemPrompt`). With none MiMo injects its
-own: 250 prompt tokens, ~192 back as `cached_tokens` — 6.5x the token budget AND measured
-prefill becomes a cache lookup. Any non-empty message suppresses it (prompt_tokens → 20).
-
-**Call the residual "server-side time", never "model time".** The ping terminates at the TLS
-edge; backhaul, queueing, prefill and scheduling all sit inside the residual, inseparable.
-
-**Failed rows: out of latency percentiles, into availability.** Else a 240 000 ms timeout
-lands in the P50 and an outage reads as catastrophic latency.
-
-**A timeout is a recorded sample** — `ok=0`, an `error_class`, and how far it got.
-
-**That exclusion truncates the tail, so publish `censored` beside every percentile.** The
-excluded runs are the SLOWEST, so percentiles improve as truncation worsens. Classes in
-`probe.CensoringErrorClasses` — add there, never to a literal in a query. Connection failures
-are not censoring: nothing was measured. Never fold censored runs back INTO the percentiles.
-
-**The API always publishes the count; a UI surface may gate its PROSE below
-`MIN_FAILURES_FOR_STATE`.** One cut-off run in 288 daily cycles is a rounding error, and an
-amber box about it sits on the card forever. Chart bands still draw it. Gate prose, never data.
-
-**ONE inference call in flight, process-wide, `DispatchGap` apart.** Not per model: MiMo
-throttles the API key and there is one key. Concurrent models returned 429s that
-publish as a MiMo outage (`rate_limited` is neither censoring nor availability-exempt). The gap
-covers a short-window limiter, which serialising alone does not. Never race the models back.
-
-**The slot BLOCKS, never skips.** A row's bucket is its cycle's `started_at`, so a probe that
-waits still lands in its own bucket however late; a skipped probe leaves that bucket empty and
-reads as a probe that was never running. Cost: a cycle costs the SUM and can overrun —
-recorded by `logMissedTicks`, not prevented. Do NOT cap it by shortening later probes'
-deadlines; that moves `censored` and the percentiles for scheduling reasons.
-
-**`itl_p50_ms` is a chunk gap, not inter-token latency.** MiMo batches into bursts — a real run
-measured 0.0075 ms against 70 tok/s. Never lead a chart with it; `output_tps` is the robust one.
-
-**`error_detail` is operator-only** — no public endpoint serves it; a provider error body can
-echo request fragments. A test asserts this.
-
-**The speed-trend floors are MEASURED, never rounded** (`ui/src/trend.ts`). A 3h median sits
-20–35% off the previous day's for `ttft_ms` and 10–12% for `output_tps` — replayed over 7 days of
-live readings. So `+70%` first token (`+40%` when both models move), `−20%` throughput; a round
-10% fires on 70% of readings and makes amber the resting state. Rank a MODEL'S moves by SECONDS
-added to the wait, never by per cent — the metrics are different sizes. Across models seconds do
-NOT rank: the banner leads with the first model in display order (`config.DefaultModels`, the
-pro one) that moved at all, so the flagship is never the one riding in the "too" clause. Sorting
-`fired` by that order is also what keeps `TrendPlot`'s reference level right — it reads the
-dashed level off the first move carrying the plotted metric, and every move of the lead's model
-sits at the head of the list.
-
-**Relative alone never takes the banner.** SOME move must also leave a reading that is slow
-in absolute terms — `SLOW_TTFT_MS`, `SLOW_TPS` — or the whole reading demotes to `minor`, which
-says NOTHING: no headline, no chip, no plot, no sentence. It only withholds the "as usual"
-clause the steady state would carry. Nobody cares that a first token costs
-0.6 s more, and printing it under the headline asks the reader to care about what the page just
-decided does not matter; `minor` exists only so the steady sentence cannot claim an ordinary
-spread the reading sits outside of, exactly as `quicker` does. Tested per MOVE, never on the top
-of the list — the ranking is cross-metric and the floors are not, so a throughput drop that is
-not slow would otherwise silence a first token that is. It gates WHETHER the page speaks, not
-WHO it names: once one move anywhere is slow, the flagship leads even where its own figure sits
-inside the floors, and inside the lead model the slow move still outranks a costlier quick one.
-A doubled first token of
-2016 ms is true and is not news while the other model starts in 3.3 s. These two are CHOSEN, not
-measured, and say so: no replay can tell you how long a wait has to be before a reader minds it.
-
-**One claim per page.** The banner is the only surface that states a state; panels and cards
-print numbers. A slowdown is folded into the banner sentence with its own chip word `slower`
-(never `elevated`, which is spent on faults) — "normal" and "slower" must never appear together.
-A fault outranks speed and takes the banner alone — and a fault includes the WINDOW's own
-availability and correctness (`scoreModel`, same bands as the card), so a bad day can never put a
-chip on a card under a banner announcing something smaller.
-
-**A state is PRESENT TENSE, on every surface.** A window figure may only produce a chip or a
-headline while that model's own track is still producing events — `stillHappening`, read by
-`scoreModel` and by the card. Six runs cut off ten hours ago are a fact about the day, not
-something the endpoint is doing: the figures and the censored note keep saying so, and nothing
-announces it. PER TRACK (a wrong answer is no evidence about dropped runs) and dated off the
-whole SERVED block, not the last `RECENT_CYCLES`: an hour-wide cutoff makes a steady low failure
-rate blink amber and green all day. `unknown` is never softened this way, and neither is a
-payload with no recent block — undated failures are not over.
-
-**The quiet banner carries NO figures.** "Xiaomi MiMo is answering, and both models are behaving
-as usual", and nothing under it: the wait, the run counts and the week's medians are all on the
-cards below, and a visitor asking whether MiMo is up is not asking for a statistic. Earlier
-drafts printed the wait per model, then the week's medians beside it, then a line counting the
-clean runs — every one of them cut for the same reason.
-
-The "as usual" clause is a CLAIM, and it needs every gate: the speed reading must be `steady`
-(a `minor` one crossed a measured floor, which is why it was noticed), `everyModelRead` must
-hold (a model with spans too thin to measure must not be vouched for by the other one), and
-`verdict.detail` must be EMPTY (a normal verdict still reports a lone failed run, and the
-headline used to congratulate the endpoint one line above the run it lost). Drop any gate and
-the banner argues with itself.
-
-**The banner's sentences are body-size serif in `ink-dim`, never `text-label text-muted`.** They
-are the answer, in the box a visitor reads first; at 13px in grey the page whispers its own
-finding. A speed-up is MEASURED and never said: faster is
-not the question, so `quicker` carries no lead, no line and no plot — it exists only so the steady
-sentence cannot claim an ordinary spread the reading is outside of.
-
-**`cached_tokens` must stay near zero.** A rise means the system prompt went missing.
-
-**`reasoning_tokens` must be 0.** Send both `{"thinking":{"type":"disabled"}}` and
-`enable_thinking:false`. This, not the `ttft_ms`/`ttfat_ms` delta, is the primary alarm —
-those two columns are near-identical when healthy (role and first content chunk arrive in one
-batch, ~0.008 ms).
-
-**Ping is TCP-only, never ICMP.** ICMP is dropped as routine policy and needs `CAP_NET_RAW`.
-**IPv4-only too**, at resolve and dial: the four targets are compared against each other, and a
-v6 route timed against a v4 one publishes the difference as edge latency.
-
-**Amsterdam is charted, never attributed.** `mimo_ams`/`ref_ams` stay out of `AttributeFault`
-and `Summary.Net`. Adding them restores route-vs-uplink but MOVES published availability —
-`netSummary` excludes uplink/route cycles from `mimo_sgp`'s denominator. Own change, own
-reasoning. `Save` requires the SGP pair so a cycle can never be attributed without it.
-
-**The network/inference subtraction JOINs on `cycle_id`**, never a nearest-timestamp guess.
+- Floors MEASURED: `+70%` first token (`+40%` both models), `-20%` throughput; a round 10% fires on 70% of readings. Rank moves by SECONDS added, never per cent.
+- Relative alone never takes the banner: lead move must also cross `SLOW_TTFT_MS`/`SLOW_TPS` (chosen), tested per MOVE. Else `minor`: no headline, chip, plot, sentence.
+- One claim per page. Chip `slower` (never `elevated`, spent on faults); "normal" and "slower" never together. Fault outranks speed, includes window availability/correctness (`scoreModel`).
+- Present tense everywhere: `stillHappening`, per TRACK, dated off the whole served block. `unknown` never softened.
+- Quiet banner: NO figures. "As usual" needs `steady` + `everyModelRead` + empty `verdict.detail`.
+- Sentences body-size serif `ink-dim`, never `text-label text-muted`. Faster is measured, never said.
 
 ## Backend
 
-`slog` with `err` as the error key. `config.Load()` reads `BACKEND_*` env only. SQLite stays pure-Go (`ncruces/go-sqlite3`, `CGO_ENABLED=0`, WAL, `STRICT` tables).
+`slog`, `err` key. Eight `BACKEND_*` env vars, that is the surface; probe shape is constants in `config.go`, no env var. SQLite pure-Go `ncruces/go-sqlite3`, `CGO_ENABLED=0`, WAL, STRICT, no dependabot ignore.
 
-Eight env vars, and that is the whole surface: API key, addr, log level, DB path, base URL,
-SGP reference host, AMS reference host, probe user agent. Probe shape — models, prices, system
-prompt, retention, timeout ladder — is constants in `config.go`. Do NOT add an env var for any
-of them; they say what the page measures, not where it runs. The two REFERENCE hosts are the
-exception and stay settable; both MiMo edges are fixed.
+Cycle builds the dashboard, never a request: `OnCycle` runs `Server.Warm` (all windows, in place) BEFORE `broker.Publish`. Invalidate-then-notify measured 19 s per request at five concurrent cold misses. Misses single-flighted, one build slot (`cpus: "1.0"`), TTL a two-cycle valve. Never shorten it, never add a slot.
 
-Do NOT add a dependabot ignore for `ncruces/go-sqlite3` — peeq pins it for sqlite-vec, this
-repo has none.
+Limiters: request limiter guards `/api/*`. 404 limiter charges ONLY a 404 with a non-image extension (`isUncounted404`): never 4xx at large, 200s, image misses, `/.well-known`, extensionless. `banGate` is not a limiter: exploit path (`exploitpaths.go`) = 48 h in-memory block, matched on `r.URL.Path` before the mux, any depth (safe only while no dynamic path segments). Only a REPEAT exploit path renews (NAT pool + own tab would self-renew forever). New path: check `TestRealTrafficIsNotAnExploitPath`.
 
-**A request never builds the dashboard; the cycle does.** `OnCycle` runs `Server.Warm` (all five windows, replaced in place) BEFORE `broker.Publish`, because every open tab refetches on the event. Invalidate-then-notify made every tab a cold miss: measured 3.2 s for one cold 3mo build, 19 s each for five concurrent, on one CPU. Misses that remain are single-flighted per key and serialised behind one build slot; the TTL is a two-cycle safety valve, not the freshness mechanism. Do NOT shorten it back, and do NOT add a second build slot — `cpus: "1.0"`.
+Tests: `openTestDB(t)` real file in `t.TempDir()`, never `:memory:`. No real API calls, ever. `make test` / `make backend-coverage` (75% floor + patch) / `make run` / `make dev`.
 
-Two limiters, different questions. The request one guards `/api/*`. The 404 one gates every route but charges ONLY a 404 with a non-image extension (`.php`, `.env`, `.bak` — a wordlist). Never charge 4xx at large, a served response, an image miss, `/.well-known`, or an extensionless path (`isUncounted404`): extensionless was always free (those were 200s until the soft-404 fix), and charging it lets a crawler recrawling old soft-404 URLs gate itself off `/` and `/robots.txt`. Charging a 429 or 400 compounds the two limiters into one neither was sized for; charging a 200 budgets the page load itself, since one visit is a dozen asset requests.
+## Deploy & serving
 
-`banGate` is NOT a limiter — no budget, no refill. Exploit path (`internal/httpapi/exploitpaths.go`) → instant 48h block, bare 403, in memory only. Match `r.URL.Path` BEFORE the mux, never on response status: a 403 on the first wordlist entry ends the visit, where waiting for the 404 budget lets the scanner walk five more. Adding a path → check `TestRealTrafficIsNotAnExploitPath` first; a false positive blocks a visitor for two days.
+Distroless, no shell: healthcheck is `ismimodown -healthcheck`. Keep every `compose.yaml` hardening line.
 
-Segments match at ANY depth, not as a leading prefix — scanners prepend a guess at the install
-root (`/blog/wp-includes/…`, `/2018/wp-includes/…`). Safe only because this app has NO dynamic
-path segments (SPA state is query params); re-check that before adding a common English word.
-Any dot-segment is a ban, so dotfiles need no entries — `/.well-known` is the sole carve-out and
-must stay one.
+`spaHandler`: `/` serves the shell, everything else 404s (`TestUnknownPathsAreNotFound`). No third-party origin in CSP (`TestNoThirdPartyOriginsInThePolicy`).
 
-Only a REPEAT exploit path renews a ban, never an ordinary request. Do NOT "harden" this by
-renewing on any request: a key is an address, an address can be a NAT pool, and a banned
-bystander's own dashboard tab (unbounded SSE reconnect + 5-min refetch) would renew its own ban
-forever, making the 48h escape unreachable.
+## Naming & copy
 
-Tests: `openTestDB(t)` against a real SQLite file in `t.TempDir()`, never `:memory:`. Probes
-run against `httptest` fakes and a local `net.Listen` — no real API calls in tests, ever.
+"Is Xiaomi MiMo down?" in `<h1>`, `<title>`, static `index.html`, og card: reword together. Stranger-facing always `Xiaomi MiMo`; model IDs verbatim. Code `ismimodown` lowercase; DB file stays `/data/mimostats.db` (`config_test` pins it). Footer denies Xiaomi affiliation (tested). Cadence: "periodically" / "every few minutes", never "every five minutes".
 
-## Commands
+English, 24 h, reader's zone: never pin `timeZone` in `format.ts`; ECharts axes/tooltips via `format.ts`.
 
-```
-make test              # backend tests
-make backend-coverage  # tests + 75% line floor via hack/coverage-gate.sh
-make run               # run the daemon
-make dev               # local dev against a throwaway /tmp DB
-```
+Preview card carries no measurement. `ui/public/og.png` from `ui/assets/og/card.html` via `ui/scripts/gen-og.sh`: re-run, commit, bump `?v=` together. WhatsApp crops to the middle 630 px. Heading band 527 px real / 481 px fallback, re-measure both before touching; heading `<br>` is load bearing. Host and SEO strings move together: `Host()`, og URLs, canonical, `robots.txt`, `sitemap.xml`, JSON-LD, `.host` in `card.html`.
 
-Both coverage gates must pass: absolute floor (75%) and patch coverage (75%).
+Comments in `ui/index.html` and `ui/public/` never ship (`ui/build/strip-comments.ts`); a trailing `# why` on a `robots.txt` directive survives, never write one. No path or script name outside a comment there.
 
-## Deploy
+## Reference repos, read only
 
-Container is distroless — no shell, no curl. Healthcheck is the binary probing itself:
-`ismimodown -healthcheck`. Do NOT add a shell to the image to run one.
-
-`compose.yaml`: external traefik network, `read_only`, `cap_drop: ALL`, non-root, resource
-limits. Keep all of them.
-
-See `DEPLOY.md`. Confirm all four ping targets FROM the probe box before trusting attribution —
-a dead SGP reference kills the edge-vs-uplink distinction silently.
-
-## Serving
-
-`web.spaHandler`: `/` serves the shell, EVERY other unknown path 404s. No SPA fallback — one URL, no router, and serving the shell as a 200 for `/anything` made every wrong URL a duplicate of the real page (a soft 404, which Bing reads as a signal about the host). Adding a client-side route → change `TestUnknownPathsAreNotFound` deliberately, and note a 404 now charges the 404 budget where the old 200 was free.
-
-No third-party origin in the CSP. Microsoft Clarity was the only one and is gone; re-adding any
-host means editing `contentSecurityPolicy` AND `TestNoThirdPartyOriginsInThePolicy`, which is the
-point of that test.
-
-## Reference repos — read, never modify
-
-`../peeq` backend patterns and repo shape · `../music` UI stack and `@theme` tokens · `../loom` MiMo client (`internal/llm/`).
-
-## Naming
-
-The SITE is "Is Xiaomi MiMo down?" at `ismimodown.com`. That exact question is the `<h1>`, the
-`<title>`, the static body of `index.html` and the og card — four copies, reword together.
-
-Always `Xiaomi MiMo`, never bare `MiMo`, in anything a stranger reads: "mimo" is also an antenna
-technique and a learn-to-code app, and that disambiguation is the whole point of the name. In
-comments, tests and log lines, bare `MiMo` is fine. Model IDs verbatim (`mimo-v2.5`,
-`mimo-v2.5-pro`).
-
-The CODE is `ismimodown` too, lowercase everywhere: Go module, `cmd/ismimodown`, GHCR image,
-compose service, npm package. Never `IsMimoDown`, `isMimoDown` or `Is Mimo Down` as an identifier.
-
-One exception: the database file stays `/data/mimostats.db`. A deployment's whole history lives in
-that file on a bind mount; renaming the default orphans it on the next restart. `config_test` pins
-the string. Do NOT "finish" that last one.
-
-The footer denies affiliation with Xiaomi. Keep it; `Footer.test.tsx` asserts it.
-
-**Never publish the exact cadence.** Stranger-facing copy says "periodically", or "every few
-minutes" where a phrase is needed, or "within a few minutes" for the empty states — never "every
-five minutes". The interval is a deployment detail that can change; code, comments and
-`DEPLOY.md` still name the real number.
-
-## Conventions
-
-English UI, 24-hour clock, times in the READER's zone — never pin `timeZone` in `format.ts`; the footer names the resolved zone. Chart axes too: ECharts has no per-axis timezone, so stamp `axisLabel`/tooltip via `format.ts`, never leave them on ECharts' own formatting.
-
-**The link-preview card never carries a measurement.** Messengers scrape a preview once and cache it (Slack ~30 min, WhatsApp and Telegram effectively forever), so a baked-in number freezes and still reads as current. `ui/public/og.png` is committed, drawn from `ui/assets/og/card.html` by `ui/scripts/gen-og.sh` — re-run and commit after editing the source, and bump `?v=` on the og:/twitter: image URLs in the same commit or a messenger that already scraped never re-fetches. WhatsApp crops SQUARE to the middle 630px; keep the heading and every lede line inside that band. The script asserts both. The og: URLs hardcode `Host()` from `compose.yaml` — change them together, plus the `.host` line card.html prints into the picture.
-
-The card's heading width band in `gen-og.sh` is calibrated to the real render (527px) against
-the font-fallback render (481px) — only 46px apart. Re-measure BOTH (break the `@font-face`
-URLs on purpose) before touching it; never just widen it. The `<br>` in that heading is load
-bearing: left to wrap, the fallback broke a word later and measured WIDER than the real face.
-
-**Host and SEO strings move together:** `Host()` in `compose.yaml` (two routers — apex and the
-www 308), og:/twitter: URLs, `rel=canonical`, `robots.txt`, `sitemap.xml`, JSON-LD `@id`s, and
-`.host` in `card.html`.
-
-**Comments in `ui/index.html` and `ui/public/` never ship** — `ui/build/strip-comments.ts` strips them at build time (`<!-- -->` from html/svg/xml, whole `#` lines from `robots.txt`; a trailing `# why` after a directive survives, so never write one). Keep writing them next to what they explain, never thin them for the reader, and never put a path, script name or `compose.yaml` reference OUTSIDE a comment in those files.
+`../peeq` backend patterns · `../music` UI stack, `@theme` tokens · `../loom` MiMo client.
