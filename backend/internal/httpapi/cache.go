@@ -1,16 +1,21 @@
 package httpapi
 
 import (
+	"errors"
 	"sync"
 	"time"
 )
+
+// errBuildAbandoned is what a waiter sees when the build it waited on
+// panicked out from under it.
+var errBuildAbandoned = errors.New("dashboard build abandoned")
 
 // responseCache holds rendered JSON keyed by request shape.
 //
 // The data only changes once per probe cycle — every five minutes — so
 // recomputing a 3-month percentile sweep per request would mean the database is
 // hit at whatever rate the internet feels like. With the cache the DB is
-// touched once per distinct query per TTL, and a scraper costs a map lookup.
+// touched once per window per cycle, and a scraper costs a map lookup.
 //
 // Deliberately a plain map with a TTL rather than an LRU: the key space is the
 // window allow-list — five entries, all of them bounded by server-side
@@ -103,20 +108,29 @@ func (c *responseCache) getOrBuild(key string, build func() ([]byte, error)) ([]
 	c.flightMu.Unlock()
 
 	c.build <- struct{}{}
+	// Deferred, not sequenced after the build: a panic inside build() is
+	// caught by the recovery middleware one frame up, and without this it
+	// would leave the slot held and the flight open — every later miss on
+	// any key blocks on the slot, and the next Warm blocks the scheduler.
+	defer func() {
+		<-c.build
+		c.flightMu.Lock()
+		delete(c.flights, key)
+		c.flightMu.Unlock()
+		close(f.done)
+	}()
+
 	if body, ok := c.get(key); ok {
 		f.body = body
-	} else {
-		f.body, f.err = build()
-		if f.err == nil {
-			c.put(key, f.body)
-		}
+		return f.body, nil
 	}
-	<-c.build
-
-	c.flightMu.Lock()
-	delete(c.flights, key)
-	c.flightMu.Unlock()
-	close(f.done)
+	// Overwritten by build() on every path but a panic, where the waiters
+	// would otherwise read a nil body with a nil error and send an empty 200.
+	f.err = errBuildAbandoned
+	f.body, f.err = build()
+	if f.err == nil {
+		c.put(key, f.body)
+	}
 	return f.body, f.err
 }
 

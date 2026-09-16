@@ -68,13 +68,13 @@ func Migrate(db *sql.DB) error {
 
 	// Refresh the planner's statistics once per start.
 	//
-	// Without them the planner drives every windowed query from the model
-	// index and walks the model's WHOLE history to test each row's started_at
-	// — the 24h summary reads 90 days. With sqlite_stat1 populated it drives
-	// the short windows from idx_cycles_started_at instead: measured on 90
-	// days of synthetic cycles, the 24h build fell from 180 ms to 25 ms and
-	// 7d from 277 ms to 142 ms, for 47 ms of ANALYZE. The 3mo window has to
-	// read everything either way and does not move.
+	// Measured on 90 days of synthetic cycles, two models: the 24h dashboard
+	// window fell from 180 ms to 25 ms, 48h from 196 ms to 45 ms, 7d from
+	// 277 ms to 142 ms, and the window-independent half of the build from
+	// 456 ms to 202 ms, for 47 ms of ANALYZE. The 3mo window reads every row
+	// either way and did not move. The windowed queries filter on
+	// cycles.started_at through a join, and without sqlite_stat1 the planner
+	// has nothing to tell it how selective that range is.
 	//
 	// Once per start rather than per cycle: the shape of the data does not
 	// change between deploys, and the statistics persist in the file.

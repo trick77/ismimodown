@@ -209,10 +209,12 @@ func run() error {
 	sweeper := retention.New(sampleStore, cfg.Retention)
 
 	// Once at startup too, or the first visitor after a deploy is the builder.
-	// Before listening rather than beside it: the healthcheck flips to ready
-	// when the socket answers, and a proxy that sends traffic then would send
-	// it into the one cold build this whole arrangement exists to avoid.
-	warmCache(ctx, apiServer)
+	// Beside listening rather than before it: the sweep can run for several
+	// seconds on a full retention window, and the container's healthcheck
+	// start_period is 15 s. A visitor who arrives mid-sweep queues on the
+	// build slot and is answered from the entry the sweep has just written,
+	// never from a build of their own.
+	go warmCache(ctx, apiServer)
 
 	srv := &http.Server{
 		Addr:    cfg.Addr,
@@ -281,6 +283,10 @@ func run() error {
 // cycle and the next, and its duration is the one number that says whether
 // the build cost is creeping toward the cycle interval.
 func warmCache(ctx context.Context, apiServer *httpapi.Server) {
+	// A cycle that lands during shutdown has nobody left to warm for.
+	if ctx.Err() != nil {
+		return
+	}
 	started := time.Now()
 	if err := apiServer.Warm(ctx); err != nil {
 		slog.Error("dashboard warm-up failed", "err", err)

@@ -154,3 +154,36 @@ func TestQueuedMissIsAnsweredByAWarmUp(t *testing.T) {
 		t.Fatal("queued caller never returned")
 	}
 }
+
+// A build that panics must release the build slot and the flight, or the
+// recovery middleware turns one 500 into a wedged site: every later miss
+// blocks on the slot, and the next warm-up blocks the scheduler.
+func TestAPanickingBuildReleasesTheSlotAndTheFlight(t *testing.T) {
+	c := newResponseCache(time.Minute)
+
+	func() {
+		defer func() {
+			if recover() == nil {
+				t.Fatal("the panic did not propagate")
+			}
+		}()
+		_, _ = c.getOrBuild("k", func() ([]byte, error) { panic("boom") })
+	}()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		body, err := c.getOrBuild("k", func() ([]byte, error) { return []byte("ok"), nil })
+		if err != nil || string(body) != "ok" {
+			t.Errorf("got %q, %v after the panic", body, err)
+		}
+		if _, err := c.getOrBuild("other", func() ([]byte, error) { return []byte("ok"), nil }); err != nil {
+			t.Errorf("other key: %v", err)
+		}
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the cache stayed wedged after a panicking build")
+	}
+}
