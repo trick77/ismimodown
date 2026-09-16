@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"reflect"
 	"strings"
 	"testing"
@@ -706,5 +707,55 @@ func TestFailedWarmDropsTheCache(t *testing.T) {
 
 	if n := getDashboard(t, srv, "24h").Summary.Models[0].TTFT.N; n != 30 {
 		t.Errorf("n = %d, want 30: the failed warm-up left the old payload in place", n)
+	}
+}
+
+// The build is shared, so it must not die with the request that started it:
+// a tab switching pills aborts its fetch, and before this every waiter on
+// the same cold key got that tab's cancellation as a 500.
+func TestABuildOutlivesTheRequestThatStartedIt(t *testing.T) {
+	db := openTestDB(t)
+	store := samples.New(db)
+	srv := NewServer(Deps{
+		DB: db, Samples: store,
+		Models: []string{"mimo-v2.5"},
+		Now:    func() time.Time { return testNow },
+	})
+	seed(t, store, 25, 900)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/dashboard?window=24h", nil).WithContext(ctx))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d on a cancelled request: %s", rec.Code, rec.Body.String())
+	}
+	if _, ok := srv.cache.get(dashboardKey(samples.Windows[0])); !ok {
+		t.Error("the build was not cached")
+	}
+}
+
+// A panic inside the sweep is a failed warm-up, not a dead daemon: Warm runs
+// on the scheduler's goroutine, outside the recovery middleware.
+func TestWarmRecoversFromAPanic(t *testing.T) {
+	db := openTestDB(t)
+	store := samples.New(db)
+	srv := NewServer(Deps{
+		DB: db, Samples: store,
+		Models: []string{"mimo-v2.5"},
+		Now:    func() time.Time { panic("clock is broken") },
+	})
+	seed(t, store, 25, 900)
+
+	err := srv.Warm(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "clock is broken") {
+		t.Fatalf("err = %v, want the panic as an error", err)
+	}
+	if _, ok := srv.cache.get(dashboardKey(samples.Windows[0])); ok {
+		t.Error("a panicking warm-up left an entry behind")
+	}
+	// The slot is free again: an on-demand build still works.
+	if _, err := srv.cache.getOrBuild("k", func() ([]byte, error) { return []byte("ok"), nil }); err != nil {
+		t.Fatalf("slot still held after the panic: %v", err)
 	}
 }

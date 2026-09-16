@@ -87,9 +87,22 @@ func (s *server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	// allow-list — five at most, none of them caller-shaped. A hit costs the
 	// same map lookup a single granular response used to.
 	s.writeJSON(w, r, dashboardKey(window), func() (any, error) {
-		return s.buildDashboard(r.Context(), window, s.now())
+		// Detached from the request: the build is single-flighted, so its
+		// result goes to every caller waiting on this key and into the cache.
+		// On the request's own context, the leader's tab switching pills
+		// would abort the fetch, cancel the build, and hand every waiter a
+		// 500 for a page nobody had stopped wanting. Bounded on its own
+		// instead, at a duration no healthy build approaches.
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), buildTimeout)
+		defer cancel()
+		return s.buildDashboard(ctx, window, s.now())
 	})
 }
+
+// buildTimeout bounds one on-demand build. The 3mo window measured 3.2 s cold
+// on the live box; a build still running at a minute is a stuck database,
+// not a slow one.
+const buildTimeout = time.Minute
 
 // dashboardKey is the cache key for one window: the handler's miss path and
 // Warm must agree on it, or a warm-up fills entries no request ever reads.
@@ -312,12 +325,20 @@ func (s *server) buildDashboard(ctx context.Context, window samples.Window, now 
 // The first error stops the sweep and drops the cache, so no window can be
 // served the previous cycle for a whole TTL beside four that show the new one.
 // The next request for each window then builds it on demand, coalesced.
-func (s *Server) Warm(ctx context.Context) error {
-	if err := s.inner.warm(ctx); err != nil {
-		s.cache.invalidate()
-		return err
-	}
-	return nil
+func (s *Server) Warm(ctx context.Context) (err error) {
+	// The request path has the recovery middleware; this runs on the
+	// scheduler's goroutine, where a panic in a query would take the daemon
+	// down mid-cycle. It was one 500 before the build moved here; it is one
+	// failed warm-up now.
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("warm-up panicked: %v", r)
+		}
+		if err != nil {
+			s.cache.invalidate()
+		}
+	}()
+	return s.inner.warm(ctx)
 }
 
 func (s *server) warm(ctx context.Context) error {
