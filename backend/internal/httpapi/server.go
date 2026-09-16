@@ -16,11 +16,22 @@ import (
 	"github.com/trick77/ismimodown/internal/config"
 	"github.com/trick77/ismimodown/internal/ratelimit"
 	"github.com/trick77/ismimodown/internal/samples"
+	"github.com/trick77/ismimodown/internal/scheduler"
 )
 
-// cacheTTL is how long a rendered response is reused. Well under the 5-minute
-// cycle, and invalidated outright when a cycle lands.
-const cacheTTL = 30 * time.Second
+// cacheTTL is how long a rendered response is reused when nothing replaces it.
+//
+// A safety valve, not the freshness mechanism: every cycle rebuilds all five
+// windows and swaps them in (Server.Warm), and a failed warm-up invalidates
+// outright. It was 30 s, which on the measured build cost — 3 s for the 3mo
+// window, one CPU — re-exposed a cold build ten times per cycle per window
+// with no new data behind any of them. Two cycles, so a daemon whose scheduler
+// has stalled still stops serving the same page eventually, without the valve
+// ever firing while the scheduler is healthy.
+//
+// What this freezes between cycles: generated_at, and the cost panel's
+// offpeak_active/offpeak_until, which flip at most one cycle late once a day.
+const cacheTTL = 2 * scheduler.CycleInterval
 
 // Broker is the SSE fan-out seam. *sse.Broker satisfies it.
 //
@@ -116,6 +127,7 @@ func New(deps Deps) http.Handler {
 type Server struct {
 	http.Handler
 	cache *responseCache
+	inner *server
 }
 
 // NewServer builds the handler and exposes cache invalidation.
@@ -143,12 +155,17 @@ func NewServer(deps Deps) *Server {
 	return &Server{
 		Handler: recovery(logging(securityHeaders(banGate(s.deps.Ban, notFoundPenalty(s.deps.NotFoundLimiter, s.mux))))),
 		cache:   s.cache,
+		inner:   s,
 	}
 }
 
 // OnCycle drops the cached responses so a new measurement is visible
 // immediately rather than up to a TTL later — which matters most during an
 // incident, when the page is being reloaded.
+//
+// The daemon calls Warm instead, which replaces every entry with the new
+// cycle's payload and never leaves a gap. This is the fallback when that
+// fails, and what the tests reach for.
 func (s *Server) OnCycle() { s.cache.invalidate() }
 
 func (s *server) routes() {

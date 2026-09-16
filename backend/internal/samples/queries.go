@@ -234,6 +234,10 @@ func censoredSQL(alias string) (string, []any) {
 // Doing this in SQL rather than in Go matters at the 3-month window: fetching
 // ~110 000 raw rows per request to sort them in memory would make the response
 // cache the only thing standing between the site and its own database.
+//
+// The model summary no longer runs this per column — modelSummarySQL ranks
+// all three in one pass — but the trend does, and stats() is the reference
+// the fused query is tested against.
 const percentileSQL = `
 WITH vals AS (
 	SELECT %s AS v FROM infer_probes i
@@ -260,18 +264,7 @@ func (s *Store) stats(ctx context.Context, column, modelID string, since time.Ti
 	if err := s.db.QueryRowContext(ctx, q, modelID, rfc(since)).Scan(&n, &p50, &p95); err != nil {
 		return Stats{}, err
 	}
-	st := Stats{N: n, Sufficient: n >= MinSamplesForPercentile}
-	if st.Sufficient {
-		if p50.Valid {
-			v := p50.Float64
-			st.P50 = &v
-		}
-		if p95.Valid {
-			v := p95.Float64
-			st.P95 = &v
-		}
-	}
-	return st, nil
+	return statsOf(n, p50, p95), nil
 }
 
 // Summarize builds the dashboard state for a window.
@@ -313,19 +306,85 @@ func (s *Store) Summarize(ctx context.Context, w Window, models []string, now ti
 	return out, nil
 }
 
+// modelSummarySQL is the whole of one model's summary in one pass over the
+// window: three percentile distributions and the availability, correctness
+// and canary counts.
+//
+// It was four queries — stats() per column, then the counts — each joining
+// the same rows over the same window. At the 3-month window that is four
+// sweeps of ~26 000 rows per model per summary, and a dashboard build runs
+// three summaries. One sweep now feeds everything.
+//
+// The percentiles are nearest-rank, as in percentileSQL, but the three
+// columns are ranked in one pass: each ORDER BY sorts the rows that HAVE the
+// value first (`v IS NULL, v`), so a NULL never lands inside 1..n and the rank
+// arithmetic is unchanged. A value is NULL on every failed run, which is what
+// keeps failed rows out of the percentiles and in the availability count —
+// the invariant the whole page rests on.
+//
+// The counts are gated on `attributable`, the unattributable-cycle exclusion
+// modelSummary documents below; the percentiles are not, exactly as before:
+// a successful run is positive evidence whatever the cycle's fault says, and
+// a failed run contributes no value either way.
+const modelSummarySQL = `
+WITH runs AS (
+	SELECT
+		i.ok, i.answer_ok, i.reasoning_tokens, i.cached_tokens,
+		CASE WHEN i.ok = 1 THEN i.ttft_ms END    AS ttft,
+		CASE WHEN i.ok = 1 THEN i.itl_p50_ms END AS itl,
+		CASE WHEN i.ok = 1 THEN i.output_tps END AS tps,
+		CASE WHEN %s THEN 1 ELSE 0 END           AS censored,
+		CASE WHEN i.ok = 1 OR COALESCE(f.fault, '') NOT IN (?, ?) THEN 1 ELSE 0 END AS attributable
+	FROM infer_probes i
+	JOIN cycles c ON c.id = i.cycle_id
+	LEFT JOIN cycle_fault f ON f.cycle_id = c.id
+	WHERE i.model_id = ? AND c.started_at >= ?
+),
+ranked AS (
+	SELECT *,
+		ROW_NUMBER() OVER (ORDER BY ttft IS NULL, ttft) AS ttft_rn, COUNT(ttft) OVER () AS ttft_n,
+		ROW_NUMBER() OVER (ORDER BY itl IS NULL, itl)   AS itl_rn,  COUNT(itl) OVER ()  AS itl_n,
+		ROW_NUMBER() OVER (ORDER BY tps IS NULL, tps)   AS tps_rn,  COUNT(tps) OVER ()  AS tps_n
+	FROM runs
+)
+SELECT
+	COALESCE(MAX(ttft_n), 0),
+	MAX(CASE WHEN ttft_rn = MAX(1, (ttft_n * 50 + 99) / 100) THEN ttft END),
+	MAX(CASE WHEN ttft_rn = MAX(1, (ttft_n * 95 + 99) / 100) THEN ttft END),
+	COALESCE(MAX(itl_n), 0),
+	MAX(CASE WHEN itl_rn = MAX(1, (itl_n * 50 + 99) / 100) THEN itl END),
+	MAX(CASE WHEN itl_rn = MAX(1, (itl_n * 95 + 99) / 100) THEN itl END),
+	COALESCE(MAX(tps_n), 0),
+	MAX(CASE WHEN tps_rn = MAX(1, (tps_n * 50 + 99) / 100) THEN tps END),
+	MAX(CASE WHEN tps_rn = MAX(1, (tps_n * 95 + 99) / 100) THEN tps END),
+	COALESCE(SUM(attributable), 0),
+	COALESCE(SUM(CASE WHEN attributable THEN ok ELSE 0 END), 0),
+	COALESCE(SUM(CASE WHEN attributable AND answer_ok IS NOT NULL THEN 1 ELSE 0 END), 0),
+	COALESCE(SUM(CASE WHEN attributable AND answer_ok = 1 THEN 1 ELSE 0 END), 0),
+	MAX(CASE WHEN attributable THEN reasoning_tokens END),
+	MAX(CASE WHEN attributable THEN cached_tokens END),
+	COALESCE(SUM(CASE WHEN attributable THEN censored ELSE 0 END), 0)
+FROM ranked`
+
+// statsOf folds one ranked triple into a Stats, applying the suppression
+// threshold exactly as stats() does.
+func statsOf(n int, p50, p95 sql.NullFloat64) Stats {
+	st := Stats{N: n, Sufficient: n >= MinSamplesForPercentile}
+	if st.Sufficient {
+		if p50.Valid {
+			v := p50.Float64
+			st.P50 = &v
+		}
+		if p95.Valid {
+			v := p95.Float64
+			st.P95 = &v
+		}
+	}
+	return st
+}
+
 func (s *Store) modelSummary(ctx context.Context, modelID string, since time.Time) (ModelSummary, error) {
 	ms := ModelSummary{ModelID: modelID}
-
-	var err error
-	if ms.TTFT, err = s.stats(ctx, "ttft_ms", modelID, since); err != nil {
-		return ms, err
-	}
-	if ms.ITL, err = s.stats(ctx, "itl_p50_ms", modelID, since); err != nil {
-		return ms, err
-	}
-	if ms.TPS, err = s.stats(ctx, "output_tps", modelID, since); err != nil {
-		return ms, err
-	}
 
 	// Failures on unattributable cycles are excluded from the counting, not
 	// merely from the percentiles.
@@ -356,30 +415,24 @@ func (s *Store) modelSummary(ctx context.Context, modelID string, since time.Tim
 	//
 	// A window of nothing but unattributable failures lands on Attempts = 0,
 	// which the clients already render as "no data" rather than as 0%.
+	var ttftN, itlN, tpsN int
+	var ttftP50, ttftP95, itlP50, itlP95, tpsP50, tpsP95 sql.NullFloat64
 	var correct, answered sql.NullInt64
 	var maxReason, maxCached sql.NullInt64
 	var censored sql.NullInt64
 	censoredExpr, censoredArgs := censoredSQL("i")
-	args := []any{modelID, rfc(since), probe.FaultUplink, probe.FaultRoute}
-	err = s.db.QueryRowContext(ctx, fmt.Sprintf(`
-		SELECT
-			count(*),
-			COALESCE(sum(i.ok), 0),
-			COALESCE(sum(CASE WHEN i.answer_ok IS NOT NULL THEN 1 ELSE 0 END), 0),
-			COALESCE(sum(CASE WHEN i.answer_ok = 1 THEN 1 ELSE 0 END), 0),
-			max(i.reasoning_tokens),
-			max(i.cached_tokens),
-			COALESCE(sum(CASE WHEN %s THEN 1 ELSE 0 END), 0)
-		FROM infer_probes i
-		JOIN cycles c ON c.id = i.cycle_id
-		LEFT JOIN cycle_fault f ON f.cycle_id = c.id
-		WHERE i.model_id = ? AND c.started_at >= ?
-		  AND (i.ok = 1 OR COALESCE(f.fault, '') NOT IN (?, ?))`, censoredExpr),
-		append(censoredArgs, args...)...,
-	).Scan(&ms.Attempts, &ms.Succeeded, &answered, &correct, &maxReason, &maxCached, &censored)
+	args := append(censoredArgs, probe.FaultUplink, probe.FaultRoute, modelID, rfc(since))
+	err := s.db.QueryRowContext(ctx, fmt.Sprintf(modelSummarySQL, censoredExpr), args...).Scan(
+		&ttftN, &ttftP50, &ttftP95,
+		&itlN, &itlP50, &itlP95,
+		&tpsN, &tpsP50, &tpsP95,
+		&ms.Attempts, &ms.Succeeded, &answered, &correct, &maxReason, &maxCached, &censored)
 	if err != nil {
 		return ms, err
 	}
+	ms.TTFT = statsOf(ttftN, ttftP50, ttftP95)
+	ms.ITL = statsOf(itlN, itlP50, itlP95)
+	ms.TPS = statsOf(tpsN, tpsP50, tpsP95)
 	ms.Censored = int(censored.Int64)
 
 	ms.Answered = int(answered.Int64)
