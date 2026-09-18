@@ -159,8 +159,8 @@ export default function App() {
   }, [load, windowKey]);
 
   // Live updates. The stream carries only a cycle notification, so the client
-  // refetches rather than trusting a payload — the server has already dropped
-  // its response cache by the time the event arrives.
+  // refetches rather than trusting a payload — the server has already rebuilt
+  // every window into its response cache by the time the event arrives.
   //
   // The stream is the FAST path, not the only one. It ends for reasons that are
   // not errors — a sleeping laptop, a proxy capping connection age, a daemon
