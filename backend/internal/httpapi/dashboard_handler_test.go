@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"reflect"
 	"strings"
 	"testing"
@@ -619,5 +620,142 @@ func TestFailuresOnAttributedCyclesSayOK(t *testing.T) {
 	}
 	if got.Failures[0].Fault != probe.FaultOK {
 		t.Errorf("fault = %q, want %q — both probes answered", got.Failures[0].Fault, probe.FaultOK)
+	}
+}
+
+// Warm fills every window in the allow-list, so the refetch wave that follows
+// a cycle's event never finds a cold key. New data landing AFTER the warm-up
+// must not show: that is what proves the requests are served from the cache
+// the warm-up filled rather than built on demand.
+func TestWarmFillsEveryWindow(t *testing.T) {
+	db := openTestDB(t)
+	store := samples.New(db)
+	srv := NewServer(Deps{
+		DB: db, Samples: store,
+		Models: []string{"mimo-v2.5"},
+		Now:    func() time.Time { return testNow },
+	})
+	seed(t, store, 25, 900)
+
+	if err := srv.Warm(context.Background()); err != nil {
+		t.Fatalf("Warm: %v", err)
+	}
+	seed(t, store, 5, 5000)
+
+	for _, w := range samples.Windows {
+		body := getDashboard(t, srv, w.Key)
+		if body.Window != w.Key {
+			t.Errorf("window %s served %q", w.Key, body.Window)
+		}
+		if n := body.Summary.Models[0].TTFT.N; n != 25 {
+			t.Errorf("window %s: n = %d, want 25 — the warm-up did not fill this key", w.Key, n)
+		}
+	}
+}
+
+// Warm REPLACES: the previous cycle's payload stays served until the new one
+// is in, and the new one is served without any invalidation in between.
+func TestWarmReplacesWithoutAGap(t *testing.T) {
+	db := openTestDB(t)
+	store := samples.New(db)
+	srv := NewServer(Deps{
+		DB: db, Samples: store,
+		Models: []string{"mimo-v2.5"},
+		Now:    func() time.Time { return testNow },
+	})
+	seed(t, store, 25, 900)
+	if err := srv.Warm(context.Background()); err != nil {
+		t.Fatalf("Warm: %v", err)
+	}
+	first := get(t, srv, "/api/dashboard?window=24h").Body.String()
+
+	seed(t, store, 5, 5000)
+	if err := srv.Warm(context.Background()); err != nil {
+		t.Fatalf("Warm: %v", err)
+	}
+	second := get(t, srv, "/api/dashboard?window=24h").Body.String()
+	if second == first {
+		t.Fatal("Warm did not replace the cached payload")
+	}
+	if n := getDashboard(t, srv, "24h").Summary.Models[0].TTFT.N; n != 30 {
+		t.Errorf("n = %d, want 30 after the second warm-up", n)
+	}
+}
+
+// A warm-up that fails drops the cache rather than leaving it half-filled:
+// no window may serve the previous cycle for a whole TTL beside others that
+// show the new one. The next request builds on demand.
+func TestFailedWarmDropsTheCache(t *testing.T) {
+	db := openTestDB(t)
+	store := samples.New(db)
+	srv := NewServer(Deps{
+		DB: db, Samples: store,
+		Models: []string{"mimo-v2.5"},
+		Now:    func() time.Time { return testNow },
+	})
+	seed(t, store, 25, 900)
+	if err := srv.Warm(context.Background()); err != nil {
+		t.Fatalf("Warm: %v", err)
+	}
+
+	seed(t, store, 5, 5000)
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := srv.Warm(cancelled); err == nil {
+		t.Fatal("Warm on a cancelled context succeeded")
+	}
+
+	if n := getDashboard(t, srv, "24h").Summary.Models[0].TTFT.N; n != 30 {
+		t.Errorf("n = %d, want 30: the failed warm-up left the old payload in place", n)
+	}
+}
+
+// The build is shared, so it must not die with the request that started it:
+// a tab switching pills aborts its fetch, and before this every waiter on
+// the same cold key got that tab's cancellation as a 500.
+func TestABuildOutlivesTheRequestThatStartedIt(t *testing.T) {
+	db := openTestDB(t)
+	store := samples.New(db)
+	srv := NewServer(Deps{
+		DB: db, Samples: store,
+		Models: []string{"mimo-v2.5"},
+		Now:    func() time.Time { return testNow },
+	})
+	seed(t, store, 25, 900)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/dashboard?window=24h", nil).WithContext(ctx))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d on a cancelled request: %s", rec.Code, rec.Body.String())
+	}
+	if _, ok := srv.cache.get(dashboardKey(samples.Windows[0])); !ok {
+		t.Error("the build was not cached")
+	}
+}
+
+// A panic inside the sweep is a failed warm-up, not a dead daemon: Warm runs
+// on the scheduler's goroutine, outside the recovery middleware.
+func TestWarmRecoversFromAPanic(t *testing.T) {
+	db := openTestDB(t)
+	store := samples.New(db)
+	srv := NewServer(Deps{
+		DB: db, Samples: store,
+		Models: []string{"mimo-v2.5"},
+		Now:    func() time.Time { panic("clock is broken") },
+	})
+	seed(t, store, 25, 900)
+
+	err := srv.Warm(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "clock is broken") {
+		t.Fatalf("err = %v, want the panic as an error", err)
+	}
+	if _, ok := srv.cache.get(dashboardKey(samples.Windows[0])); ok {
+		t.Error("a panicking warm-up left an entry behind")
+	}
+	// The slot is free again: an on-demand build still works.
+	if _, err := srv.cache.getOrBuild("k", func() ([]byte, error) { return []byte("ok"), nil }); err != nil {
+		t.Fatalf("slot still held after the panic: %v", err)
 	}
 }

@@ -17,25 +17,27 @@ import (
 const cacheMaxAge = 30
 
 func (s *server) writeJSON(w http.ResponseWriter, r *http.Request, cacheKey string, build func() (any, error)) {
-	if cacheKey != "" {
-		if body, ok := s.cache.get(cacheKey); ok {
-			s.sendJSON(w, body)
-			return
+	render := func() ([]byte, error) {
+		v, err := build()
+		if err != nil {
+			return nil, err
 		}
+		return json.Marshal(v)
 	}
 
-	v, err := build()
+	var body []byte
+	var err error
+	if cacheKey != "" {
+		// Through the cache's own single-flight, never a bare get-then-put: a
+		// miss that every waiting caller builds for itself is the stampede
+		// the cache exists to prevent. See responseCache.
+		body, err = s.cache.getOrBuild(cacheKey, render)
+	} else {
+		body, err = render()
+	}
 	if err != nil {
 		serverError(w, r, err, "could not build response")
 		return
-	}
-	body, err := json.Marshal(v)
-	if err != nil {
-		serverError(w, r, err, "could not encode response")
-		return
-	}
-	if cacheKey != "" {
-		s.cache.put(cacheKey, body)
 	}
 	s.sendJSON(w, body)
 }

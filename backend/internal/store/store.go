@@ -33,6 +33,13 @@ func Open(path string) (*sql.DB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite: %w", err)
 	}
+	// Each pooled connection is its own wasm SQLite instance with its own
+	// memory, and database/sql opens one per concurrent caller with no ceiling.
+	// The daemon needs few: the scheduler's write, the healthcheck's ping, the
+	// one dashboard build the response cache admits at a time, and a spare.
+	// Everything past that queues here rather than multiplying instances on a
+	// container capped at one CPU and 512 MB.
+	db.SetMaxOpenConns(4)
 	if err := db.Ping(); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("ping sqlite: %w", err)

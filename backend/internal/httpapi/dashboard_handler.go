@@ -2,10 +2,10 @@ package httpapi
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
-	"slices"
 	"time"
 
 	"github.com/trick77/ismimodown/internal/probe"
@@ -86,10 +86,27 @@ func (s *server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	// Keyed on the window alone, so the cache holds one entry per window in the
 	// allow-list — five at most, none of them caller-shaped. A hit costs the
 	// same map lookup a single granular response used to.
-	s.writeJSON(w, r, "dashboard|"+window.Key, func() (any, error) {
-		return s.buildDashboard(r.Context(), window, s.now())
+	s.writeJSON(w, r, dashboardKey(window), func() (any, error) {
+		// Detached from the request: the build is single-flighted, so its
+		// result goes to every caller waiting on this key and into the cache.
+		// On the request's own context, the leader's tab switching pills
+		// would abort the fetch, cancel the build, and hand every waiter a
+		// 500 for a page nobody had stopped wanting. Bounded on its own
+		// instead, at a duration no healthy build approaches.
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), buildTimeout)
+		defer cancel()
+		return s.buildDashboard(ctx, window, s.now())
 	})
 }
+
+// buildTimeout bounds one on-demand build. The 3mo window measured 3.2 s cold
+// on the live box; a build still running at a minute is a stuck database,
+// not a slow one.
+const buildTimeout = time.Minute
+
+// dashboardKey is the cache key for one window: the handler's miss path and
+// Warm must agree on it, or a warm-up fills entries no request ever reads.
+func dashboardKey(window samples.Window) string { return "dashboard|" + window.Key }
 
 type dashboardPayload struct {
 	Window      string                `json:"window"`
@@ -120,48 +137,42 @@ type dashboardSeries struct {
 	Network any `json:"network"`
 }
 
-// buildDashboard runs every query one page load needs.
+// dashboardShared is every part of the payload that does not depend on the
+// selected window: the two comparison summaries, the pulse, the raw rows, the
+// errors block and the trend. Built once per warm-up and shared by all five
+// windows rather than rebuilt five times — it was the larger half of the build.
+type dashboardShared struct {
+	byWindow map[string]samples.Summary
+	pulse    []any
+	samples  []any
+	failures []samples.Failure
+	trend    samples.Trend
+}
+
+// buildShared runs the window-independent queries.
 //
-// Sequential on purpose. It runs at most once per window per cache TTL, and
-// once more when a cycle invalidates, so there is nothing here worth a
-// dependency on an errgroup and a fan of concurrent SQLite connections. Being
-// sequential also buys the two properties the payload needs: every part shares
-// ONE now, so no two figures in the response describe different instants, and
-// the first error abandons the remaining queries instead of running them to
-// throw the results away. The context still cancels the whole thing when the
-// reader closes the tab.
-//
-// All-or-nothing on error, for the same reason the cost breakdown is one
-// endpoint: a half-built page would be pinned in the cache for the TTL, and
-// the client has no partial-render path. It keeps its last good state and
-// shows the banner over it.
-func (s *server) buildDashboard(ctx context.Context, window samples.Window, now time.Time) (any, error) {
-	out := dashboardPayload{
-		Window:      window.Key,
-		GeneratedAt: now,
+// Sequential on purpose, here and in buildWindow. Everything runs once per
+// cycle, so there is nothing worth a dependency on an errgroup and a fan of
+// concurrent SQLite connections. Being sequential also buys the two properties
+// the payload needs: every part shares ONE now, so no two figures in the
+// response describe different instants, and the first error abandons the
+// remaining queries instead of running them to throw the results away.
+func (s *server) buildShared(ctx context.Context, now time.Time) (*dashboardShared, error) {
+	out := &dashboardShared{
+		byWindow: map[string]samples.Summary{},
 		// Allocated, not declared: an empty model list must still marshal as []
 		// rather than null, or a client mapping over it throws.
-		Pulse:   make([]any, 0, len(s.deps.Models)),
-		Samples: make([]any, 0, 2*len(s.deps.Models)),
+		pulse:   make([]any, 0, len(s.deps.Models)),
+		samples: make([]any, 0, 2*len(s.deps.Models)),
 	}
 
-	// The selected window first, then the two fixed ones — skipping any that
-	// the reader has already selected. Three summaries are what the page shows;
-	// two is what it costs when "now" or "normal" is also the selection.
-	wanted := []string{window.Key}
 	for _, key := range []string{dashboardNowWindow, dashboardBaselineWindow} {
-		if !slices.Contains(wanted, key) {
-			wanted = append(wanted, key)
-		}
-	}
-	byWindow := map[string]samples.Summary{}
-	for _, key := range wanted {
-		// Allow-listed constants, so the lookup cannot fail today; the selected
-		// one was validated by the caller. Loud rather than skipped anyway: a
-		// miss would leave `now` or `baseline` a zero-value Summary served with
-		// a 200, and the verdict banner would compare against a summary with no
-		// models in it — permanently wrong with nothing anywhere saying so.
-		// Renaming a key in samples.Windows is what would do it.
+		// Allow-listed constants, so the lookup cannot fail today. Loud rather
+		// than skipped anyway: a miss would leave `now` or `baseline` a
+		// zero-value Summary served with a 200, and the verdict banner would
+		// compare against a summary with no models in it — permanently wrong
+		// with nothing anywhere saying so. Renaming a key in samples.Windows is
+		// what would do it.
 		win, ok := samples.LookupWindow(key)
 		if !ok {
 			return nil, fmt.Errorf("%w: %s", errUnknownWindow, key)
@@ -170,11 +181,94 @@ func (s *server) buildDashboard(ctx context.Context, window samples.Window, now 
 		if err != nil {
 			return nil, err
 		}
-		byWindow[key] = sum
+		out.byWindow[key] = sum
 	}
-	out.Summary = byWindow[window.Key]
-	out.Now = byWindow[dashboardNowWindow]
-	out.Baseline = byWindow[dashboardBaselineWindow]
+
+	for _, model := range s.deps.Models {
+		rows, err := s.deps.Samples.RecentPulse(ctx, model, dashboardPulseLimit)
+		if err != nil {
+			return nil, err
+		}
+		if rows == nil {
+			rows = []samples.Pulse{}
+		}
+		out.pulse = append(out.pulse, map[string]any{
+			"model_id": model, "cycles": rows,
+		})
+	}
+
+	// One group per model. The raw table calls itself the unaggregated record,
+	// so anything missing here is missing from the one surface that promises
+	// nothing is.
+	//
+	// Order is part of the contract: the client concatenates these groups and
+	// sorts on the instant, and a group arriving where another was expected
+	// would relabel rows rather than reorder them.
+	for _, model := range s.deps.Models {
+		rows, err := s.deps.Samples.RecentSamples(ctx, model, dashboardSampleLimit)
+		if err != nil {
+			return nil, err
+		}
+		if rows == nil {
+			rows = []samples.Sample{}
+		}
+		out.samples = append(out.samples, map[string]any{
+			"model_id": model, "samples": rows,
+		})
+	}
+
+	// The bad runs — failures and graded-wrong answers alike — and NOT scoped
+	// to any window: the block reaches back a fixed day so the errors card says
+	// the same thing whichever pill is selected.
+	failures, err := s.deps.Samples.RecentFailures(
+		ctx, s.deps.Models, now.Add(-dashboardFailureWindow), dashboardFailureLimit)
+	if err != nil {
+		return nil, err
+	}
+	// [] not null: a day with nothing wrong in it is the common case, and the
+	// card renders its own empty state rather than the client guarding a null.
+	if failures == nil {
+		failures = []samples.Failure{}
+	}
+	out.failures = failures
+
+	// Three hours against the day before them, whichever pill is selected.
+	out.trend, err = s.deps.Samples.Trend(ctx, s.deps.Models, now)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// buildWindow runs the queries that depend on the selected window and joins
+// them to the shared parts.
+//
+// All-or-nothing on error, for the same reason the cost breakdown is one
+// endpoint: a half-built page would be pinned in the cache for the TTL, and
+// the client has no partial-render path. It keeps its last good state and
+// shows the banner over it.
+func (s *server) buildWindow(ctx context.Context, window samples.Window, now time.Time, shared *dashboardShared) (any, error) {
+	out := dashboardPayload{
+		Window:      window.Key,
+		GeneratedAt: now,
+		Now:         shared.byWindow[dashboardNowWindow],
+		Baseline:    shared.byWindow[dashboardBaselineWindow],
+		Pulse:       shared.pulse,
+		Samples:     shared.samples,
+		Failures:    shared.failures,
+		Trend:       shared.trend,
+	}
+
+	// Three summaries are what the page shows; two is what it costs when "now"
+	// or "normal" is also the selection.
+	sum, ok := shared.byWindow[window.Key]
+	if !ok {
+		var err error
+		if sum, err = s.deps.Samples.Summarize(ctx, window, s.deps.Models, now); err != nil {
+			return nil, err
+		}
+	}
+	out.Summary = sum
 
 	for _, spec := range []struct {
 		dst    *any
@@ -203,63 +297,71 @@ func (s *server) buildDashboard(ctx context.Context, window samples.Window, now 
 	}
 	out.Cost = cost
 
-	for _, model := range s.deps.Models {
-		rows, err := s.deps.Samples.RecentPulse(ctx, model, dashboardPulseLimit)
-		if err != nil {
-			return nil, err
-		}
-		if rows == nil {
-			rows = []samples.Pulse{}
-		}
-		out.Pulse = append(out.Pulse, map[string]any{
-			"model_id": model, "cycles": rows,
-		})
-	}
-
-	// One group per model. The raw table calls itself the unaggregated record,
-	// so anything missing here is missing from the one surface that promises
-	// nothing is.
-	//
-	// Order is part of the contract: the client concatenates these groups and
-	// sorts on the instant, and a group arriving where another was expected
-	// would relabel rows rather than reorder them.
-	for _, model := range s.deps.Models {
-		rows, err := s.deps.Samples.RecentSamples(ctx, model, dashboardSampleLimit)
-		if err != nil {
-			return nil, err
-		}
-		if rows == nil {
-			rows = []samples.Sample{}
-		}
-		out.Samples = append(out.Samples, map[string]any{
-			"model_id": model, "samples": rows,
-		})
-	}
-
-	// The bad runs last — failures and graded-wrong answers alike — and NOT
-	// scoped to `window`: the block reaches back a fixed day so the errors card
-	// says the same thing whichever pill is selected.
-	failures, err := s.deps.Samples.RecentFailures(
-		ctx, s.deps.Models, now.Add(-dashboardFailureWindow), dashboardFailureLimit)
-	if err != nil {
-		return nil, err
-	}
-	// [] not null: a day with nothing wrong in it is the common case, and the
-	// card renders its own empty state rather than the client guarding a null.
-	if failures == nil {
-		failures = []samples.Failure{}
-	}
-	out.Failures = failures
-
-	// Last, and unscoped like the block above it: three hours against the day
-	// before them, whichever pill is selected.
-	trend, err := s.deps.Samples.Trend(ctx, s.deps.Models, now)
-	if err != nil {
-		return nil, err
-	}
-	out.Trend = trend
-
 	return out, nil
+}
+
+// buildDashboard is one window from cold: the on-demand path, taken only when
+// a request finds no cached entry — after a failed warm-up, or a window that
+// the safety-valve TTL has expired.
+func (s *server) buildDashboard(ctx context.Context, window samples.Window, now time.Time) (any, error) {
+	shared, err := s.buildShared(ctx, now)
+	if err != nil {
+		return nil, err
+	}
+	return s.buildWindow(ctx, window, now, shared)
+}
+
+// Warm builds every window and swaps each into the cache.
+//
+// Called once per cycle, BEFORE the cycle is published on the event stream,
+// so the refetch wave the event triggers finds five warm entries instead of
+// five cold keys. Replace-in-place rather than invalidate-then-fill: a tab
+// that refetches mid-warm is served the previous cycle's payload, never a
+// miss, and never a build of its own.
+//
+// Holds the cache's build slot for the whole sweep, so an on-demand build
+// cannot interleave and cost a second CPU the container does not have.
+//
+// The first error stops the sweep and drops the cache, so no window can be
+// served the previous cycle for a whole TTL beside four that show the new one.
+// The next request for each window then builds it on demand, coalesced.
+func (s *Server) Warm(ctx context.Context) (err error) {
+	// The request path has the recovery middleware; this runs on the
+	// scheduler's goroutine, where a panic in a query would take the daemon
+	// down mid-cycle. It was one 500 before the build moved here; it is one
+	// failed warm-up now.
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("warm-up panicked: %v", r)
+		}
+		if err != nil {
+			s.cache.invalidate()
+		}
+	}()
+	return s.inner.warm(ctx)
+}
+
+func (s *server) warm(ctx context.Context) error {
+	s.cache.build <- struct{}{}
+	defer func() { <-s.cache.build }()
+
+	now := s.now()
+	shared, err := s.buildShared(ctx, now)
+	if err != nil {
+		return err
+	}
+	for _, window := range samples.Windows {
+		v, err := s.buildWindow(ctx, window, now, shared)
+		if err != nil {
+			return err
+		}
+		body, err := json.Marshal(v)
+		if err != nil {
+			return err
+		}
+		s.cache.put(dashboardKey(window), body)
+	}
+	return nil
 }
 
 // errUnknownMetric can only fire if a metric named above leaves metricColumns.
