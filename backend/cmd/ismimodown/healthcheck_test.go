@@ -30,7 +30,7 @@ func TestHealthcheckAgainstALiveServer(t *testing.T) {
 // makes "the process is up but cannot reach SQLite" an unhealthy container
 // rather than a silently broken one.
 func TestHealthcheckFailsOnNon200(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
 	defer srv.Close()
@@ -55,7 +55,7 @@ func TestHealthcheckFailsWhenNothingIsListening(t *testing.T) {
 // verbatim does not resolve — so the healthcheck would fail against a
 // perfectly healthy container.
 func TestHealthcheckRewritesAWildcardBindToLoopback(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer srv.Close()

@@ -434,7 +434,7 @@ func (s *Scheduler) RunCycle(ctx context.Context) {
 // rather than adding a zero-valued row. A cycle cut short by shutdown is
 // abandoned unpersisted a few lines later anyway.
 func (s *Scheduler) runProbe(
-	ctx context.Context, model string, n int64, started time.Time,
+	ctx context.Context, model string, n int64, _ time.Time,
 ) (probe.InferResult, bool) {
 	if !s.acquire(ctx) {
 		slog.Info("probe abandoned during shutdown", "model", model, "cycle", n)

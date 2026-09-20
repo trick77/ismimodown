@@ -173,11 +173,11 @@ func TestEventsReturnsWhenShutdownIsSignalled(t *testing.T) {
 	srv := httptest.NewServer(h)
 	defer srv.Close()
 
-	resp, err := http.Get(srv.URL + "/api/events")
+	resp, err := http.Get(srv.URL + "/api/events") //nolint:bodyclose // closed by the defer below
 	if err != nil {
 		t.Fatalf("connect: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Wait until the handler is actually subscribed and streaming.
 	deadline := time.Now().Add(3 * time.Second)

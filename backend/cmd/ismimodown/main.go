@@ -74,11 +74,13 @@ func healthcheck() error {
 	}
 
 	client := &http.Client{Timeout: 4 * time.Second}
-	resp, err := client.Get("http://" + net.JoinHostPort(host, port) + "/healthz")
+	// G704: host and port come from BACKEND_ADDR, already parsed and pinned to
+	// a loopback default above; no request data reaches this URL.
+	resp, err := client.Get("http://" + net.JoinHostPort(host, port) + "/healthz") //nolint:gosec // G704
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	// /healthz already pings the database, so a 200 here means the process can
 	// both listen and reach its store.
 	if resp.StatusCode != http.StatusOK {
@@ -104,8 +106,10 @@ func run() error {
 
 	// The container mounts /data as a volume; on a fresh host the directory may
 	// exist but a nested path may not. Create it rather than failing to open.
+	// 0750, not 0755: the directory holds the probe database, and nothing
+	// outside the service's own user and group has any reason to read it.
 	if dir := filepath.Dir(cfg.DBPath); dir != "" && dir != "." {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
+		if err := os.MkdirAll(dir, 0o750); err != nil {
 			return err
 		}
 	}
@@ -114,7 +118,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	if err := store.Migrate(db); err != nil {
 		return err
 	}

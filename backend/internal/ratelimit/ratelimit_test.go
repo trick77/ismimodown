@@ -34,7 +34,10 @@ func TestRefillOverTime(t *testing.T) {
 	}
 
 	now = now.Add(time.Second) // +2 tokens
-	if !l.Allow("ip") || !l.Allow("ip") {
+	// Two calls, not a repeated expression: Allow spends a token each time, so
+	// this asserts both refilled tokens are there. SA4000 cannot see the side
+	// effect.
+	if !l.Allow("ip") || !l.Allow("ip") { //nolint:staticcheck // SA4000
 		t.Error("tokens must refill with elapsed time")
 	}
 	if l.Allow("ip") {
@@ -86,7 +89,7 @@ func TestMiddlewareReturns429(t *testing.T) {
 	l := New(0.0001, 1)
 	l.now = func() time.Time { return time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC) }
 
-	h := l.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	h := l.Middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -126,7 +129,7 @@ func TestClientIPUsesTheLastForwardedEntryNotTheFirst(t *testing.T) {
 func TestClientIPSpoofingCannotMintIdentities(t *testing.T) {
 	l := New(0.0001, 1)
 	l.now = func() time.Time { return time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC) }
-	h := l.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	h := l.Middleware(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {}))
 
 	// Same real client, varying the spoofable leading entry each time.
 	var denied bool
@@ -259,6 +262,7 @@ func TestPermittedDoesNotConsume(t *testing.T) {
 			t.Fatalf("Permitted denied at call %d; peeking must not spend the budget", i)
 		}
 	}
+	//nolint:staticcheck // SA4000: Allow is stateful, these are two spends
 	if !l.Allow("1.2.3.4") || !l.Allow("1.2.3.4") {
 		t.Error("the whole burst must still be there after any number of peeks")
 	}

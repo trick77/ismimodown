@@ -18,7 +18,7 @@ import (
 // is the one middleware behaviour phase 4 hard-depends on.
 func TestStatusRecorderForwardsFlush(t *testing.T) {
 	var flushed bool
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		f, ok := w.(http.Flusher)
 		if !ok {
 			t.Fatal("wrapped writer must still be an http.Flusher; SSE depends on it")
@@ -324,7 +324,7 @@ func TestUnknownAPIPathsRelyOnTheRequestLimiter(t *testing.T) {
 // requests, and if any of them cost a token the dashboard would throttle its
 // own visitors on a budget sized for a handful of 404s.
 func TestSuccessfulRequestsAreNotCharged(t *testing.T) {
-	static := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	static := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte("ok"))
 	})
 	h := NewServer(Deps{

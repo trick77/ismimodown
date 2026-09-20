@@ -35,7 +35,7 @@ func testConfig(base string) Config {
 // itl_p50_ms can be asserted against a stream of known construction.
 func sseServer(t *testing.T, ttft time.Duration, gaps []time.Duration, tokens []string) *httptest.Server {
 	t.Helper()
-	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.WriteHeader(http.StatusOK)
 		flusher := w.(http.Flusher)
@@ -241,7 +241,7 @@ func TestTimingsMatchTheConstructedStream(t *testing.T) {
 // four situations are DIFFERENT findings, so each must produce its own class.
 func TestTimeoutLadderClassifiesEachLayer(t *testing.T) {
 	t.Run("headers never sent -> header_timeout", func(t *testing.T) {
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
 			time.Sleep(900 * time.Millisecond) // past HeaderTimeout (500ms), under Timeout
 		}))
 		defer srv.Close()
@@ -261,7 +261,7 @@ func TestTimeoutLadderClassifiesEachLayer(t *testing.T) {
 	})
 
 	t.Run("headers then no token -> ttft_timeout", func(t *testing.T) {
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.Header().Set("Content-Type", "text/event-stream")
 			w.WriteHeader(http.StatusOK)
 			w.(http.Flusher).Flush()
@@ -281,7 +281,7 @@ func TestTimeoutLadderClassifiesEachLayer(t *testing.T) {
 	})
 
 	t.Run("chunks then silence -> stalled", func(t *testing.T) {
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.Header().Set("Content-Type", "text/event-stream")
 			w.WriteHeader(http.StatusOK)
 			f := w.(http.Flusher)
@@ -347,7 +347,7 @@ func TestTimeoutLadderClassifiesEachLayer(t *testing.T) {
 // A failure is a recorded sample, never a dropped one — and it must carry how
 // far it got, or a partial failure is indistinguishable from an instant one.
 func TestFailedRunIsStillARecordedSample(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.WriteHeader(http.StatusOK)
 		f := w.(http.Flusher)
@@ -390,7 +390,7 @@ func TestHTTPStatusClassification(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(http.StatusText(tc.status), func(t *testing.T) {
-			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				w.WriteHeader(tc.status)
 				_, _ = w.Write([]byte(`{"error":{"message":"nope"}}`))
 			}))
@@ -421,7 +421,7 @@ func TestHTTPStatusClassification(t *testing.T) {
 // letting it read as a MiMo outage on a public dashboard is a credibility
 // problem, not a cosmetic one.
 func TestAuthFailureIsNotReportedAsAMimoOutage(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
 		_, _ = w.Write([]byte(`{"error":{"message":"Invalid API Key"}}`))
 	}))
@@ -441,7 +441,7 @@ func TestAuthFailureIsNotReportedAsAMimoOutage(t *testing.T) {
 func TestAnswerAssertionDrivesTheCorrectnessCanary(t *testing.T) {
 	run := func(t *testing.T, content string, want bool) {
 		t.Helper()
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.Header().Set("Content-Type", "text/event-stream")
 			fmt.Fprintf(w, "data: %s\n\n", chunkJSON(content, ""))
 			fmt.Fprintf(w, "data: %s\n\n", usageJSON(1))
@@ -484,7 +484,7 @@ func TestAnswerAssertionDrivesTheCorrectnessCanary(t *testing.T) {
 // A failed run has no answer — which is NOT the same as a wrong answer, and
 // conflating them would make an outage look like a quality collapse.
 func TestFailedRunHasNoAnswerVerdict(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusBadGateway)
 	}))
 	defer srv.Close()
@@ -499,7 +499,7 @@ func TestFailedRunHasNoAnswerVerdict(t *testing.T) {
 }
 
 func TestMalformedChunkIsAProtocolError(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		fmt.Fprint(w, "data: {not json\n\n")
 	}))
@@ -519,7 +519,7 @@ func TestMalformedChunkIsAProtocolError(t *testing.T) {
 // operator unable to tell a broken model from a WAF.
 func TestNonStreamBodyOnA200IsKept(t *testing.T) {
 	const body = `<?xml version="1.0"?><Error><Code>ServiceUnavailable</Code></Error>`
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		fmt.Fprint(w, body)
 	}))
 	defer srv.Close()
@@ -550,7 +550,7 @@ func TestKeptBodyIsBounded(t *testing.T) {
 		{"ten thousand short lines", strings.Repeat("boom\n", 10000)},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				fmt.Fprint(w, tc.body)
 			}))
 			defer srv.Close()
@@ -570,7 +570,7 @@ func TestKeptBodyIsBounded(t *testing.T) {
 // so keeping only the non-SSE preamble would still leave the operator with
 // nothing but "nothing arrived".
 func TestErrorObjectInsideAStreamIsKept(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		fmt.Fprint(w, `data: {"error":{"message":"upstream at capacity"}}`+"\n\n")
 	}))
@@ -607,7 +607,7 @@ func TestHealthyStreamKeepsNoEvidence(t *testing.T) {
 // diagnosis should be.
 func TestKeptBodyIsCutOnARuneBoundary(t *testing.T) {
 	body := strings.Repeat("服务不可用", 4096) // 3 bytes per rune, so 4096 splits one
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		fmt.Fprint(w, body)
 	}))
 	defer srv.Close()
@@ -624,7 +624,7 @@ func TestKeptBodyIsCutOnARuneBoundary(t *testing.T) {
 // there is no body to quote, and inventing an empty one would read as though
 // something had been captured.
 func TestEmptyBodyOnA200KeepsThePlainReason(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 	}))
 	defer srv.Close()
@@ -643,7 +643,7 @@ func TestEmptyBodyOnA200KeepsThePlainReason(t *testing.T) {
 // Truncated without [DONE] means the upstream went away mid-answer. Reporting
 // that as success would publish a partial response as a complete one.
 func TestTruncatedStreamIsNotSuccess(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		fmt.Fprintf(w, "data: %s\n\n", chunkJSON("partial", ""))
 	}))
@@ -662,7 +662,7 @@ func TestTruncatedStreamIsNotSuccess(t *testing.T) {
 
 // Shutdown is not a fault and must never be counted against availability.
 func TestCancellationIsNotAFault(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
 		time.Sleep(700 * time.Millisecond)
 	}))
 	defer srv.Close()
@@ -721,7 +721,7 @@ func TestPercentileDoesNotMutateInput(t *testing.T) {
 // curls existed to rule out, so it must be a loud caller error.
 func TestRunRejectsARequestWithNoOutputCap(t *testing.T) {
 	var called bool
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
 		called = true
 	}))
 	defer srv.Close()
@@ -749,7 +749,7 @@ func TestDNSTimeoutIsDNSErrorNotTimeout(t *testing.T) {
 	// deadline rather than by the run's.
 	resolver := &net.Resolver{
 		PreferGo: true,
-		Dial: func(ctx context.Context, network, addr string) (net.Conn, error) {
+		Dial: func(ctx context.Context, _, _ string) (net.Conn, error) {
 			<-ctx.Done()
 			return nil, ctx.Err()
 		},
