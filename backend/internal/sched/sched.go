@@ -84,6 +84,7 @@ func AlignedNext(after time.Time, period time.Duration) time.Time {
 // The returned closure is NOT safe for concurrent use — the probe loop is a
 // single goroutine and holds its own.
 func PseudoRand() func() float64 {
+	//nolint:gosec // G404: scheduling jitter, explicitly not cryptographic
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
 	return r.Float64
 }

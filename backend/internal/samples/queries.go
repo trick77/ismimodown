@@ -257,7 +257,19 @@ SELECT
 	MAX(CASE WHEN rn = MAX(1, (n * 95 + 99) / 100) THEN v END)
 FROM ranked`
 
+// Only tests call this today, which is why unparam sees a constant modelID;
+// the parameter is the query's own shape, not a placeholder.
+//
+//nolint:unparam // modelID is a real query parameter
 func (s *Store) stats(ctx context.Context, column, modelID string, since time.Time) (Stats, error) {
+	// The column is interpolated, so it goes through the allowlist exactly as
+	// Series and statsBetween do. Only tests reach this today, but the guard
+	// belongs with the interpolation rather than with the current call sites:
+	// the day a handler calls it, the check is already here.
+	if err := checkSeriesColumn(column); err != nil {
+		return Stats{}, err
+	}
+	//nolint:gosec // G201: column is allowlisted immediately above
 	q := fmt.Sprintf(percentileSQL, column, column)
 	var n int
 	var p50, p95 sql.NullFloat64
@@ -571,6 +583,10 @@ func (s *Store) Series(ctx context.Context, column, modelID string, w Window, no
 	// non-existent bucket renders as a gap, identical to a stretch where the
 	// probe was not running. That is the worst possible collapse: total
 	// truncation is the one case where the reader most needs to be told.
+	//
+	// G201: the column is allowlisted by checkSeriesColumn above and the bucket
+	// is an int64; every value is bound as a parameter.
+	//nolint:gosec // G201
 	q := fmt.Sprintf(`
 		WITH vals AS (
 			SELECT unixepoch(c.started_at) / %[1]d * %[1]d AS bucket, i.%[2]s AS v
@@ -629,7 +645,7 @@ func (s *Store) Series(ctx context.Context, column, modelID string, w Window, no
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var out []Point
 	for rows.Next() {
@@ -656,6 +672,8 @@ func (s *Store) NetSeries(ctx context.Context, target string, w Window, now time
 	since := now.Add(-w.Duration)
 	bucketSecs := int64(w.Bucket / time.Second)
 
+	// G201: only bucketSecs, an int64, is interpolated; the column is literal.
+	//nolint:gosec // G201
 	q := fmt.Sprintf(`
 		WITH vals AS (
 			SELECT unixepoch(c.started_at) / %[1]d * %[1]d AS bucket, n.connect_ms AS v
@@ -679,7 +697,7 @@ func (s *Store) NetSeries(ctx context.Context, target string, w Window, now time
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var out []Point
 	for rows.Next() {
@@ -779,7 +797,7 @@ func (s *Store) RecentSamples(ctx context.Context, modelID string, limit int) ([
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var out []Sample
 	for rows.Next() {
@@ -926,6 +944,10 @@ func (s *Store) RecentFailures(ctx context.Context, models []string, since time.
 	// untouched by it and only an explicit 0 matches. Written as the comparison
 	// rather than `answer_ok IS NOT NULL AND answer_ok != 1` for that reason:
 	// the shorter form already means the right thing.
+	//
+	// G202: the only concatenation is placeholders(), which emits "?,?,?" from
+	// a count. Every model id is bound through args.
+	//nolint:gosec // G202
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT c.started_at, i.model_id, i.error_class, i.http_status,
 		       i.answer_ok, COALESCE(f.fault, '')
@@ -940,7 +962,7 @@ func (s *Store) RecentFailures(ctx context.Context, models []string, since time.
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var out []Failure
 	for rows.Next() {
@@ -1014,7 +1036,7 @@ func (s *Store) RecentPulse(ctx context.Context, modelID string, limit int) ([]P
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var out []Pulse
 	for rows.Next() {
@@ -1076,7 +1098,7 @@ func (s *Store) RecentCycles(ctx context.Context) ([]RecentCycle, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	// One row per (cycle, model), so consecutive rows collapse into one cycle.
 	// Grouped on the cycle id, not the timestamp: two cycles sharing a

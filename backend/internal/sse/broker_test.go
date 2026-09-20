@@ -194,7 +194,7 @@ func TestCancelClosesTheChannel(t *testing.T) {
 	}
 }
 
-func TestConcurrentSubscribeAndPublishIsSafe(t *testing.T) {
+func TestConcurrentSubscribeAndPublishIsSafe(_ *testing.T) {
 	b := New()
 	var wg sync.WaitGroup
 

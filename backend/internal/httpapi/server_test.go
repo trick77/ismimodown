@@ -75,7 +75,7 @@ func TestHealthzRejectsNonGET(t *testing.T) {
 }
 
 func TestStaticHandlerServesSPA(t *testing.T) {
-	static := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	static := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte("spa"))
 	})
 	srv := New(Deps{DB: openTestDB(t), Static: static})

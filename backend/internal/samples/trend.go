@@ -145,6 +145,7 @@ func (s *Store) statsBetween(ctx context.Context, column, modelID string, from, 
 	if err := checkSeriesColumn(column); err != nil {
 		return Stats{}, err
 	}
+	//nolint:gosec // G201: column is allowlisted by checkSeriesColumn above
 	q := fmt.Sprintf(percentileRangeSQL, column, column)
 	var n int
 	var p50, p95 sql.NullFloat64

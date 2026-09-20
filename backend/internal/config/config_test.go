@@ -349,10 +349,10 @@ func TestLoadRejectsBadValues(t *testing.T) {
 // and cannot fail any more, so the guard moved here rather than disappearing:
 // editing one of these numbers into an unreachable ladder still trips something.
 func TestTimeoutLadderIsReachable(t *testing.T) {
-	if !(PingTimeout < DialTimeout &&
-		DialTimeout < HeaderTimeout &&
-		HeaderTimeout < TTFTTimeout &&
-		TTFTTimeout < ProbeTimeout) {
+	if PingTimeout >= DialTimeout ||
+		DialTimeout >= HeaderTimeout ||
+		HeaderTimeout >= TTFTTimeout ||
+		TTFTTimeout >= ProbeTimeout {
 		t.Errorf("ladder is not strictly ordered: ping=%v dial=%v header=%v ttft=%v overall=%v",
 			PingTimeout, DialTimeout, HeaderTimeout, TTFTTimeout, ProbeTimeout)
 	}

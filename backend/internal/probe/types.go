@@ -92,12 +92,14 @@ type TokenUsage struct {
 	CompletionTokenDetails CompletionTokenDetails `json:"completion_tokens_details"`
 }
 
+// PromptTokenDetails is the prompt-side token breakdown.
 type PromptTokenDetails struct {
 	// CachedTokens must stay near zero. A rise means the system message went
 	// missing and MiMo's own injected prompt is being served from cache.
 	CachedTokens int `json:"cached_tokens"`
 }
 
+// CompletionTokenDetails is the completion-side token breakdown.
 type CompletionTokenDetails struct {
 	// ReasoningTokens must be 0. It is the hard gate proving thinking is off.
 	ReasoningTokens int `json:"reasoning_tokens"`

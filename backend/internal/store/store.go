@@ -41,7 +41,7 @@ func Open(path string) (*sql.DB, error) {
 	// container capped at one CPU and 512 MB.
 	db.SetMaxOpenConns(4)
 	if err := db.Ping(); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("ping sqlite: %w", err)
 	}
 	return db, nil

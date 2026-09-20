@@ -172,7 +172,7 @@ func (c *Client) Run(ctx context.Context, req Request) (InferResult, error) {
 		applyTrace(&res, traceTimes)
 		return res, nil
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	res.HTTPStatus = resp.StatusCode
 	applyTrace(&res, traceTimes)
@@ -479,10 +479,10 @@ func applyTrace(res *InferResult, t *connTrace) {
 }
 
 func classifyStatus(status int) string {
-	switch {
-	case status == http.StatusTooManyRequests:
+	switch status {
+	case http.StatusTooManyRequests:
 		return ErrClassRateLimited
-	case status == http.StatusUnauthorized, status == http.StatusForbidden:
+	case http.StatusUnauthorized, http.StatusForbidden:
 		return ErrClassAuth
 	default:
 		return ErrClassHTTP

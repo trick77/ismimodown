@@ -46,7 +46,8 @@ func (s *server) sendJSON(w http.ResponseWriter, body []byte) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "public, max-age="+strconv.Itoa(cacheMaxAge))
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(body)
+	// G705: the content type above is fixed to JSON, never an HTML context.
+	_, _ = w.Write(body) //nolint:gosec // G705
 }
 
 // metricColumns maps the public metric name onto a storage column.
