@@ -152,27 +152,32 @@ type ModelPrice struct {
 
 // DefaultPrices is what a million tokens costs for each probed model, in USD.
 //
-// Source: carried forward from the previous generation's LiteLLM figures, read
-// 2026-08-05. No third-party catalogue lists these model IDs — models.dev
-// carries no mimo-v2.6 entry at all — so there is nothing left to cross-check
-// against and the rates are held rather than re-sourced. Vendored rather than
-// fetched either way: the container is distroless and offline by design, and a
-// third party editing a number should not silently change a figure this
-// dashboard publishes as its own cost.
+// Source: LiteLLM's model_prices_and_context_window.json, read 2026-08-05.
+// Vendored rather than fetched: the container is distroless and offline by
+// design, and a third party editing a number should not silently change a
+// figure this dashboard publishes as its own cost.
 //
-// KNOWN WRONG, in a known direction, and EVERY rate below is wrong — not just
-// the headline one. The vendor's own pay-as-you-go page
+// THE RATES DID NOT MOVE AT THIS GENERATION. The vendor's pay-as-you-go page
+// lists the same figures for the 2.6 pair as for the pair before it, so these
+// numbers are unchanged here and only their keys were rewritten.
+//
+// They have always disagreed with the vendor, and that disagreement is about
+// the SOURCE, not the model. The vendor's own page
 // (https://mimo.mi.com/docs/en-US/price/pay-as-you-go, Overseas USD table, read
-// 2026-09-22) lists mimo-v2.6-pro at 0.435 in / 0.87 out / 0.0036 cached and
-// mimo-v2.6-flash at 0.14 / 0.28 / 0.0028. Against those figures this table
-// overstates, in multiples: pro 2.3x in, 3.4x out, 55.6x cached; flash 2.9x in,
-// 7.1x out, 28.6x cached.
+// 2026-09-22) lists pro at 0.435 in / 0.87 out / 0.0036 cached and flash at
+// 0.14 / 0.28 / 0.0028, against which this table overstates every lane: pro
+// 2.3x in, 3.4x out, 55.6x cached; flash 2.9x in, 7.1x out, 28.6x cached. The
+// route billed here is a token plan settling in subscription credits rather
+// than either list, so neither source is an invoice. Picking between them is a
+// question about which list to publish and wants its own change.
 //
-// So the cached rates are wrong by one to two ORDERS OF MAGNITUDE, and the old
-// "right order of magnitude" defence does not cover them. What the panel
-// reports is the tokens this dashboard actually spent priced against these
-// rates; nothing here sees a real invoice. Reconcile against the vendor page
-// when this table is next touched.
+// What the panel reports is the tokens this dashboard actually spent, priced
+// against these rates. Nothing here sees a real invoice.
+//
+// One more gap, independent of the rates: Cost() prices an unrecognised
+// model_id at the zero value, and retention keeps samples for 3 months, so
+// after a model rename that much history contributes nothing to a total that
+// still presents itself as complete. See the note in samples/cost.go.
 //
 // Every model in DefaultModels MUST have an entry here. Nothing downstream
 // tolerates a missing one any more: /api/cost prices every row it finds, so a
