@@ -138,7 +138,7 @@ func TestDashboardCoversEveryModel(t *testing.T) {
 	for _, g := range got.Samples {
 		models = append(models, g.ModelID)
 	}
-	want := []string{"mimo-v2.5", "mimo-v2.5-pro"}
+	want := []string{"mimo-v2.6-flash", "mimo-v2.6-pro"}
 	if len(models) != len(want) {
 		t.Fatalf("samples groups = %v, want %v", models, want)
 	}
@@ -152,7 +152,7 @@ func TestDashboardCoversEveryModel(t *testing.T) {
 	for _, g := range got.Pulse {
 		pulsed = append(pulsed, g.ModelID)
 	}
-	if len(pulsed) != 2 || pulsed[0] != "mimo-v2.5" || pulsed[1] != "mimo-v2.5-pro" {
+	if len(pulsed) != 2 || pulsed[0] != "mimo-v2.6-flash" || pulsed[1] != "mimo-v2.6-pro" {
 		t.Errorf("pulse models = %v, want both in order", pulsed)
 	}
 }
@@ -220,7 +220,7 @@ func TestDashboardIsCachedPerWindow(t *testing.T) {
 	store := samples.New(db)
 	srv := NewServer(Deps{
 		DB: db, Samples: store,
-		Models: []string{"mimo-v2.5"},
+		Models: []string{"mimo-v2.6-flash"},
 		Now:    func() time.Time { return testNow },
 	})
 	seed(t, store, 25, 900)
@@ -257,7 +257,7 @@ func TestOneLoadIsOneToken(t *testing.T) {
 	db := openTestDB(t)
 	h := NewServer(Deps{
 		DB: db, Samples: samples.New(db),
-		Models:  []string{"mimo-v2.5", "mimo-v2.5-pro"},
+		Models:  []string{"mimo-v2.6-flash", "mimo-v2.6-pro"},
 		Limiter: ratelimit.New(0.0001, 5), // five tokens, effectively no refill
 		Now:     func() time.Time { return testNow },
 	})
@@ -347,7 +347,7 @@ func TestDashboardServesTheNewestFailures(t *testing.T) {
 	// moves again is a test that will be edited wrongly.
 	for i := dashboardFailureLimit + 1; i >= 1; i-- {
 		seedFailure(t, store, time.Duration(i)*time.Minute,
-			"mimo-v2.5", probe.ErrClassHTTP, fmt.Sprintf("upstream said %d", i), 500+i)
+			"mimo-v2.6-flash", probe.ErrClassHTTP, fmt.Sprintf("upstream said %d", i), 500+i)
 	}
 
 	got := getDashboard(t, h, "24h")
@@ -393,10 +393,10 @@ func TestErrorsBlockCarriesGradedWrongAnswers(t *testing.T) {
 	h, store := newAPIServer(t)
 	seed(t, store, 25, 900)
 
-	seedFailure(t, store, 3*time.Minute, "mimo-v2.5", probe.ErrClassHTTP, "upstream said 503", 503)
-	seedWrongAnswer(t, store, 2*time.Minute, "mimo-v2.5")
+	seedFailure(t, store, 3*time.Minute, "mimo-v2.6-flash", probe.ErrClassHTTP, "upstream said 503", 503)
+	seedWrongAnswer(t, store, 2*time.Minute, "mimo-v2.6-flash")
 	// The row that must NOT appear: it succeeded and it was right.
-	seedPassingAnswer(t, store, time.Minute, "mimo-v2.5")
+	seedPassingAnswer(t, store, time.Minute, "mimo-v2.6-flash")
 
 	got := getDashboard(t, h, "24h")
 	if len(got.Failures) != 2 {
@@ -446,7 +446,7 @@ func TestUngradedRunsStayOutOfTheErrorsBlock(t *testing.T) {
 		Infer: []probe.InferResult{{
 			// Wide: it ran, it succeeded, and nothing graded it. AnswerOK stays
 			// nil, exactly as probe.Client leaves it when there is no assertion.
-			ModelID: "mimo-v2.5", OK: true, HTTPStatus: 200, TTFTMs: 1400,
+			ModelID: "mimo-v2.6-flash", OK: true, HTTPStatus: 200, TTFTMs: 1400,
 		}},
 	}); err != nil {
 		t.Fatalf("Save: %v", err)
@@ -464,9 +464,9 @@ func TestUngradedRunsStayOutOfTheErrorsBlock(t *testing.T) {
 func TestFailuresAreIdenticalAcrossWindows(t *testing.T) {
 	h, store := newAPIServer(t)
 	seed(t, store, 25, 900)
-	seedFailure(t, store, 2*time.Hour, "mimo-v2.5", probe.ErrClassTimeout, "read timeout", 0)
+	seedFailure(t, store, 2*time.Hour, "mimo-v2.6-flash", probe.ErrClassTimeout, "read timeout", 0)
 	// Older than the fixed day, so no window may surface it.
-	seedFailure(t, store, 48*time.Hour, "mimo-v2.5", probe.ErrClassHTTP, "ancient failure", 500)
+	seedFailure(t, store, 48*time.Hour, "mimo-v2.6-flash", probe.ErrClassHTTP, "ancient failure", 500)
 
 	day := getDashboard(t, h, "24h")
 	quarter := getDashboard(t, h, "3mo")
@@ -521,7 +521,7 @@ func TestFailuresCarryNoUpstreamText(t *testing.T) {
 	h, store := newAPIServer(t)
 
 	const secret = "SECRET-PROVIDER-BODY-tp-livekey-fragment"
-	seedFailure(t, store, time.Minute, "mimo-v2.5", probe.ErrClassAuth, secret, 401)
+	seedFailure(t, store, time.Minute, "mimo-v2.6-flash", probe.ErrClassAuth, secret, 401)
 
 	rec := get(t, h, "/api/dashboard?window=24h")
 	body := rec.Body.String()
@@ -547,10 +547,10 @@ func TestFailuresCarryNoUpstreamText(t *testing.T) {
 func TestFailuresCoverOnlyConfiguredModels(t *testing.T) {
 	h, store := newAPIServer(t)
 	seedFailure(t, store, time.Minute, "mimo-retired", probe.ErrClassHTTP, "gone", 500)
-	seedFailure(t, store, 2*time.Minute, "mimo-v2.5", probe.ErrClassHTTP, "current", 500)
+	seedFailure(t, store, 2*time.Minute, "mimo-v2.6-flash", probe.ErrClassHTTP, "current", 500)
 
 	got := getDashboard(t, h, "24h")
-	if len(got.Failures) != 1 || got.Failures[0].ModelID != "mimo-v2.5" {
+	if len(got.Failures) != 1 || got.Failures[0].ModelID != "mimo-v2.6-flash" {
 		t.Errorf("failures = %+v, want only the configured model", got.Failures)
 	}
 }
@@ -574,7 +574,7 @@ func TestFailuresCarryTheCycleFault(t *testing.T) {
 			{Target: probe.TargetRefSGP, OK: true, ConnectMs: 265},
 		},
 		Infer: []probe.InferResult{{
-			ModelID: "mimo-v2.5", OK: false, ErrorClass: probe.ErrClassConnectTimeout,
+			ModelID: "mimo-v2.6-flash", OK: false, ErrorClass: probe.ErrClassConnectTimeout,
 		}},
 	}); err != nil {
 		t.Fatalf("Save: %v", err)
@@ -588,7 +588,7 @@ func TestFailuresCarryTheCycleFault(t *testing.T) {
 			{Target: probe.TargetRefSGP, OK: false, ErrorClass: probe.ErrClassConnectTimeout},
 		},
 		Infer: []probe.InferResult{{
-			ModelID: "mimo-v2.5", OK: false, ErrorClass: probe.ErrClassConnectTimeout,
+			ModelID: "mimo-v2.6-flash", OK: false, ErrorClass: probe.ErrClassConnectTimeout,
 		}},
 	}); err != nil {
 		t.Fatalf("Save: %v", err)
@@ -612,7 +612,7 @@ func TestFailuresCarryTheCycleFault(t *testing.T) {
 // the client reads "" as "nobody attributed this", which is a different claim.
 func TestFailuresOnAttributedCyclesSayOK(t *testing.T) {
 	h, store := newAPIServer(t)
-	seedFailure(t, store, time.Minute, "mimo-v2.5", probe.ErrClassHTTP, "boom", 500)
+	seedFailure(t, store, time.Minute, "mimo-v2.6-flash", probe.ErrClassHTTP, "boom", 500)
 
 	got := getDashboard(t, h, "24h")
 	if len(got.Failures) != 1 {
@@ -632,7 +632,7 @@ func TestWarmFillsEveryWindow(t *testing.T) {
 	store := samples.New(db)
 	srv := NewServer(Deps{
 		DB: db, Samples: store,
-		Models: []string{"mimo-v2.5"},
+		Models: []string{"mimo-v2.6-flash"},
 		Now:    func() time.Time { return testNow },
 	})
 	seed(t, store, 25, 900)
@@ -660,7 +660,7 @@ func TestWarmReplacesWithoutAGap(t *testing.T) {
 	store := samples.New(db)
 	srv := NewServer(Deps{
 		DB: db, Samples: store,
-		Models: []string{"mimo-v2.5"},
+		Models: []string{"mimo-v2.6-flash"},
 		Now:    func() time.Time { return testNow },
 	})
 	seed(t, store, 25, 900)
@@ -690,7 +690,7 @@ func TestFailedWarmDropsTheCache(t *testing.T) {
 	store := samples.New(db)
 	srv := NewServer(Deps{
 		DB: db, Samples: store,
-		Models: []string{"mimo-v2.5"},
+		Models: []string{"mimo-v2.6-flash"},
 		Now:    func() time.Time { return testNow },
 	})
 	seed(t, store, 25, 900)
@@ -718,7 +718,7 @@ func TestABuildOutlivesTheRequestThatStartedIt(t *testing.T) {
 	store := samples.New(db)
 	srv := NewServer(Deps{
 		DB: db, Samples: store,
-		Models: []string{"mimo-v2.5"},
+		Models: []string{"mimo-v2.6-flash"},
 		Now:    func() time.Time { return testNow },
 	})
 	seed(t, store, 25, 900)
@@ -742,7 +742,7 @@ func TestWarmRecoversFromAPanic(t *testing.T) {
 	store := samples.New(db)
 	srv := NewServer(Deps{
 		DB: db, Samples: store,
-		Models: []string{"mimo-v2.5"},
+		Models: []string{"mimo-v2.6-flash"},
 		Now:    func() time.Time { panic("clock is broken") },
 	})
 	seed(t, store, 25, 900)

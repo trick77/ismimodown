@@ -16,15 +16,18 @@ import { TrendPlot } from "./TrendPlot";
 // word carries itself, and this only makes the pill and the sentence read as
 // one statement rather than two.
 // Model IDs carry their series colour wherever the banner names them, the same
-// tie the masthead subline makes: the reader meets "mimo-v2.5-pro" in the
+// tie the masthead subline makes: the reader meets "mimo-v2.6-pro" in the
 // sentence and finds the same orange on the card, the chart line and the legend
 // below. Monospace with it, because a model ID is an identifier and the rest of
 // the sentence is prose.
 //
-// Longest ID first in the alternation — "mimo-v2.5" is a prefix of
-// "mimo-v2.5-pro", and matching the short one first paints half a name and
-// leaves "-pro" in body text. Possessives ("mimo-v2.5's") fall out of that for
-// free: the match ends at the ID and the apostrophe stays prose.
+// Longest ID first in the alternation. The current pair does not need it —
+// "mimo-v2.6-flash" and "mimo-v2.6-pro" share no prefix — but the previous
+// generation's did, where the short ID was a prefix of the long one and
+// matching it first painted half a name and left "-pro" in body text. The sort
+// is kept because it costs nothing and the next pair may reintroduce the shape.
+// Possessives ("mimo-v2.6-flash's") fall out of it for free: the match ends at
+// the ID and the apostrophe stays prose.
 function paintModels(text: string, models: string[]): ReactNode {
   const ids = [...models].sort((a, b) => b.length - a.length);
   if (ids.length === 0) return text;
@@ -124,7 +127,7 @@ export function VerdictBanner({
   // Every gate the sentence needs, and each one for a failure it actually had:
   //
   //   verdict.detail is EMPTY — the verdict can be normal and still carry a
-  //   line ("mimo-v2.5 failed 1 of the last 12 runs, 8 minutes ago"), and the
+  //   line ("mimo-v2.6-flash failed 1 of the last 12 runs, 8 minutes ago"), and the
   //   headline then congratulated the endpoint directly above the run it lost.
   //   The sentence this replaced was gated on exactly that and the gate was
   //   dropped with it.

@@ -100,9 +100,9 @@ describe("TrendPlot", () => {
   it("draws the compared span and as much again, not the whole payload", () => {
     render(
       <TrendPlot
-        trend={trend([model("mimo-v2.5", 1800, 900)])}
+        trend={trend([model("mimo-v2.6-flash", 1800, 900)])}
         metric="ttft"
-        moves={[move("mimo-v2.5")]}
+        moves={[move("mimo-v2.6-flash")]}
       />,
     );
     const data = captured.option!.series[0]!.data;
@@ -119,10 +119,13 @@ describe("TrendPlot", () => {
     render(
       <TrendPlot
         trend={trend([
-          model("mimo-v2.5", 1800, 900, { agoS: 2 * 3600, value: 240_000 }),
+          model("mimo-v2.6-flash", 1800, 900, {
+            agoS: 2 * 3600,
+            value: 240_000,
+          }),
         ])}
         metric="ttft"
-        moves={[move("mimo-v2.5")]}
+        moves={[move("mimo-v2.6-flash")]}
       />,
     );
     expect(captured.option!.yAxis.type).toBe("log");
@@ -133,9 +136,9 @@ describe("TrendPlot", () => {
   it("stays linear, and unlabelled, when the hours are ordinary", () => {
     render(
       <TrendPlot
-        trend={trend([model("mimo-v2.5", 1800, 900)])}
+        trend={trend([model("mimo-v2.6-flash", 1800, 900)])}
         metric="ttft"
-        moves={[move("mimo-v2.5")]}
+        moves={[move("mimo-v2.6-flash")]}
       />,
     );
     expect(captured.option!.yAxis.type).toBe("value");
@@ -153,9 +156,9 @@ describe("TrendPlot", () => {
   it("marks the reference level once, and shades the compared span", () => {
     render(
       <TrendPlot
-        trend={trend([model("mimo-v2.5", 1800, 900)])}
+        trend={trend([model("mimo-v2.6-flash", 1800, 900)])}
         metric="ttft"
-        moves={[move("mimo-v2.5")]}
+        moves={[move("mimo-v2.6-flash")]}
       />,
     );
     expect(captured.option!.series[0]!.markLine!.data).toHaveLength(1);
@@ -169,9 +172,9 @@ describe("TrendPlot", () => {
   it("shades the span the sentence measured, not always the compared hours", () => {
     render(
       <TrendPlot
-        trend={trend([model("mimo-v2.5", 1800, 900)])}
+        trend={trend([model("mimo-v2.6-flash", 1800, 900)])}
         metric="ttft"
-        moves={[move("mimo-v2.5", 3600)]}
+        moves={[move("mimo-v2.6-flash", 3600)]}
         spanS={3600}
       />,
     );
@@ -193,9 +196,9 @@ describe("TrendPlot", () => {
   it("labels the line with the move's own figure", () => {
     render(
       <TrendPlot
-        trend={trend([model("mimo-v2.5", 1100, 900)])}
+        trend={trend([model("mimo-v2.6-flash", 1100, 900)])}
         metric="ttft"
-        moves={[move("mimo-v2.5", 3600)]}
+        moves={[move("mimo-v2.6-flash", 3600)]}
         spanS={3600}
       />,
     );

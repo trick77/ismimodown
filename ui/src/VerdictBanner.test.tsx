@@ -5,7 +5,7 @@ import type { ModelTrend, Trend } from "./api/types";
 import type { Verdict } from "./verdict";
 import { colorForModel } from "./charts/options";
 
-const MODELS = ["mimo-v2.5-pro", "mimo-v2.5"];
+const MODELS = ["mimo-v2.6-pro", "mimo-v2.6-flash"];
 
 // The plot renders to a canvas jsdom cannot exercise, so the wrapper is mocked
 // here as it is in every other panel test — what this file asserts is the
@@ -78,7 +78,7 @@ describe("VerdictBanner", () => {
     render(
       <VerdictBanner
         verdict={normal}
-        trend={trend([model("mimo-v2.5", [3400, 1800])])}
+        trend={trend([model("mimo-v2.6-flash", [3400, 1800])])}
         loading={false}
       />,
     );
@@ -98,10 +98,10 @@ describe("VerdictBanner", () => {
       <VerdictBanner
         verdict={{
           state: "degraded",
-          headline: "mimo-v2.5 is failing requests right now",
+          headline: "mimo-v2.6-flash is failing requests right now",
           detail: ["Nine of the last twenty came back as errors."],
         }}
-        trend={trend([model("mimo-v2.5", [3400, 1800])])}
+        trend={trend([model("mimo-v2.6-flash", [3400, 1800])])}
         loading={false}
       />,
     );
@@ -119,7 +119,7 @@ describe("VerdictBanner", () => {
     const { rerender } = render(
       <VerdictBanner
         verdict={normal}
-        trend={trend([model("mimo-v2.5", [3400, 1800])])}
+        trend={trend([model("mimo-v2.6-flash", [3400, 1800])])}
         loading={false}
       />,
     );
@@ -128,7 +128,7 @@ describe("VerdictBanner", () => {
     rerender(
       <VerdictBanner
         verdict={normal}
-        trend={trend([model("mimo-v2.5", [900, 900])])}
+        trend={trend([model("mimo-v2.6-flash", [900, 900])])}
         loading={false}
       />,
     );
@@ -148,7 +148,7 @@ describe("VerdictBanner", () => {
     render(
       <VerdictBanner
         verdict={normal}
-        trend={trend([model("mimo-v2.5", [500, 900])])}
+        trend={trend([model("mimo-v2.6-flash", [500, 900])])}
         loading={false}
       />,
     );
@@ -169,7 +169,7 @@ describe("VerdictBanner", () => {
     render(
       <VerdictBanner
         verdict={normal}
-        trend={trend([recoveredModel("mimo-v2.5", [2016, 954])], 900)}
+        trend={trend([recoveredModel("mimo-v2.6-flash", [2016, 954])], 900)}
         loading={false}
       />,
     );
@@ -195,18 +195,18 @@ describe("VerdictBanner", () => {
       <VerdictBanner
         verdict={normal}
         trend={trend([
-          model("mimo-v2.5", [900, 900]),
-          model("mimo-v2.5-pro", [3400, 1800]),
+          model("mimo-v2.6-flash", [900, 900]),
+          model("mimo-v2.6-pro", [3400, 1800]),
         ])}
         loading={false}
       />,
     );
     const plot = screen.getByTestId("trend-plot");
-    expect(plot).toHaveTextContent("mimo-v2.5-pro");
+    expect(plot).toHaveTextContent("mimo-v2.6-pro");
     // The steady model keeps its own legend entry off the plot. Matched on the
-    // whole label, since its id is a prefix of the one that did move.
+    // whole label, so a partial paint of the other ID cannot satisfy it.
     expect(
-      screen.queryByText("mimo-v2.5", { selector: "span" }),
+      screen.queryByText("mimo-v2.6-flash", { selector: "span" }),
     ).not.toBeInTheDocument();
   });
 
@@ -220,10 +220,10 @@ describe("VerdictBanner", () => {
       <VerdictBanner
         verdict={normal}
         trend={trend([
-          model("mimo-v2.5", [900, 900]),
-          model("mimo-v2.5-pro", [4000, 4000]),
+          model("mimo-v2.6-flash", [900, 900]),
+          model("mimo-v2.6-pro", [4000, 4000]),
         ])}
-        models={["mimo-v2.5-pro", "mimo-v2.5"]}
+        models={["mimo-v2.6-pro", "mimo-v2.6-flash"]}
         loading={false}
       />,
     );
@@ -241,8 +241,8 @@ describe("VerdictBanner", () => {
     render(
       <VerdictBanner
         verdict={normal}
-        trend={trend([model("mimo-v2.5", [2016, 954])])}
-        models={["mimo-v2.5"]}
+        trend={trend([model("mimo-v2.6-flash", [2016, 954])])}
+        models={["mimo-v2.6-flash"]}
         loading={false}
       />,
     );
@@ -260,7 +260,7 @@ describe("VerdictBanner", () => {
     render(
       <VerdictBanner
         verdict={normal}
-        trend={trend([model("mimo-v2.5", [900, 900])])}
+        trend={trend([model("mimo-v2.6-flash", [900, 900])])}
         loading={false}
       />,
     );
@@ -305,7 +305,7 @@ describe("VerdictBanner", () => {
     render(
       <VerdictBanner
         verdict={normal}
-        trend={trend([model("mimo-v2.5", [2016, 954])])}
+        trend={trend([model("mimo-v2.6-flash", [2016, 954])])}
         loading={false}
       />,
     );
@@ -333,10 +333,10 @@ describe("VerdictBanner", () => {
       <VerdictBanner
         verdict={{
           state: "degraded",
-          headline: "mimo-v2.5 is having problems right now",
+          headline: "mimo-v2.6-flash is having problems right now",
           detail: [],
         }}
-        trend={trend([model("mimo-v2.5", [1030, 1030])])}
+        trend={trend([model("mimo-v2.6-flash", [1030, 1030])])}
         loading={false}
       />,
     );
@@ -356,20 +356,46 @@ describe("VerdictBanner", () => {
       <VerdictBanner
         verdict={{
           state: "degraded",
-          headline: "mimo-v2.5-pro is having problems right now",
-          detail: ["mimo-v2.5's first token is fine."],
+          headline: "mimo-v2.6-pro is having problems right now",
+          detail: ["mimo-v2.6-flash's first token is fine."],
         }}
-        models={["mimo-v2.5-pro", "mimo-v2.5"]}
+        models={["mimo-v2.6-pro", "mimo-v2.6-flash"]}
         loading={false}
       />,
     );
-    const pro = screen.getByText("mimo-v2.5-pro");
-    const fast = screen.getByText("mimo-v2.5");
-    // Painted, and two different hues — the prefix must not swallow the suffix.
-    expect(pro).toHaveStyle({ color: colorForModel("mimo-v2.5-pro", MODELS) });
-    expect(fast).toHaveStyle({ color: colorForModel("mimo-v2.5", MODELS) });
+    const pro = screen.getByText("mimo-v2.6-pro");
+    const fast = screen.getByText("mimo-v2.6-flash");
+    // Painted, and two different hues — one ID must not swallow the other.
+    expect(pro).toHaveStyle({ color: colorForModel("mimo-v2.6-pro", MODELS) });
+    expect(fast).toHaveStyle({
+      color: colorForModel("mimo-v2.6-flash", MODELS),
+    });
     // The possessive stays prose: the match ends at the ID.
-    expect(fast).toHaveTextContent(/^mimo-v2\.5$/);
+    expect(fast).toHaveTextContent(/^mimo-v2\.6-flash$/);
+  });
+
+  // The current pair shares no prefix, so nothing above can fail if the
+  // longest-first sort in paintModels is deleted. The sort is kept for a future
+  // pair where one ID IS a prefix of the other, which is exactly the shape this
+  // synthetic pair has: matching the short one first would paint "mimo-x" and
+  // leave "-pro" sitting in body text.
+  it("paints a prefixed ID whole, not just its prefix", () => {
+    const pair = ["mimo-x", "mimo-x-pro"];
+    render(
+      <VerdictBanner
+        verdict={{
+          state: "degraded",
+          headline: "mimo-x-pro is having problems right now",
+          detail: [],
+        }}
+        models={pair}
+        trend={trend([model("mimo-x-pro", [3400, 1800])])}
+        loading={false}
+      />,
+    );
+    const painted = screen.getByText("mimo-x-pro");
+    expect(painted).toHaveTextContent(/^mimo-x-pro$/);
+    expect(painted).toHaveStyle({ color: colorForModel("mimo-x-pro", pair) });
   });
   // The clause is a claim about the run record too, not only about speed. A
   // verdict can be normal and still carry a line — one failed run inside the
@@ -382,14 +408,14 @@ describe("VerdictBanner", () => {
           state: "normal",
           headline: "Xiaomi MiMo is answering",
           detail: [
-            "mimo-v2.5 failed 1 of the last 12 runs, 8 minutes ago. One run is not yet a pattern.",
+            "mimo-v2.6-flash failed 1 of the last 12 runs, 8 minutes ago. One run is not yet a pattern.",
           ],
         }}
         trend={trend([
-          model("mimo-v2.5", [900, 900]),
-          model("mimo-v2.5-pro", [4000, 4000]),
+          model("mimo-v2.6-flash", [900, 900]),
+          model("mimo-v2.6-pro", [4000, 4000]),
         ])}
-        models={["mimo-v2.5-pro", "mimo-v2.5"]}
+        models={["mimo-v2.6-pro", "mimo-v2.6-flash"]}
         loading={false}
       />,
     );
@@ -405,7 +431,7 @@ describe("VerdictBanner", () => {
   // model whose spans are too thin produces no reading, and the other one was
   // left vouching for it.
   it("does not speak for a model the block could not measure", () => {
-    const unread = model("mimo-v2.5-pro", [4000, 4000]);
+    const unread = model("mimo-v2.6-pro", [4000, 4000]);
     unread.ttft.recent = {
       n: 4,
       sufficient: false,
@@ -415,8 +441,8 @@ describe("VerdictBanner", () => {
     render(
       <VerdictBanner
         verdict={normal}
-        trend={trend([model("mimo-v2.5", [900, 900]), unread])}
-        models={["mimo-v2.5-pro", "mimo-v2.5"]}
+        trend={trend([model("mimo-v2.6-flash", [900, 900]), unread])}
+        models={["mimo-v2.6-pro", "mimo-v2.6-flash"]}
         loading={false}
       />,
     );

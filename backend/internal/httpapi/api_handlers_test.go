@@ -23,7 +23,7 @@ func newAPIServer(t *testing.T) (http.Handler, *samples.Store) {
 	store := samples.New(db)
 	h := NewServer(Deps{
 		Version: "test", DB: db, Samples: store,
-		Models:         []string{"mimo-v2.5", "mimo-v2.5-pro"},
+		Models:         []string{"mimo-v2.6-flash", "mimo-v2.6-pro"},
 		ProbeUserAgent: testUserAgent,
 		Now:            func() time.Time { return testNow },
 	})
@@ -41,7 +41,7 @@ func seed(t *testing.T, store *samples.Store, n int, ttft float64) {
 				{Target: probe.TargetRefSGP, ConnectMs: 265, OK: true},
 			},
 			Infer: []probe.InferResult{{
-				ModelID: "mimo-v2.5", TTFTMs: ttft, TotalMs: ttft + 800, ITLP50Ms: 24, OutputTPS: 41,
+				ModelID: "mimo-v2.6-flash", TTFTMs: ttft, TotalMs: ttft + 800, ITLP50Ms: 24, OutputTPS: 41,
 				OK: true, AnswerOK: &yes, QuestionID: "capital-france",
 			}},
 		}); err != nil {
@@ -150,8 +150,8 @@ func TestSeriesIsBucketedAndPerModel(t *testing.T) {
 	if out.BucketS != 900 {
 		t.Errorf("bucket_s = %d, want 900 for a 24h window", out.BucketS)
 	}
-	if _, ok := out.Models["mimo-v2.5"]; !ok {
-		t.Errorf("series is missing mimo-v2.5: %v", out.Models)
+	if _, ok := out.Models["mimo-v2.6-flash"]; !ok {
+		t.Errorf("series is missing mimo-v2.6-flash: %v", out.Models)
 	}
 }
 
@@ -192,7 +192,7 @@ func TestNoPublicEndpointEmitsErrorDetail(t *testing.T) {
 			{Target: probe.TargetRefSGP, OK: true, ConnectMs: 265},
 		},
 		Infer: []probe.InferResult{{
-			ModelID: "mimo-v2.5", TotalMs: 500,
+			ModelID: "mimo-v2.6-flash", TotalMs: 500,
 			OK: false, ErrorClass: probe.ErrClassHTTP, ErrorDetail: secret,
 		}},
 	}); err != nil {
@@ -250,7 +250,7 @@ func TestRequestShapeIsNotServed(t *testing.T) {
 			{Target: probe.TargetRefSGP, OK: true, ConnectMs: 265},
 		},
 		Infer: []probe.InferResult{{
-			ModelID: "mimo-v2.5", TTFTMs: 900,
+			ModelID: "mimo-v2.6-flash", TTFTMs: 900,
 			OK: true, QuestionID: "capital-france",
 		}},
 	}); err != nil {
@@ -266,7 +266,7 @@ func TestRequestShapeIsNotServed(t *testing.T) {
 			{Target: probe.TargetRefSGP, OK: true, ConnectMs: 265},
 		},
 		Infer: []probe.InferResult{{
-			ModelID: "mimo-v2.5", OK: false, ErrorClass: probe.ErrClassHTTP, HTTPStatus: 500,
+			ModelID: "mimo-v2.6-flash", OK: false, ErrorClass: probe.ErrClassHTTP, HTTPStatus: 500,
 			ErrorDetail: "upstream unavailable", QuestionID: "capital-france",
 		}},
 	}); err != nil {
@@ -305,7 +305,7 @@ func TestErrorClassIsServedEvenThoughDetailIsNot(t *testing.T) {
 			{Target: probe.TargetRefSGP, OK: true, ConnectMs: 265},
 		},
 		Infer: []probe.InferResult{{
-			ModelID: "mimo-v2.5", TotalMs: 240000,
+			ModelID: "mimo-v2.6-flash", TotalMs: 240000,
 			OK: false, ErrorClass: probe.ErrClassTimeout, ErrorDetail: "internal detail",
 		}},
 	}); err != nil {
@@ -328,7 +328,7 @@ func TestRateLimitReturns429PastTheBurst(t *testing.T) {
 	db := openTestDB(t)
 	h := NewServer(Deps{
 		DB: db, Samples: samples.New(db),
-		Models:  []string{"mimo-v2.5"},
+		Models:  []string{"mimo-v2.6-flash"},
 		Limiter: ratelimit.New(0.0001, 3), // 3 burst, effectively no refill
 		Now:     func() time.Time { return testNow },
 	})
@@ -355,7 +355,7 @@ func TestHealthzIsNotRateLimited(t *testing.T) {
 	db := openTestDB(t)
 	h := NewServer(Deps{
 		DB: db, Samples: samples.New(db),
-		Models:  []string{"mimo-v2.5"},
+		Models:  []string{"mimo-v2.6-flash"},
 		Limiter: ratelimit.New(0.0001, 1),
 		Now:     func() time.Time { return testNow },
 	})
@@ -413,7 +413,7 @@ func TestPulseEndpointServesTheNarrowShape(t *testing.T) {
 		t.Fatal("no pulse groups")
 	}
 	out := groups[0]
-	if out.ModelID != "mimo-v2.5" {
+	if out.ModelID != "mimo-v2.6-flash" {
 		t.Errorf("model_id = %q", out.ModelID)
 	}
 	if len(out.Cycles) != 30 {
@@ -489,8 +489,8 @@ func TestSummaryRecentBlockCarriesFaultAndRuns(t *testing.T) {
 	if out.Recent[0].Fault != probe.FaultOK {
 		t.Errorf("fault = %q, want %q", out.Recent[0].Fault, probe.FaultOK)
 	}
-	if run, ok := out.Recent[0].Models["mimo-v2.5"]; !ok || !run.OK {
-		t.Errorf("models = %v, want a successful mimo-v2.5 run", out.Recent[0].Models)
+	if run, ok := out.Recent[0].Models["mimo-v2.6-flash"]; !ok || !run.OK {
+		t.Errorf("models = %v, want a successful mimo-v2.6-flash run", out.Recent[0].Models)
 	}
 }
 
@@ -508,7 +508,7 @@ func seedCost(t *testing.T, store *samples.Store, n int) {
 				{Target: probe.TargetRefSGP, ConnectMs: 265, OK: true},
 			},
 			Infer: []probe.InferResult{{
-				ModelID: "mimo-v2.5", TTFTMs: 900, TotalMs: 1700, ITLP50Ms: 24, OutputTPS: 41,
+				ModelID: "mimo-v2.6-flash", TTFTMs: 900, TotalMs: 1700, ITLP50Ms: 24, OutputTPS: 41,
 				Usage: probe.TokenUsage{PromptTokens: 1000, CompletionTokens: 200},
 				OK:    true, AnswerOK: &yes, QuestionID: "capital-france",
 			}},
@@ -539,8 +539,8 @@ func TestCostEndpointServesTheWholePanel(t *testing.T) {
 	store := samples.New(db)
 	h := NewServer(Deps{
 		Version: "test", DB: db, Samples: store,
-		Models: []string{"mimo-v2.5"},
-		Prices: map[string]config.ModelPrice{"mimo-v2.5": {In: 1, Out: 10}},
+		Models: []string{"mimo-v2.6-flash"},
+		Prices: map[string]config.ModelPrice{"mimo-v2.6-flash": {In: 1, Out: 10}},
 		Now:    func() time.Time { return testNow },
 	})
 	seedCost(t, store, 3)
@@ -559,7 +559,7 @@ func TestCostEndpointServesTheWholePanel(t *testing.T) {
 	}
 	// The price table is published so a total can be checked rather than
 	// trusted.
-	if got.Prices["mimo-v2.5"].Out != 10 {
+	if got.Prices["mimo-v2.6-flash"].Out != 10 {
 		t.Errorf("prices = %+v, want the table that produced the figures", got.Prices)
 	}
 }

@@ -40,7 +40,7 @@ func bannedServer(t *testing.T) http.Handler {
 		Version: "test",
 		DB:      db,
 		Samples: samples.New(db),
-		Models:  []string{"mimo-v2.5"},
+		Models:  []string{"mimo-v2.6-flash"},
 		Ban:     ban.New(48*time.Hour, 100),
 	})
 }
@@ -246,7 +246,7 @@ func TestRepeatExploitPathResetsTheFullTerm(t *testing.T) {
 	db := openTestDB(t)
 	h := NewServer(Deps{
 		Version: "test", DB: db, Samples: samples.New(db),
-		Models: []string{"mimo-v2.5"}, Ban: store,
+		Models: []string{"mimo-v2.6-flash"}, Ban: store,
 	})
 
 	getFrom(t, h, "/.env", "9.9.9.9")
@@ -286,7 +286,7 @@ func TestOrdinaryRequestsFromABannedCallerDoNotRenewTheBan(t *testing.T) {
 	db := openTestDB(t)
 	h := NewServer(Deps{
 		Version: "test", DB: db, Samples: samples.New(db),
-		Models: []string{"mimo-v2.5"}, Ban: store,
+		Models: []string{"mimo-v2.6-flash"}, Ban: store,
 	})
 
 	getFrom(t, h, "/.env", "9.9.9.9")
