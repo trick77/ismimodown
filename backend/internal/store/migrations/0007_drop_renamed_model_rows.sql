@@ -1,45 +1,60 @@
--- Delete the probe rows belonging to the superseded model IDs.
+-- Delete every cycle measured against the superseded model IDs.
 --
--- The probed pair was renamed in config.DefaultModels. Retention keeps rows for
--- three months, so without this the old IDs sit in the table for that long, and
--- Cost() prices them at the ModelPrice ZERO VALUE: `price := prices[r.modelID]`
--- is a bare map read with no miss check, and DefaultPrices is keyed by the new
--- IDs only. The 7d and 30d cost windows would collapse toward $0 while
--- total.USD stays non-nil and the panel still presents itself as complete — a
--- wrong figure, published silently, on a public page. samples/cost.go documents
--- exactly this and says what to do about it: "If a model is ever renamed,
--- delete or remap its rows."
+-- The probed pair was renamed in config.DefaultModels, and the database must
+-- not end up serving one generation's readings beside the other's.
 --
--- DELETED, not remapped, and the distinction is the same one 0006 drew. A
--- remap would relabel one model's measurements as another's: these rows are a
--- different model's latency, throughput and correctness, and the two are
--- different weight classes on a different serving stack. Every published
--- percentile that swallowed them would be an average over two models wearing
--- one name, and nothing in the schema would say so. The same reasoning is why
--- the comments in scheduler.go and probe/types.go keep the ID they were
--- measured on.
+-- The cost figures are what forces the issue. Retention keeps rows for three
+-- months, and Cost() prices them at the ModelPrice ZERO VALUE once the list
+-- moves on: `price := prices[r.modelID]` is a bare map read with no miss check,
+-- and DefaultPrices is keyed by the new IDs only. The 7d and 30d windows would
+-- collapse toward $0 while total.USD stays non-nil and the panel still presents
+-- itself as complete — a wrong figure, published silently, on a public page.
+-- samples/cost.go documents this and says what to do: "If a model is ever
+-- renamed, delete or remap its rows."
 --
--- So this is destructive and deliberate: three months of latency, availability
--- and correctness history for the superseded pair goes with the cost figures.
+-- DELETED, not remapped, and the distinction is the same one 0006 drew. A remap
+-- would relabel one model's measurements as another's: these are a different
+-- model's latency, throughput and correctness, on a different weight class and
+-- a different serving stack. Every published percentile that swallowed them
+-- would be an average over two models wearing one name, with nothing in the
+-- schema to say so. It is why the comments in scheduler.go and probe/types.go
+-- keep the ID they were measured on.
+--
+-- WHOLE CYCLES, not just the infer rows, and this is the wider half. Deleting
+-- the model rows alone would leave the cycle and its net_probes standing, so
+-- the ping charts would keep three months of pre-rename history while every
+-- latency chart beside them started empty — two different spans presented as
+-- one page. The network readings are not a model's measurement, but they were
+-- taken to be SUBTRACTED from one: the whole two-probe design is the pairing,
+-- and a cycle whose inference half is gone cannot support it. Drop the pairing
+-- whole rather than keep the half that no longer measures anything.
+--
+-- net_probes, infer_probes and cycle_fault all carry
+-- `REFERENCES cycles (id) ON DELETE CASCADE`, and store.Open sets
+-- `_pragma=foreign_keys(on)`, so the cascade fires and this one statement takes
+-- all four tables. Nothing REFERENCES cycles from outside them.
+--
+-- So this is destructive and deliberate: three months of latency, availability,
+-- correctness AND network history for the superseded pair goes at once.
 -- Retention would have deleted it on a rolling window anyway; this is the same
--- deletion, taken at once rather than over three months, and taken because
--- leaving it in publishes a wrong number in the meantime. Take a backup first —
--- see DEPLOY.md — because nothing here is reversible.
+-- deletion, taken deliberately and at once, and taken because leaving it in
+-- publishes a wrong number in the meantime. Take a backup first — see
+-- DEPLOY.md — because nothing here is reversible.
 --
 -- A plain DELETE, not a rebuild: 0003, 0004 and 0006 rebuilt the table because
 -- they changed its shape, and nothing here does. `id` is untouched, so the
 -- (started_at, id) tie-break RecentSamples orders by is unaffected.
 --
--- infer_probes is a child of cycles and a parent of nothing, so deleting rows
--- REFERENCES nothing and cascades nowhere. The cycles themselves are left
--- alone: they carry the network readings, which are not a model's measurement
--- and stay valid — the ping pair is what the subtraction and the fault
--- attribution are built on, and a cycle with no infer rows is already an
--- ordinary shape after a failed dispatch.
---
--- Matched with a LIKE on the retired prefix rather than two equality tests: the
--- pair being retired is mimo-v2.5 and mimo-v2.5-pro, and the prefix covers both
+-- Selected by the cycles that carry a retired row rather than by a date: there
+-- is no deploy timestamp available here, and the model ID is the fact that
+-- actually distinguishes the two generations. A cycle written after this
+-- migration cannot match, because no retired ID is ever written again. Matched
+-- with a LIKE on the retired prefix rather than two equality tests: the pair
+-- being retired is mimo-v2.5 and mimo-v2.5-pro, and the prefix covers both
 -- without this file having to name a bare ID that is also a prefix of the
 -- other. No current or future configured ID shares it.
 
-DELETE FROM infer_probes WHERE model_id LIKE 'mimo-v2.5%';
+DELETE FROM cycles
+WHERE id IN (
+  SELECT cycle_id FROM infer_probes WHERE model_id LIKE 'mimo-v2.5%'
+);
