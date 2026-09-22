@@ -401,3 +401,103 @@ func TestDropWideMigrationKeepsShortRowsAndDiscardsWide(t *testing.T) {
 		}
 	}
 }
+
+// Bulk rows for the same reason as the tests above: a mistyped WHERE deletes
+// either nothing or everything, and a handful of hand-written rows can survive
+// a filter that a month of real ones would not.
+func TestDropRenamedModelRowsKeepsTheConfiguredPair(t *testing.T) {
+	db, err := Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer db.Close()
+
+	migrateUpTo(t, db, "0007")
+
+	if _, err := db.Exec(
+		`INSERT INTO cycles (id, started_at) VALUES (1, '2026-09-20T06:00:00Z')`); err != nil {
+		t.Fatalf("seed cycle: %v", err)
+	}
+	// Explicit ids first, so the bulk rows cannot claim them. Both retired IDs,
+	// and both configured ones — the retired short ID is a PREFIX of the retired
+	// long one, which is what the LIKE has to cover without also reaching the
+	// pair that replaced them.
+	for _, q := range []string{
+		`INSERT INTO infer_probes (id, cycle_id, model_id, ttft_ms, ok)
+		 VALUES (11, 1, 'mimo-v2.5', 900.0, 1)`,
+		`INSERT INTO infer_probes (id, cycle_id, model_id, ttft_ms, ok)
+		 VALUES (12, 1, 'mimo-v2.5-pro', 1600.0, 1)`,
+		`INSERT INTO infer_probes (id, cycle_id, model_id, ttft_ms, ok)
+		 VALUES (13, 1, 'mimo-v2.6-flash', 910.0, 1)`,
+		`INSERT INTO infer_probes (id, cycle_id, model_id, ttft_ms, ok)
+		 VALUES (14, 1, 'mimo-v2.6-pro', 1580.0, 1)`,
+	} {
+		if _, err := db.Exec(q); err != nil {
+			t.Fatalf("seed pre-delete row: %v", err)
+		}
+	}
+	const retiredBulk, currentBulk = 3000, 2000
+	tx, err := db.Begin()
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	for i := 0; i < retiredBulk; i++ {
+		if _, err := tx.Exec(
+			`INSERT INTO infer_probes (cycle_id, model_id, ttft_ms, ok)
+			 VALUES (1, 'mimo-v2.5', 900.0, 1)`); err != nil {
+			t.Fatalf("seed bulk retired %d: %v", i, err)
+		}
+	}
+	for i := 0; i < currentBulk; i++ {
+		if _, err := tx.Exec(
+			`INSERT INTO infer_probes (cycle_id, model_id, ttft_ms, ok)
+			 VALUES (1, 'mimo-v2.6-flash', 910.0, 1)`); err != nil {
+			t.Fatalf("seed bulk current %d: %v", i, err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("commit bulk: %v", err)
+	}
+
+	if err := Migrate(db); err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
+
+	var retired int
+	if err := db.QueryRow(
+		`SELECT count(*) FROM infer_probes WHERE model_id LIKE 'mimo-v2.5%'`).Scan(&retired); err != nil {
+		t.Fatalf("count retired: %v", err)
+	}
+	if retired != 0 {
+		t.Errorf("retired rows left = %d, want 0", retired)
+	}
+
+	// The configured pair is untouched, counted per ID: a LIKE that reached one
+	// of them would still leave the other behind and pass a bare total.
+	for _, want := range []struct {
+		modelID string
+		n       int
+	}{
+		{"mimo-v2.6-flash", currentBulk + 1},
+		{"mimo-v2.6-pro", 1},
+	} {
+		var got int
+		if err := db.QueryRow(
+			`SELECT count(*) FROM infer_probes WHERE model_id = ?`, want.modelID).Scan(&got); err != nil {
+			t.Fatalf("count %s: %v", want.modelID, err)
+		}
+		if got != want.n {
+			t.Errorf("%s rows = %d, want %d", want.modelID, got, want.n)
+		}
+	}
+
+	// The cycle carries the network readings, which are not a model's
+	// measurement and stay valid.
+	var cycles int
+	if err := db.QueryRow(`SELECT count(*) FROM cycles`).Scan(&cycles); err != nil {
+		t.Fatalf("count cycles: %v", err)
+	}
+	if cycles != 1 {
+		t.Errorf("cycles = %d, want 1 — the delete cascaded", cycles)
+	}
+}

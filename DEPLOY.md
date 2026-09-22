@@ -223,6 +223,13 @@ rows it distinguished — see that migration for why the measurement they served
 could not be supported. **0006 deletes data and there is no way back.** Take the
 backup below before deploying a build that carries it.
 
+Migration 0007 deletes the probe rows belonging to the superseded model IDs,
+for the same reason and with the same finality. Those rows price at zero once
+the model list moves on, so leaving them in understates every cost window that
+still reaches them; deleting them takes their latency, availability and
+correctness history with it. **0007 deletes data and there is no way back.**
+The same backup covers it.
+
 An older binary on a migrated database boots clean — the migration is already
 recorded — and then stores nothing at all, because its INSERT names a column
 that no longer exists. A cycle is written in ONE transaction, so that failure

@@ -1,0 +1,45 @@
+-- Delete the probe rows belonging to the superseded model IDs.
+--
+-- The probed pair was renamed in config.DefaultModels. Retention keeps rows for
+-- three months, so without this the old IDs sit in the table for that long, and
+-- Cost() prices them at the ModelPrice ZERO VALUE: `price := prices[r.modelID]`
+-- is a bare map read with no miss check, and DefaultPrices is keyed by the new
+-- IDs only. The 7d and 30d cost windows would collapse toward $0 while
+-- total.USD stays non-nil and the panel still presents itself as complete — a
+-- wrong figure, published silently, on a public page. samples/cost.go documents
+-- exactly this and says what to do about it: "If a model is ever renamed,
+-- delete or remap its rows."
+--
+-- DELETED, not remapped, and the distinction is the same one 0006 drew. A
+-- remap would relabel one model's measurements as another's: these rows are a
+-- different model's latency, throughput and correctness, and the two are
+-- different weight classes on a different serving stack. Every published
+-- percentile that swallowed them would be an average over two models wearing
+-- one name, and nothing in the schema would say so. The same reasoning is why
+-- the comments in scheduler.go and probe/types.go keep the ID they were
+-- measured on.
+--
+-- So this is destructive and deliberate: three months of latency, availability
+-- and correctness history for the superseded pair goes with the cost figures.
+-- Retention would have deleted it on a rolling window anyway; this is the same
+-- deletion, taken at once rather than over three months, and taken because
+-- leaving it in publishes a wrong number in the meantime. Take a backup first —
+-- see DEPLOY.md — because nothing here is reversible.
+--
+-- A plain DELETE, not a rebuild: 0003, 0004 and 0006 rebuilt the table because
+-- they changed its shape, and nothing here does. `id` is untouched, so the
+-- (started_at, id) tie-break RecentSamples orders by is unaffected.
+--
+-- infer_probes is a child of cycles and a parent of nothing, so deleting rows
+-- REFERENCES nothing and cascades nowhere. The cycles themselves are left
+-- alone: they carry the network readings, which are not a model's measurement
+-- and stay valid — the ping pair is what the subtraction and the fault
+-- attribution are built on, and a cycle with no infer rows is already an
+-- ordinary shape after a failed dispatch.
+--
+-- Matched with a LIKE on the retired prefix rather than two equality tests: the
+-- pair being retired is mimo-v2.5 and mimo-v2.5-pro, and the prefix covers both
+-- without this file having to name a bare ID that is also a prefix of the
+-- other. No current or future configured ID shares it.
+
+DELETE FROM infer_probes WHERE model_id LIKE 'mimo-v2.5%';
