@@ -166,10 +166,10 @@ func TestRenameMigrationRewritesExistingRows(t *testing.T) {
 	}
 	// Explicit ids first, so the bulk rows below cannot claim them.
 	for _, q := range []string{
-		`INSERT INTO infer_probes (id, cycle_id, model_id, probe, ttft_ms, ok, answer_ok) VALUES (7, 1, 'mimo-v2.5', 'infer', 912.0, 1, 1)`,
-		`INSERT INTO infer_probes (id, cycle_id, model_id, probe, ttft_ms, ok) VALUES (8, 1, 'mimo-v2.5', 'wide', 1543.0, 1)`,
-		`INSERT INTO skipped_runs (occurred_at, model_id, probe) VALUES ('2026-08-04T06:00:00Z', 'mimo-v2.5', 'infer')`,
-		`INSERT INTO skipped_runs (occurred_at, model_id, probe) VALUES ('2026-08-04T06:05:00Z', 'mimo-v2.5', 'wide')`,
+		`INSERT INTO infer_probes (id, cycle_id, model_id, probe, ttft_ms, ok, answer_ok) VALUES (7, 1, 'mimo-v2.6-flash', 'infer', 912.0, 1, 1)`,
+		`INSERT INTO infer_probes (id, cycle_id, model_id, probe, ttft_ms, ok) VALUES (8, 1, 'mimo-v2.6-flash', 'wide', 1543.0, 1)`,
+		`INSERT INTO skipped_runs (occurred_at, model_id, probe) VALUES ('2026-08-04T06:00:00Z', 'mimo-v2.6-flash', 'infer')`,
+		`INSERT INTO skipped_runs (occurred_at, model_id, probe) VALUES ('2026-08-04T06:05:00Z', 'mimo-v2.6-flash', 'wide')`,
 	} {
 		if _, err := db.Exec(q); err != nil {
 			t.Fatalf("seed pre-rename row: %v", err)
@@ -186,7 +186,7 @@ func TestRenameMigrationRewritesExistingRows(t *testing.T) {
 	}
 	for i := 0; i < bulk; i++ {
 		if _, err := tx.Exec(
-			`INSERT INTO infer_probes (cycle_id, model_id, probe, ttft_ms, ok) VALUES (1, 'mimo-v2.5', 'infer', 900.0, 1)`,
+			`INSERT INTO infer_probes (cycle_id, model_id, probe, ttft_ms, ok) VALUES (1, 'mimo-v2.6-flash', 'infer', 900.0, 1)`,
 		); err != nil {
 			t.Fatalf("seed bulk row %d: %v", i, err)
 		}
@@ -255,14 +255,14 @@ func TestRenameMigrationRewritesExistingRows(t *testing.T) {
 
 	// The constraint moved with the data: the old name is now rejected.
 	if _, err := db.Exec(
-		`INSERT INTO infer_probes (cycle_id, model_id, probe, ok) VALUES (1, 'mimo-v2.5', 'infer', 1)`,
+		`INSERT INTO infer_probes (cycle_id, model_id, probe, ok) VALUES (1, 'mimo-v2.6-flash', 'infer', 1)`,
 	); err == nil {
 		t.Error("expected a CHECK violation inserting the pre-rename probe name")
 	}
 	// And the new one is accepted — a CHECK rejecting everything would also
 	// satisfy the assertion above.
 	if _, err := db.Exec(
-		`INSERT INTO infer_probes (cycle_id, model_id, probe, ok) VALUES (1, 'mimo-v2.5', 'short', 1)`,
+		`INSERT INTO infer_probes (cycle_id, model_id, probe, ok) VALUES (1, 'mimo-v2.6-flash', 'short', 1)`,
 	); err != nil {
 		t.Errorf("inserting the current probe name failed: %v", err)
 	}
@@ -322,10 +322,10 @@ func TestDropWideMigrationKeepsShortRowsAndDiscardsWide(t *testing.T) {
 		    itl_p95_ms, output_tps, prompt_tokens, output_tokens, cached_tokens,
 		    reasoning_tokens, question_id, ok, answer_ok, http_status, error_class,
 		    error_detail)
-		 VALUES (7, 1, 'mimo-v2.5', 'short', 912.0, 913.0, 1700.0, 24.0, 30.0, 41.0,
+		 VALUES (7, 1, 'mimo-v2.6-flash', 'short', 912.0, 913.0, 1700.0, 24.0, 30.0, 41.0,
 		         34, 59, 0, 0, 'capital-france', 1, 1, 200, NULL, NULL)`,
 		`INSERT INTO infer_probes (id, cycle_id, model_id, probe, ttft_ms, ok)
-		 VALUES (8, 1, 'mimo-v2.5', 'wide', 2939.0, 1)`,
+		 VALUES (8, 1, 'mimo-v2.6-flash', 'wide', 2939.0, 1)`,
 	} {
 		if _, err := db.Exec(q); err != nil {
 			t.Fatalf("seed pre-drop row: %v", err)
@@ -339,14 +339,14 @@ func TestDropWideMigrationKeepsShortRowsAndDiscardsWide(t *testing.T) {
 	for i := 0; i < shortBulk; i++ {
 		if _, err := tx.Exec(
 			`INSERT INTO infer_probes (cycle_id, model_id, probe, ttft_ms, ok)
-			 VALUES (1, 'mimo-v2.5', 'short', 900.0, 1)`); err != nil {
+			 VALUES (1, 'mimo-v2.6-flash', 'short', 900.0, 1)`); err != nil {
 			t.Fatalf("seed bulk short %d: %v", i, err)
 		}
 	}
 	for i := 0; i < wideBulk; i++ {
 		if _, err := tx.Exec(
 			`INSERT INTO infer_probes (cycle_id, model_id, probe, ttft_ms, ok)
-			 VALUES (1, 'mimo-v2.5', 'wide', 2900.0, 1)`); err != nil {
+			 VALUES (1, 'mimo-v2.6-flash', 'wide', 2900.0, 1)`); err != nil {
 			t.Fatalf("seed bulk wide %d: %v", i, err)
 		}
 	}

@@ -525,8 +525,8 @@ func TestLoadCarriesTheShippedTable(t *testing.T) {
 // figure on a public page.
 func TestDefaultPricesMatchTheirSource(t *testing.T) {
 	want := map[string]ModelPrice{
-		"mimo-v2.5":     {In: 0.40, Out: 2.00, Cached: 0.08},
-		"mimo-v2.5-pro": {In: 1.00, Out: 3.00, Cached: 0.20},
+		"mimo-v2.6-flash": {In: 0.40, Out: 2.00, Cached: 0.08},
+		"mimo-v2.6-pro":   {In: 1.00, Out: 3.00, Cached: 0.20},
 	}
 	for model, price := range want {
 		if got := DefaultPrices[model]; got != price {
@@ -549,8 +549,8 @@ func TestLoadDoesNotHandOutThePackageLevelDefaults(t *testing.T) {
 		t.Fatalf("Load: %v", err)
 	}
 
-	cfg.Prices["mimo-v2.5"] = ModelPrice{In: 999}
-	if DefaultPrices["mimo-v2.5"].In == 999 {
+	cfg.Prices["mimo-v2.6-flash"] = ModelPrice{In: 999}
+	if DefaultPrices["mimo-v2.6-flash"].In == 999 {
 		t.Error("Load returned the package-level price map; a caller can rewrite the prices")
 	}
 

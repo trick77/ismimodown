@@ -34,9 +34,9 @@ func TestPercentileSuppressionBoundary(t *testing.T) {
 
 	t.Run("19 samples is insufficient", func(t *testing.T) {
 		s := New(openTestDB(t))
-		seedCycles(t, s, "mimo-v2.5", now, 19, 900)
+		seedCycles(t, s, "mimo-v2.6-flash", now, 19, 900)
 
-		st, err := s.stats(context.Background(), "ttft_ms", "mimo-v2.5", now.Add(-w.Duration))
+		st, err := s.stats(context.Background(), "ttft_ms", "mimo-v2.6-flash", now.Add(-w.Duration))
 		if err != nil {
 			t.Fatalf("stats: %v", err)
 		}
@@ -53,9 +53,9 @@ func TestPercentileSuppressionBoundary(t *testing.T) {
 
 	t.Run("20 samples is sufficient", func(t *testing.T) {
 		s := New(openTestDB(t))
-		seedCycles(t, s, "mimo-v2.5", now, 20, 900)
+		seedCycles(t, s, "mimo-v2.6-flash", now, 20, 900)
 
-		st, err := s.stats(context.Background(), "ttft_ms", "mimo-v2.5", now.Add(-w.Duration))
+		st, err := s.stats(context.Background(), "ttft_ms", "mimo-v2.6-flash", now.Add(-w.Duration))
 		if err != nil {
 			t.Fatalf("stats: %v", err)
 		}
@@ -76,18 +76,18 @@ func TestFailedRunsAreExcludedFromPercentilesButCountedInAvailability(t *testing
 	now := time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC)
 	ctx := context.Background()
 
-	seedCycles(t, s, "mimo-v2.5", now, 19, 900)
+	seedCycles(t, s, "mimo-v2.6-flash", now, 19, 900)
 	if _, err := s.Save(ctx, Cycle{
 		StartedAt: now.Add(-30 * time.Second), Net: okNet(),
 		Infer: []probe.InferResult{{
-			ModelID: "mimo-v2.5", TotalMs: 240000, OK: false, ErrorClass: probe.ErrClassTimeout,
+			ModelID: "mimo-v2.6-flash", TotalMs: 240000, OK: false, ErrorClass: probe.ErrClassTimeout,
 		}},
 	}); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
 
 	w, _ := LookupWindow("24h")
-	sum, err := s.Summarize(ctx, w, []string{"mimo-v2.5"}, now)
+	sum, err := s.Summarize(ctx, w, []string{"mimo-v2.6-flash"}, now)
 	if err != nil {
 		t.Fatalf("Summarize: %v", err)
 	}
@@ -120,18 +120,18 @@ func TestPercentilesAreNearestRank(t *testing.T) {
 	// the top 5% is one sample, and nearest-rank names the 19th rather than the
 	// 20th. That is the correct definition, and asserting it here pins the
 	// integer-ceiling arithmetic in the SQL, which truncates by default.
-	seedCycles(t, s, "mimo-v2.5", now, 18, 100)
+	seedCycles(t, s, "mimo-v2.6-flash", now, 18, 100)
 	for i, ttft := range []float64{4000, 5000} {
 		if _, err := s.Save(ctx, Cycle{
 			StartedAt: now.Add(-time.Duration(20-i) * time.Second), Net: okNet(),
-			Infer: []probe.InferResult{okInfer("mimo-v2.5", ttft)},
+			Infer: []probe.InferResult{okInfer("mimo-v2.6-flash", ttft)},
 		}); err != nil {
 			t.Fatalf("Save: %v", err)
 		}
 	}
 
 	w, _ := LookupWindow("24h")
-	st, err := s.stats(ctx, "ttft_ms", "mimo-v2.5", now.Add(-w.Duration))
+	st, err := s.stats(ctx, "ttft_ms", "mimo-v2.6-flash", now.Add(-w.Duration))
 	if err != nil {
 		t.Fatalf("stats: %v", err)
 	}
@@ -198,11 +198,11 @@ func TestSeriesColumnAllowList(t *testing.T) {
 		"error_detail",
 		"",
 	} {
-		if _, err := s.Series(context.Background(), bad, "mimo-v2.5", w, time.Now()); err == nil {
+		if _, err := s.Series(context.Background(), bad, "mimo-v2.6-flash", w, time.Now()); err == nil {
 			t.Errorf("column %q must be rejected", bad)
 		}
 	}
-	if _, err := s.Series(context.Background(), "ttft_ms", "mimo-v2.5", w, time.Now()); err != nil {
+	if _, err := s.Series(context.Background(), "ttft_ms", "mimo-v2.6-flash", w, time.Now()); err != nil {
 		t.Errorf("a valid column must be accepted: %v", err)
 	}
 }
@@ -210,10 +210,10 @@ func TestSeriesColumnAllowList(t *testing.T) {
 func TestSeriesBucketsByWindow(t *testing.T) {
 	s := New(openTestDB(t))
 	now := time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC)
-	seedCycles(t, s, "mimo-v2.5", now, 60, 900)
+	seedCycles(t, s, "mimo-v2.6-flash", now, 60, 900)
 
 	w, _ := LookupWindow("24h") // 15-minute buckets
-	pts, err := s.Series(context.Background(), "ttft_ms", "mimo-v2.5", w, now)
+	pts, err := s.Series(context.Background(), "ttft_ms", "mimo-v2.6-flash", w, now)
 	if err != nil {
 		t.Fatalf("Series: %v", err)
 	}
@@ -241,9 +241,9 @@ func TestSeriesBucketsByWindow(t *testing.T) {
 func TestRecentSamplesClampsTheLimit(t *testing.T) {
 	s := New(openTestDB(t))
 	now := time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC)
-	seedCycles(t, s, "mimo-v2.5", now, 30, 900)
+	seedCycles(t, s, "mimo-v2.6-flash", now, 30, 900)
 
-	rows, err := s.RecentSamples(context.Background(), "mimo-v2.5", 999999)
+	rows, err := s.RecentSamples(context.Background(), "mimo-v2.6-flash", 999999)
 	if err != nil {
 		t.Fatalf("RecentSamples: %v", err)
 	}
@@ -270,20 +270,20 @@ func TestRecentSamplesServesOutputTokens(t *testing.T) {
 
 	if _, err := s.Save(ctx, Cycle{
 		StartedAt: now.Add(-2 * time.Minute), Net: okNet(),
-		Infer: []probe.InferResult{okInfer("mimo-v2.5", 900)},
+		Infer: []probe.InferResult{okInfer("mimo-v2.6-flash", 900)},
 	}); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
 	if _, err := s.Save(ctx, Cycle{
 		StartedAt: now.Add(-time.Minute), Net: okNet(),
 		Infer: []probe.InferResult{{
-			ModelID: "mimo-v2.5", OK: false, ErrorClass: probe.ErrClassHTTP,
+			ModelID: "mimo-v2.6-flash", OK: false, ErrorClass: probe.ErrClassHTTP,
 		}},
 	}); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
 
-	rows, err := s.RecentSamples(ctx, "mimo-v2.5", 10)
+	rows, err := s.RecentSamples(ctx, "mimo-v2.6-flash", 10)
 	if err != nil {
 		t.Fatalf("RecentSamples: %v", err)
 	}
@@ -316,20 +316,20 @@ func TestRecentSamplesServesPromptTokens(t *testing.T) {
 
 	if _, err := s.Save(ctx, Cycle{
 		StartedAt: now.Add(-2 * time.Minute), Net: okNet(),
-		Infer: []probe.InferResult{okInfer("mimo-v2.5", 900)},
+		Infer: []probe.InferResult{okInfer("mimo-v2.6-flash", 900)},
 	}); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
 	if _, err := s.Save(ctx, Cycle{
 		StartedAt: now.Add(-time.Minute), Net: okNet(),
 		Infer: []probe.InferResult{{
-			ModelID: "mimo-v2.5", OK: false, ErrorClass: probe.ErrClassHTTP,
+			ModelID: "mimo-v2.6-flash", OK: false, ErrorClass: probe.ErrClassHTTP,
 		}},
 	}); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
 
-	rows, err := s.RecentSamples(ctx, "mimo-v2.5", 10)
+	rows, err := s.RecentSamples(ctx, "mimo-v2.6-flash", 10)
 	if err != nil {
 		t.Fatalf("RecentSamples: %v", err)
 	}
@@ -357,7 +357,7 @@ func TestSampleTypeCannotCarryErrorDetail(t *testing.T) {
 	if _, err := s.Save(context.Background(), Cycle{
 		StartedAt: now.Add(-time.Minute), Net: okNet(),
 		Infer: []probe.InferResult{{
-			ModelID: "mimo-v2.5", TotalMs: 100,
+			ModelID: "mimo-v2.6-flash", TotalMs: 100,
 			OK: false, ErrorClass: probe.ErrClassHTTP,
 			ErrorDetail: "SECRET-PROVIDER-BODY-tp-key-fragment",
 		}},
@@ -365,7 +365,7 @@ func TestSampleTypeCannotCarryErrorDetail(t *testing.T) {
 		t.Fatalf("Save: %v", err)
 	}
 
-	rows, err := s.RecentSamples(context.Background(), "mimo-v2.5", 10)
+	rows, err := s.RecentSamples(context.Background(), "mimo-v2.6-flash", 10)
 	if err != nil {
 		t.Fatalf("RecentSamples: %v", err)
 	}
@@ -407,7 +407,7 @@ func TestSummarizeReportsFaultsAndSkips(t *testing.T) {
 		t.Fatalf("Save: %v", err)
 	}
 	w, _ := LookupWindow("24h")
-	sum, err := s.Summarize(ctx, w, []string{"mimo-v2.5"}, now)
+	sum, err := s.Summarize(ctx, w, []string{"mimo-v2.6-flash"}, now)
 	if err != nil {
 		t.Fatalf("Summarize: %v", err)
 	}
@@ -438,10 +438,10 @@ func TestSummarizeReportsFaultsAndSkips(t *testing.T) {
 func TestCorrectnessIsSuppressedOnThinData(t *testing.T) {
 	s := New(openTestDB(t))
 	now := time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC)
-	seedCycles(t, s, "mimo-v2.5", now, 5, 900)
+	seedCycles(t, s, "mimo-v2.6-flash", now, 5, 900)
 
 	w, _ := LookupWindow("24h")
-	sum, err := s.Summarize(context.Background(), w, []string{"mimo-v2.5"}, now)
+	sum, err := s.Summarize(context.Background(), w, []string{"mimo-v2.6-flash"}, now)
 	if err != nil {
 		t.Fatalf("Summarize: %v", err)
 	}
@@ -460,19 +460,19 @@ func TestWindowBoundsAreRespected(t *testing.T) {
 	// One sample inside the window, one well outside it.
 	if _, err := s.Save(ctx, Cycle{
 		StartedAt: now.Add(-30 * time.Minute), Net: okNet(),
-		Infer: []probe.InferResult{okInfer("mimo-v2.5", 900)},
+		Infer: []probe.InferResult{okInfer("mimo-v2.6-flash", 900)},
 	}); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
 	if _, err := s.Save(ctx, Cycle{
 		StartedAt: now.Add(-30 * time.Hour), Net: okNet(),
-		Infer: []probe.InferResult{okInfer("mimo-v2.5", 5000)},
+		Infer: []probe.InferResult{okInfer("mimo-v2.6-flash", 5000)},
 	}); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
 
 	w, _ := LookupWindow("24h")
-	st, err := s.stats(ctx, "ttft_ms", "mimo-v2.5", now.Add(-w.Duration))
+	st, err := s.stats(ctx, "ttft_ms", "mimo-v2.6-flash", now.Add(-w.Duration))
 	if err != nil {
 		t.Fatalf("stats: %v", err)
 	}
@@ -503,13 +503,13 @@ func TestUplinkCyclesAreExcludedFromModelAvailability(t *testing.T) {
 	ctx := context.Background()
 
 	// 10 good cycles, then 10 where nothing was reachable.
-	seedCycles(t, s, "mimo-v2.5", now, 10, 900)
+	seedCycles(t, s, "mimo-v2.6-flash", now, 10, 900)
 	for i := 0; i < 10; i++ {
 		if _, err := s.Save(ctx, Cycle{
 			StartedAt: now.Add(-time.Duration(i+1) * time.Hour),
 			Net:       deadNet(),
 			Infer: []probe.InferResult{{
-				ModelID: "mimo-v2.5", OK: false, ErrorClass: probe.ErrClassConnectTimeout,
+				ModelID: "mimo-v2.6-flash", OK: false, ErrorClass: probe.ErrClassConnectTimeout,
 			}},
 		}); err != nil {
 			t.Fatalf("Save: %v", err)
@@ -517,7 +517,7 @@ func TestUplinkCyclesAreExcludedFromModelAvailability(t *testing.T) {
 	}
 
 	w, _ := LookupWindow("24h")
-	sum, err := s.Summarize(ctx, w, []string{"mimo-v2.5"}, now)
+	sum, err := s.Summarize(ctx, w, []string{"mimo-v2.6-flash"}, now)
 	if err != nil {
 		t.Fatalf("Summarize: %v", err)
 	}
@@ -558,7 +558,7 @@ func TestAWindowOfNothingButUplinkReportsNoAttempts(t *testing.T) {
 			StartedAt: now.Add(-time.Duration(i+1) * time.Minute),
 			Net:       deadNet(),
 			Infer: []probe.InferResult{{
-				ModelID: "mimo-v2.5", OK: false, ErrorClass: probe.ErrClassConnectTimeout,
+				ModelID: "mimo-v2.6-flash", OK: false, ErrorClass: probe.ErrClassConnectTimeout,
 			}},
 		}); err != nil {
 			t.Fatalf("Save: %v", err)
@@ -566,7 +566,7 @@ func TestAWindowOfNothingButUplinkReportsNoAttempts(t *testing.T) {
 	}
 
 	w, _ := LookupWindow("24h")
-	sum, err := s.Summarize(ctx, w, []string{"mimo-v2.5"}, now)
+	sum, err := s.Summarize(ctx, w, []string{"mimo-v2.6-flash"}, now)
 	if err != nil {
 		t.Fatalf("Summarize: %v", err)
 	}
@@ -587,7 +587,7 @@ func TestUplinkExclusionAppliesToMimoButNotTheReference(t *testing.T) {
 	now := time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC)
 	ctx := context.Background()
 
-	seedCycles(t, s, "mimo-v2.5", now, 10, 900)
+	seedCycles(t, s, "mimo-v2.6-flash", now, 10, 900)
 	for i := 0; i < 10; i++ {
 		if _, err := s.Save(ctx, Cycle{
 			StartedAt: now.Add(-time.Duration(i+1) * time.Hour),
@@ -598,7 +598,7 @@ func TestUplinkExclusionAppliesToMimoButNotTheReference(t *testing.T) {
 	}
 
 	w, _ := LookupWindow("24h")
-	sum, err := s.Summarize(ctx, w, []string{"mimo-v2.5"}, now)
+	sum, err := s.Summarize(ctx, w, []string{"mimo-v2.6-flash"}, now)
 	if err != nil {
 		t.Fatalf("Summarize: %v", err)
 	}
@@ -639,9 +639,9 @@ func TestSuccessfulRunsOnUplinkCyclesStillCount(t *testing.T) {
 	now := time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC)
 	ctx := context.Background()
 
-	seedCycles(t, s, "mimo-v2.5", now, 10, 900)
+	seedCycles(t, s, "mimo-v2.6-flash", now, 10, 900)
 
-	in := okInfer("mimo-v2.5", 950)
+	in := okInfer("mimo-v2.6-flash", 950)
 	in.Usage.CompletionTokenDetails.ReasoningTokens = 512
 	if _, err := s.Save(ctx, Cycle{
 		StartedAt: now.Add(-30 * time.Minute),
@@ -652,7 +652,7 @@ func TestSuccessfulRunsOnUplinkCyclesStillCount(t *testing.T) {
 	}
 
 	w, _ := LookupWindow("24h")
-	sum, err := s.Summarize(ctx, w, []string{"mimo-v2.5"}, now)
+	sum, err := s.Summarize(ctx, w, []string{"mimo-v2.6-flash"}, now)
 	if err != nil {
 		t.Fatalf("Summarize: %v", err)
 	}
@@ -690,13 +690,13 @@ func TestRouteCyclesAreExcludedLikeUplink(t *testing.T) {
 	now := time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC)
 	ctx := context.Background()
 
-	seedCycles(t, s, "mimo-v2.5", now, 10, 900)
+	seedCycles(t, s, "mimo-v2.6-flash", now, 10, 900)
 	for i := 0; i < 10; i++ {
 		id, err := s.Save(ctx, Cycle{
 			StartedAt: now.Add(-time.Duration(i+1) * time.Hour),
 			Net:       deadNet(),
 			Infer: []probe.InferResult{{
-				ModelID: "mimo-v2.5", OK: false, ErrorClass: probe.ErrClassConnectTimeout,
+				ModelID: "mimo-v2.6-flash", OK: false, ErrorClass: probe.ErrClassConnectTimeout,
 			}},
 		})
 		if err != nil {
@@ -711,7 +711,7 @@ func TestRouteCyclesAreExcludedLikeUplink(t *testing.T) {
 	}
 
 	w, _ := LookupWindow("24h")
-	sum, err := s.Summarize(ctx, w, []string{"mimo-v2.5"}, now)
+	sum, err := s.Summarize(ctx, w, []string{"mimo-v2.6-flash"}, now)
 	if err != nil {
 		t.Fatalf("Summarize: %v", err)
 	}
@@ -737,7 +737,7 @@ func TestCensoredRunsAreCountedSoTheTruncatedTailIsVisible(t *testing.T) {
 	now := time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC)
 	ctx := context.Background()
 
-	seedCycles(t, s, "mimo-v2.5", now, 19, 900)
+	seedCycles(t, s, "mimo-v2.6-flash", now, 19, 900)
 	// One of each censoring class, plus a refusal that is NOT one.
 	for i, class := range []string{
 		probe.ErrClassHeaderTimeout,
@@ -748,14 +748,14 @@ func TestCensoredRunsAreCountedSoTheTruncatedTailIsVisible(t *testing.T) {
 	} {
 		if _, err := s.Save(ctx, Cycle{
 			StartedAt: now.Add(-time.Duration(i+1) * time.Second), Net: okNet(),
-			Infer: []probe.InferResult{failedInfer("mimo-v2.5", class, 60000)},
+			Infer: []probe.InferResult{failedInfer("mimo-v2.6-flash", class, 60000)},
 		}); err != nil {
 			t.Fatalf("Save: %v", err)
 		}
 	}
 
 	w, _ := LookupWindow("24h")
-	sum, err := s.Summarize(ctx, w, []string{"mimo-v2.5"}, now)
+	sum, err := s.Summarize(ctx, w, []string{"mimo-v2.6-flash"}, now)
 	if err != nil {
 		t.Fatalf("Summarize: %v", err)
 	}
@@ -789,13 +789,13 @@ func TestCensoredCountExcludesUnattributableCycles(t *testing.T) {
 			{Target: probe.TargetMimoSGP, OK: false, ErrorClass: probe.ErrClassConnectTimeout},
 			{Target: probe.TargetRefSGP, OK: false, ErrorClass: probe.ErrClassConnectTimeout},
 		},
-		Infer: []probe.InferResult{failedInfer("mimo-v2.5", probe.ErrClassTimeout, 240000)},
+		Infer: []probe.InferResult{failedInfer("mimo-v2.6-flash", probe.ErrClassTimeout, 240000)},
 	}); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
 
 	w, _ := LookupWindow("24h")
-	sum, err := s.Summarize(ctx, w, []string{"mimo-v2.5"}, now)
+	sum, err := s.Summarize(ctx, w, []string{"mimo-v2.6-flash"}, now)
 	if err != nil {
 		t.Fatalf("Summarize: %v", err)
 	}
@@ -817,14 +817,14 @@ func TestABucketOfNothingButCensoredRunsStillExists(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		if _, err := s.Save(ctx, Cycle{
 			StartedAt: now.Add(-time.Duration(i+1) * time.Minute), Net: okNet(),
-			Infer: []probe.InferResult{failedInfer("mimo-v2.5", probe.ErrClassTTFTTimeout, 150000)},
+			Infer: []probe.InferResult{failedInfer("mimo-v2.6-flash", probe.ErrClassTTFTTimeout, 150000)},
 		}); err != nil {
 			t.Fatalf("Save: %v", err)
 		}
 	}
 
 	w, _ := LookupWindow("24h")
-	pts, err := s.Series(ctx, "ttft_ms", "mimo-v2.5", w, now)
+	pts, err := s.Series(ctx, "ttft_ms", "mimo-v2.6-flash", w, now)
 	if err != nil {
 		t.Fatalf("Series: %v", err)
 	}
@@ -850,16 +850,16 @@ func TestAPartlyCensoredBucketCarriesBothItsValueAndItsCount(t *testing.T) {
 	now := time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC)
 	ctx := context.Background()
 
-	seedCycles(t, s, "mimo-v2.5", now, 3, 900) // 3 successes, one bucket
+	seedCycles(t, s, "mimo-v2.6-flash", now, 3, 900) // 3 successes, one bucket
 	if _, err := s.Save(ctx, Cycle{
 		StartedAt: now.Add(-30 * time.Second), Net: okNet(),
-		Infer: []probe.InferResult{failedInfer("mimo-v2.5", probe.ErrClassStalled, 45000)},
+		Infer: []probe.InferResult{failedInfer("mimo-v2.6-flash", probe.ErrClassStalled, 45000)},
 	}); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
 
 	w, _ := LookupWindow("24h")
-	pts, err := s.Series(ctx, "ttft_ms", "mimo-v2.5", w, now)
+	pts, err := s.Series(ctx, "ttft_ms", "mimo-v2.6-flash", w, now)
 	if err != nil {
 		t.Fatalf("Series: %v", err)
 	}
@@ -893,17 +893,17 @@ func TestTheChartBandAndTheSummaryCountAgreeOnUnattributableCycles(t *testing.T)
 			{Target: probe.TargetMimoSGP, OK: false, ErrorClass: probe.ErrClassConnectTimeout},
 			{Target: probe.TargetRefSGP, OK: false, ErrorClass: probe.ErrClassConnectTimeout},
 		},
-		Infer: []probe.InferResult{failedInfer("mimo-v2.5", probe.ErrClassTimeout, 240000)},
+		Infer: []probe.InferResult{failedInfer("mimo-v2.6-flash", probe.ErrClassTimeout, 240000)},
 	}); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
 
 	w, _ := LookupWindow("24h")
-	sum, err := s.Summarize(ctx, w, []string{"mimo-v2.5"}, now)
+	sum, err := s.Summarize(ctx, w, []string{"mimo-v2.6-flash"}, now)
 	if err != nil {
 		t.Fatalf("Summarize: %v", err)
 	}
-	pts, err := s.Series(ctx, "ttft_ms", "mimo-v2.5", w, now)
+	pts, err := s.Series(ctx, "ttft_ms", "mimo-v2.6-flash", w, now)
 	if err != nil {
 		t.Fatalf("Series: %v", err)
 	}
@@ -921,9 +921,9 @@ func TestTheChartBandAndTheSummaryCountAgreeOnUnattributableCycles(t *testing.T)
 func TestRecentPulseMatchesRecentSamplesOrderAndClamp(t *testing.T) {
 	s := New(openTestDB(t))
 	now := time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC)
-	seedCycles(t, s, "mimo-v2.5", now, 30, 900)
+	seedCycles(t, s, "mimo-v2.6-flash", now, 30, 900)
 
-	rows, err := s.RecentPulse(context.Background(), "mimo-v2.5", 999999)
+	rows, err := s.RecentPulse(context.Background(), "mimo-v2.6-flash", 999999)
 	if err != nil {
 		t.Fatalf("RecentPulse: %v", err)
 	}
@@ -941,7 +941,7 @@ func TestRecentPulseMatchesRecentSamplesOrderAndClamp(t *testing.T) {
 		}
 	}
 
-	full, err := s.RecentSamples(context.Background(), "mimo-v2.5", 999999)
+	full, err := s.RecentSamples(context.Background(), "mimo-v2.6-flash", 999999)
 	if err != nil {
 		t.Fatalf("RecentSamples: %v", err)
 	}
@@ -997,7 +997,7 @@ func edgeNet() []probe.NetResult {
 func TestRecentCyclesAreNewestFirstAndCapped(t *testing.T) {
 	s := New(openTestDB(t))
 	now := time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC)
-	seedCycles(t, s, "mimo-v2.5", now, RecentCycleCount+14, 900)
+	seedCycles(t, s, "mimo-v2.6-flash", now, RecentCycleCount+14, 900)
 
 	got, err := s.RecentCycles(context.Background())
 	if err != nil {
@@ -1023,7 +1023,7 @@ func TestRecentCyclesCarryTheStoredFault(t *testing.T) {
 	for i, net := range [][]probe.NetResult{okNet(), edgeNet(), deadNet()} {
 		if _, err := s.Save(ctx, Cycle{
 			StartedAt: now.Add(time.Duration(i) * time.Minute), Net: net,
-			Infer: []probe.InferResult{okInfer("mimo-v2.5", 900)},
+			Infer: []probe.InferResult{okInfer("mimo-v2.6-flash", 900)},
 		}); err != nil {
 			t.Fatalf("Save: %v", err)
 		}
@@ -1051,7 +1051,7 @@ func TestRecentCyclesIgnoreEveryWindow(t *testing.T) {
 	s := New(openTestDB(t))
 	now := time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC)
 	// Older than the longest window this dashboard offers.
-	seedCycles(t, s, "mimo-v2.5", now.Add(-100*24*time.Hour), 3, 900)
+	seedCycles(t, s, "mimo-v2.6-flash", now.Add(-100*24*time.Hour), 3, 900)
 
 	got, err := s.RecentCycles(context.Background())
 	if err != nil {
@@ -1062,8 +1062,8 @@ func TestRecentCyclesIgnoreEveryWindow(t *testing.T) {
 	}
 }
 
-// Per model, because a verdict about mimo-v2.5 must not be built from
-// mimo-v2.5-pro's failures.
+// Per model, because a verdict about mimo-v2.6-flash must not be built from
+// mimo-v2.6-pro's failures.
 func TestRecentCyclesCarryEachModelsOutcome(t *testing.T) {
 	s := New(openTestDB(t))
 	now := time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC)
@@ -1072,8 +1072,8 @@ func TestRecentCyclesCarryEachModelsOutcome(t *testing.T) {
 	if _, err := s.Save(ctx, Cycle{
 		StartedAt: now, Net: okNet(),
 		Infer: []probe.InferResult{
-			okInfer("mimo-v2.5", 900),
-			failedInfer("mimo-v2.5-pro", probe.ErrClassTTFTTimeout, 30000),
+			okInfer("mimo-v2.6-flash", 900),
+			failedInfer("mimo-v2.6-pro", probe.ErrClassTTFTTimeout, 30000),
 		},
 	}); err != nil {
 		t.Fatalf("Save: %v", err)
@@ -1086,13 +1086,13 @@ func TestRecentCyclesCarryEachModelsOutcome(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("cycles = %d, want 1", len(got))
 	}
-	if run, ok := got[0].Models["mimo-v2.5"]; !ok || !run.OK {
-		t.Errorf("mimo-v2.5 = %+v, want a successful run", run)
+	if run, ok := got[0].Models["mimo-v2.6-flash"]; !ok || !run.OK {
+		t.Errorf("mimo-v2.6-flash = %+v, want a successful run", run)
 	}
-	if run, ok := got[0].Models["mimo-v2.5-pro"]; !ok || run.OK {
-		t.Errorf("mimo-v2.5-pro = %+v, want a failed run", run)
+	if run, ok := got[0].Models["mimo-v2.6-pro"]; !ok || run.OK {
+		t.Errorf("mimo-v2.6-pro = %+v, want a failed run", run)
 	}
-	if run := got[0].Models["mimo-v2.5-pro"]; run.AnswerOK != nil {
+	if run := got[0].Models["mimo-v2.6-pro"]; run.AnswerOK != nil {
 		t.Errorf("answer_ok = %v, want nil — a run that failed answered nothing", *run.AnswerOK)
 	}
 }
@@ -1129,10 +1129,10 @@ func TestRecentCyclesKeepACycleWithNoRuns(t *testing.T) {
 func TestSummarizeCarriesTheRecentBlock(t *testing.T) {
 	s := New(openTestDB(t))
 	now := time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC)
-	seedCycles(t, s, "mimo-v2.5", now, 4, 900)
+	seedCycles(t, s, "mimo-v2.6-flash", now, 4, 900)
 
 	w, _ := LookupWindow("24h")
-	sum, err := s.Summarize(context.Background(), w, []string{"mimo-v2.5"}, now)
+	sum, err := s.Summarize(context.Background(), w, []string{"mimo-v2.6-flash"}, now)
 	if err != nil {
 		t.Fatalf("Summarize: %v", err)
 	}
@@ -1159,7 +1159,7 @@ func TestFusedSummaryMatchesThePerColumnPercentiles(t *testing.T) {
 		if _, err := s.Save(ctx, Cycle{
 			StartedAt: now.Add(-time.Duration(i+1) * time.Minute), Net: okNet(),
 			Infer: []probe.InferResult{{
-				ModelID: "mimo-v2.5", OK: true, AnswerOK: &yes, QuestionID: "capital-france",
+				ModelID: "mimo-v2.6-flash", OK: true, AnswerOK: &yes, QuestionID: "capital-france",
 				TTFTMs: float64(100 * (i + 1)), TTFATMs: float64(100 * (i + 1)),
 				TotalMs: float64(1000 + 37*((i*7)%30)), ITLP50Ms: float64(50 - i), ITLP95Ms: 60,
 				OutputTPS: float64(20 + (i*11)%30),
@@ -1176,21 +1176,21 @@ func TestFusedSummaryMatchesThePerColumnPercentiles(t *testing.T) {
 	} {
 		if _, err := s.Save(ctx, Cycle{
 			StartedAt: now.Add(-time.Duration(40+i) * time.Minute), Net: okNet(),
-			Infer: []probe.InferResult{failedInfer("mimo-v2.5", class, 60000)},
+			Infer: []probe.InferResult{failedInfer("mimo-v2.6-flash", class, 60000)},
 		}); err != nil {
 			t.Fatalf("Save: %v", err)
 		}
 	}
 	if _, err := s.Save(ctx, Cycle{
 		StartedAt: now.Add(-50 * time.Minute), Net: deadNet(),
-		Infer: []probe.InferResult{failedInfer("mimo-v2.5", probe.ErrClassTimeout, 60000)},
+		Infer: []probe.InferResult{failedInfer("mimo-v2.6-flash", probe.ErrClassTimeout, 60000)},
 	}); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
 
 	w, _ := LookupWindow("24h")
 	since := now.Add(-w.Duration)
-	ms, err := s.modelSummary(ctx, "mimo-v2.5", since)
+	ms, err := s.modelSummary(ctx, "mimo-v2.6-flash", since)
 	if err != nil {
 		t.Fatalf("modelSummary: %v", err)
 	}
@@ -1201,7 +1201,7 @@ func TestFusedSummaryMatchesThePerColumnPercentiles(t *testing.T) {
 	}{
 		{"ttft_ms", ms.TTFT}, {"itl_p50_ms", ms.ITL}, {"output_tps", ms.TPS},
 	} {
-		want, err := s.stats(ctx, tc.column, "mimo-v2.5", since)
+		want, err := s.stats(ctx, tc.column, "mimo-v2.6-flash", since)
 		if err != nil {
 			t.Fatalf("stats(%s): %v", tc.column, err)
 		}

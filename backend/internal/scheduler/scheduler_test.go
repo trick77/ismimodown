@@ -144,7 +144,7 @@ func newTestScheduler(t *testing.T, prober Prober, pinger Pinger) (*Scheduler, *
 		Store:  samples.New(db),
 		Prober: prober,
 		Pinger: pinger,
-		Models: []string{"mimo-v2.5", "mimo-v2.5-pro"},
+		Models: []string{"mimo-v2.6-flash", "mimo-v2.6-pro"},
 		Wait:   noWait,
 	}), db
 }
@@ -158,7 +158,7 @@ func newSchedulerOn(db *sql.DB, prober Prober, pinger Pinger, now *time.Time) *S
 		Store:  samples.New(db),
 		Prober: prober,
 		Pinger: pinger,
-		Models: []string{"mimo-v2.5", "mimo-v2.5-pro"},
+		Models: []string{"mimo-v2.6-flash", "mimo-v2.6-pro"},
 		Now:    func() time.Time { return *now },
 		Wait:   noWait,
 	})
@@ -199,14 +199,14 @@ func TestWrongAnswerLogsTheReply(t *testing.T) {
 	s, _ := newTestScheduler(t, prober, &fakePinger{})
 	buf := captureLogs(t)
 
-	if _, ok := s.runProbe(context.Background(), "mimo-v2.5", 7, time.Now()); !ok {
+	if _, ok := s.runProbe(context.Background(), "mimo-v2.6-flash", 7, time.Now()); !ok {
 		t.Fatal("runProbe reported the run as skipped")
 	}
 
 	got := buf.String()
 	for _, want := range []string{
 		"answer graded wrong", "The capital of France is Lyon.",
-		"mimo-v2.5", `"finish_reason":"stop"`, `"cycle":7`,
+		"mimo-v2.6-flash", `"finish_reason":"stop"`, `"cycle":7`,
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("log is missing %q; got %s", want, got)
@@ -225,7 +225,7 @@ func TestLoggedReplyIsBounded(t *testing.T) {
 	s, _ := newTestScheduler(t, prober, &fakePinger{})
 	buf := captureLogs(t)
 
-	s.runProbe(context.Background(), "mimo-v2.5", 1, time.Now())
+	s.runProbe(context.Background(), "mimo-v2.6-flash", 1, time.Now())
 
 	// Measured per line rather than over the buffer: the run now also emits its
 	// own "inference call" line, and widening a whole-buffer budget to absorb it
@@ -261,7 +261,7 @@ func TestOnlyWrongAnswersAreLogged(t *testing.T) {
 			s, _ := newTestScheduler(t, &gradingProber{res: tc.res}, &fakePinger{})
 			buf := captureLogs(t)
 
-			s.runProbe(context.Background(), "mimo-v2.5", 1, time.Now())
+			s.runProbe(context.Background(), "mimo-v2.6-flash", 1, time.Now())
 
 			if strings.Contains(buf.String(), "answer graded wrong") {
 				t.Errorf("logged a wrong answer for a %s: %s", tc.name, buf.String())
@@ -282,12 +282,12 @@ func TestEveryInferenceCallIsLogged(t *testing.T) {
 			s, _ := newTestScheduler(t, &gradingProber{res: res}, &fakePinger{})
 			buf := captureLogs(t)
 
-			s.runProbe(context.Background(), "mimo-v2.5", 7, time.Now())
+			s.runProbe(context.Background(), "mimo-v2.6-flash", 7, time.Now())
 
 			got := buf.String()
 			for _, want := range []string{
 				`"msg":"inference call"`,
-				`"model":"mimo-v2.5"`, `"cycle":7`, `"ok":true`, `"level":"INFO"`,
+				`"model":"mimo-v2.6-flash"`, `"cycle":7`, `"ok":true`, `"level":"INFO"`,
 			} {
 				if !strings.Contains(got, want) {
 					t.Errorf("log is missing %q; got %s", want, got)
@@ -310,7 +310,7 @@ func TestFailedInferenceCallLogsTheClassAtWarn(t *testing.T) {
 	s, _ := newTestScheduler(t, prober, &fakePinger{})
 	buf := captureLogs(t)
 
-	s.runProbe(context.Background(), "mimo-v2.5", 3, time.Now())
+	s.runProbe(context.Background(), "mimo-v2.6-flash", 3, time.Now())
 
 	got := buf.String()
 	for _, want := range []string{
@@ -336,7 +336,7 @@ func TestLoggedErrorDetailIsRedactedAndBounded(t *testing.T) {
 	s, _ := newTestScheduler(t, prober, &fakePinger{})
 	buf := captureLogs(t)
 
-	s.runProbe(context.Background(), "mimo-v2.5", 1, time.Now())
+	s.runProbe(context.Background(), "mimo-v2.6-flash", 1, time.Now())
 
 	got := buf.String()
 	if strings.Contains(got, key) {
@@ -357,7 +357,7 @@ func TestHealthyInferenceCallOmitsTheErrorFields(t *testing.T) {
 	s, _ := newTestScheduler(t, &gradingProber{res: probe.InferResult{OK: true}}, &fakePinger{})
 	buf := captureLogs(t)
 
-	s.runProbe(context.Background(), "mimo-v2.5", 1, time.Now())
+	s.runProbe(context.Background(), "mimo-v2.6-flash", 1, time.Now())
 
 	for _, unwanted := range []string{"error_class", "error_detail"} {
 		if strings.Contains(buf.String(), unwanted) {
@@ -443,7 +443,7 @@ func TestBothModelsGetTheSameQuestionInACycle(t *testing.T) {
 // that was never running. Every row is stamped with its cycle's start, so
 // waiting costs latency and nothing else.
 func TestASecondCycleWaitsForTheFirstsProbeRatherThanSkippingIt(t *testing.T) {
-	prober := &fakeProber{block: make(chan struct{}), blockModel: "mimo-v2.5"}
+	prober := &fakeProber{block: make(chan struct{}), blockModel: "mimo-v2.6-flash"}
 	s, db := newTestScheduler(t, prober, &fakePinger{})
 
 	// A cycle that blocks inside its first probe.
@@ -474,8 +474,8 @@ func TestASecondCycleWaitsForTheFirstsProbeRatherThanSkippingIt(t *testing.T) {
 	}
 }
 
-// The slot is global. Keyed by model+probe it admitted mimo-v2.5 and
-// mimo-v2.5-pro at the same instant — one API key, two calls, two 429s.
+// The slot is global. Keyed by model+probe it admitted mimo-v2.6-flash and
+// mimo-v2.6-pro at the same instant — one API key, two calls, two 429s.
 func TestTheDispatchSlotIsGlobalNotKeyed(t *testing.T) {
 	s, _ := newTestScheduler(t, &fakeProber{}, &fakePinger{})
 
@@ -566,7 +566,7 @@ func TestConsecutiveDispatchesAreSeparatedByTheGap(t *testing.T) {
 		Store:  samples.New(db),
 		Prober: &fakeProber{},
 		Pinger: &fakePinger{},
-		Models: []string{"mimo-v2.5", "mimo-v2.5-pro"},
+		Models: []string{"mimo-v2.6-flash", "mimo-v2.6-pro"},
 		Wait: func(ctx context.Context, d time.Duration) bool {
 			mu.Lock()
 			waits = append(waits, d)
@@ -832,21 +832,21 @@ func TestNoTicksMissedLogsNothing(t *testing.T) {
 // A slow model DOES hold the next one back now, and that is the trade this
 // change makes on purpose. It used to be the opposite, on the reasoning that a
 // cycle costing the SUM breaks the cadence at roughly CycleInterval/len(models)
-// — about 145 s per model with two, well inside what mimo-v2.5-pro does on a bad
+// — about 145 s per model with two, well inside what mimo-v2.6-pro does on a bad
 // day. That cost is real and accepted: the models share one API key, so racing
 // them buys sample density with 429s that publish as a MiMo outage.
 func TestASlowModelHoldsTheNextModelBackRatherThanRacingIt(t *testing.T) {
-	prober := &fakeProber{block: make(chan struct{}), blockModel: "mimo-v2.5"}
+	prober := &fakeProber{block: make(chan struct{}), blockModel: "mimo-v2.6-flash"}
 	s, _ := newTestScheduler(t, prober, &fakePinger{})
 
 	done := make(chan struct{})
 	go func() { defer close(done); s.RunCycle(context.Background()) }()
 	waitFor(t, func() bool { return prober.running.Load() == 1 })
 
-	// mimo-v2.5-pro must NOT have gone out beside the stalled mimo-v2.5.
+	// mimo-v2.6-pro must NOT have gone out beside the stalled mimo-v2.6-flash.
 	time.Sleep(50 * time.Millisecond)
 	for _, r := range prober.requests() {
-		if r.ModelID == "mimo-v2.5-pro" {
+		if r.ModelID == "mimo-v2.6-pro" {
 			t.Fatal("the second model dispatched while the first was still in flight")
 		}
 	}
@@ -857,12 +857,12 @@ func TestASlowModelHoldsTheNextModelBackRatherThanRacingIt(t *testing.T) {
 	// And it does get its turn once the slot frees — held back, never dropped.
 	got := 0
 	for _, r := range prober.requests() {
-		if r.ModelID == "mimo-v2.5-pro" {
+		if r.ModelID == "mimo-v2.6-pro" {
 			got++
 		}
 	}
 	if got != 1 {
-		t.Errorf("mimo-v2.5-pro calls = %d, want 1; waiting must not become skipping", got)
+		t.Errorf("mimo-v2.6-pro calls = %d, want 1; waiting must not become skipping", got)
 	}
 }
 

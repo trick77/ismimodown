@@ -12,7 +12,7 @@ import (
 // testPrices are round numbers so every expected figure below can be worked out
 // on paper: $1 per million in, $10 per million out, $0.10 per million cached.
 var testPrices = map[string]config.ModelPrice{
-	"mimo-v2.5": {In: 1, Out: 10, Cached: 0.10},
+	"mimo-v2.6-flash": {In: 1, Out: 10, Cached: 0.10},
 }
 
 // costRun builds one usage-carrying run. Token counts are the knobs; everything
@@ -69,7 +69,7 @@ func TestCostPricesTheUncachedRemainder(t *testing.T) {
 	//   400 cached   @ $0.10/M = 0.00004
 	//   200 output   @ $10/M  = 0.002
 	//                          = 0.00264
-	saveAt(t, s, at, costRun("mimo-v2.5", 1000, 400, 200))
+	saveAt(t, s, at, costRun("mimo-v2.6-flash", 1000, 400, 200))
 
 	got, err := s.Cost(context.Background(), w, testPrices, now)
 	if err != nil {
@@ -99,9 +99,9 @@ func TestCostAppliesTheCoefficientOnlyOffPeak(t *testing.T) {
 
 	// 10:00 UTC is full rate, 20:00 UTC is inside 16:00-24:00.
 	saveAt(t, s, time.Date(2026, 8, 4, 10, 0, 0, 0, time.UTC),
-		costRun("mimo-v2.5", 1000, 0, 0))
+		costRun("mimo-v2.6-flash", 1000, 0, 0))
 	saveAt(t, s, time.Date(2026, 8, 4, 20, 0, 0, 0, time.UTC),
-		costRun("mimo-v2.5", 1000, 0, 0))
+		costRun("mimo-v2.6-flash", 1000, 0, 0))
 
 	got, err := s.Cost(context.Background(), w, testPrices, now)
 	if err != nil {
@@ -141,9 +141,9 @@ func TestCostDecidesThePhasePerRunNotPerBucket(t *testing.T) {
 	now := time.Date(2026, 8, 4, 23, 0, 0, 0, time.UTC)
 
 	saveAt(t, s, time.Date(2026, 8, 4, 14, 0, 0, 0, time.UTC),
-		costRun("mimo-v2.5", 1000, 0, 0))
+		costRun("mimo-v2.6-flash", 1000, 0, 0))
 	saveAt(t, s, time.Date(2026, 8, 4, 17, 0, 0, 0, time.UTC),
-		costRun("mimo-v2.5", 1000, 0, 0))
+		costRun("mimo-v2.6-flash", 1000, 0, 0))
 
 	got, err := s.Cost(context.Background(), w, testPrices, now)
 	if err != nil {
@@ -165,11 +165,11 @@ func TestCostCountsRunsItCannotPrice(t *testing.T) {
 	at := time.Date(2026, 8, 4, 10, 0, 0, 0, time.UTC)
 	now := at.Add(time.Hour)
 
-	failed := costRun("mimo-v2.5", 0, 0, 0)
+	failed := costRun("mimo-v2.6-flash", 0, 0, 0)
 	failed.OK = false
 	failed.AnswerOK = nil
 	failed.ErrorClass = "ttft_timeout"
-	saveAt(t, s, at, costRun("mimo-v2.5", 1000, 0, 0), failed)
+	saveAt(t, s, at, costRun("mimo-v2.6-flash", 1000, 0, 0), failed)
 
 	got, err := s.Cost(context.Background(), w, testPrices, now)
 	if err != nil {
@@ -204,11 +204,11 @@ func TestCostPricesAnUnknownModelAtZeroAndStillTotals(t *testing.T) {
 	at := time.Date(2026, 8, 4, 10, 0, 0, 0, time.UTC)
 	now := at.Add(time.Hour)
 
-	// Only mimo-v2.5 is in testPrices. 1000 prompt @ $1/M = 0.001; the
-	// mimo-v2.5-pro run contributes nothing.
+	// Only mimo-v2.6-flash is in testPrices. 1000 prompt @ $1/M = 0.001; the
+	// mimo-v2.6-pro run contributes nothing.
 	saveAt(t, s, at,
-		costRun("mimo-v2.5", 1000, 0, 0),
-		costRun("mimo-v2.5-pro", 1000, 0, 0))
+		costRun("mimo-v2.6-flash", 1000, 0, 0),
+		costRun("mimo-v2.6-pro", 1000, 0, 0))
 
 	got, err := s.Cost(context.Background(), w, testPrices, now)
 	if err != nil {
@@ -250,7 +250,7 @@ func TestCostSeriesIsBucketedAndOrdered(t *testing.T) {
 
 	for i := 0; i < 6; i++ {
 		saveAt(t, s, base.Add(time.Duration(i)*20*time.Minute),
-			costRun("mimo-v2.5", 1000, 0, 0))
+			costRun("mimo-v2.6-flash", 1000, 0, 0))
 	}
 
 	got, err := s.Cost(context.Background(), w, testPrices, now)
@@ -304,7 +304,7 @@ func TestCostBucketsByTheTickNotTheJitter(t *testing.T) {
 			off = -off
 		}
 		saveAt(t, s, base.Add(time.Duration(i)*5*time.Minute+off),
-			costRun("mimo-v2.5", 1000, 0, 0))
+			costRun("mimo-v2.6-flash", 1000, 0, 0))
 	}
 
 	got, err := s.Cost(context.Background(), w, testPrices, now)
@@ -395,10 +395,10 @@ func TestCostTreatsAZeroPriceAsAPrice(t *testing.T) {
 	w, _ := LookupWindow("24h")
 	at := time.Date(2026, 8, 4, 10, 0, 0, 0, time.UTC)
 	now := at.Add(time.Hour)
-	saveAt(t, s, at, costRun("mimo-v2.5", 1000, 0, 200))
+	saveAt(t, s, at, costRun("mimo-v2.6-flash", 1000, 0, 200))
 
 	got, err := s.Cost(context.Background(), w,
-		map[string]config.ModelPrice{"mimo-v2.5": {}}, now)
+		map[string]config.ModelPrice{"mimo-v2.6-flash": {}}, now)
 	if err != nil {
 		t.Fatalf("Cost: %v", err)
 	}
@@ -417,8 +417,8 @@ func TestCostTreatsAZeroPromptAsMissingUsage(t *testing.T) {
 	now := at.Add(time.Hour)
 
 	saveAt(t, s, at,
-		costRun("mimo-v2.5", 1000, 0, 0),
-		costRun("mimo-v2.5", 0, 0, 0))
+		costRun("mimo-v2.6-flash", 1000, 0, 0),
+		costRun("mimo-v2.6-flash", 0, 0, 0))
 
 	got, err := s.Cost(context.Background(), w, testPrices, now)
 	if err != nil {
@@ -463,7 +463,7 @@ func TestCostServesAnEmptyProbesArrayForOldClients(t *testing.T) {
 	s := New(openTestDB(t))
 	w, _ := LookupWindow("24h")
 	at := time.Date(2026, 8, 4, 10, 0, 0, 0, time.UTC)
-	saveAt(t, s, at, costRun("mimo-v2.5", 1000, 0, 200))
+	saveAt(t, s, at, costRun("mimo-v2.6-flash", 1000, 0, 200))
 
 	got, err := s.Cost(context.Background(), w, testPrices, at.Add(time.Hour))
 	if err != nil {

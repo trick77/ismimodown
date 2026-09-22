@@ -46,7 +46,7 @@ export const WIRE_COLOR = "#9c9a92";
 //
 // Deliberately NOT a SERIES_COLORS value: those two are model identities, and
 // this chart draws no model. Deliberately not the warm accent family either —
-// #d97757, #c98500 and #c6613f all collapse against #d95926 (mimo-v2.5-pro)
+// #d97757, #c98500 and #c6613f all collapse against #d95926 (mimo-v2.6-pro)
 // under deuteranopia, ΔE00 2.8 to 5.3, so a warm edge line would be
 // indistinguishable from the pro model's hue for a red-green colourblind
 // reader moving between the two charts.
@@ -94,8 +94,8 @@ export const REFERENCE_COLOR = "#6b6963";
 //   #6b6963 vs #8f8d85 (the two references)  ΔE00 14.1  deut 14.0  prot 14.1
 //   #4f93a8 vs #8f8d85 (own pair)            ΔE00 20.1  deut 28.3
 //   #8f7ad4 vs #6b6963 (sgp pair)            ΔE00 31.6  deut 27.2  prot 28.7
-//   #4f93a8 vs #3987e5 (mimo-v2.5)           ΔE00 15.8  deut 10.5
-//   #8f7ad4 vs #d95926 (mimo-v2.5-pro)       ΔE00 42.6  deut 55.3
+//   #4f93a8 vs #3987e5 (mimo-v2.6-flash)           ΔE00 15.8  deut 10.5
+//   #8f7ad4 vs #d95926 (mimo-v2.6-pro)       ΔE00 42.6  deut 55.3
 //
 // Both edge hues are muted rather than saturated, which is what keeps them
 // inside the warm-editorial palette's voice while staying clear of the two
@@ -118,8 +118,8 @@ export const MIMO_EDGE_AMS_COLOR = "#4f93a8";
 export const REFERENCE_AMS_COLOR = "#8f8d85";
 
 // The server-side remainder in the decomposition. Deliberately NOT
-// SERIES_COLORS[0]: that hue is mimo-v2.5's identity, and the decomposition
-// paints this segment on every model's row — including mimo-v2.5-pro's — so
+// SERIES_COLORS[0]: that hue is mimo-v2.6-flash's identity, and the decomposition
+// paints this segment on every model's row — including mimo-v2.6-pro's — so
 // borrowing it made one colour mean two different things on the same page.
 // This is the page accent, which encodes emphasis rather than identity.
 // Against #1f1f1e, paired with WIRE_COLOR: CVD ΔE 10.8, normal-vision ΔE 15.3.
@@ -131,8 +131,8 @@ export const SERVER_COLOR = "#c6613f";
 // takes its hue with it. Index order was doing the same job only for as long as
 // the list never changed, and a reorder would silently have swapped the two.
 const MODEL_COLORS: Record<string, string> = {
-  "mimo-v2.5": SERIES_COLORS[0],
-  "mimo-v2.5-pro": SERIES_COLORS[1],
+  "mimo-v2.6-flash": SERIES_COLORS[0],
+  "mimo-v2.6-pro": SERIES_COLORS[1],
 };
 
 export function colorForModel(modelID: string, models: string[]): string {
@@ -140,8 +140,8 @@ export function colorForModel(modelID: string, models: string[]): string {
   if (known !== undefined) return known;
   // A model this file has never heard of still has to draw, and the hues the
   // known ones hold are spoken for: a third model taking SERIES_COLORS[1] by
-  // position would draw in mimo-v2.5-pro's colour, on the same chart as
-  // mimo-v2.5-pro. So the unknown ones share out what is LEFT, by their
+  // position would draw in mimo-v2.6-pro's colour, on the same chart as
+  // mimo-v2.6-pro. So the unknown ones share out what is LEFT, by their
   // position among the unknowns — which keeps two of them apart as well.
   //
   // With more models on a chart than SERIES_COLORS has entries there is nothing

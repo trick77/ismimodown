@@ -127,7 +127,7 @@ describe("buildSpeedReading", () => {
   // readings.
   it("says nothing about a first token that moved less than the floor", () => {
     const reading = buildSpeedReading(
-      trendOf([model("mimo-v2.5", [1200, 900], [70, 70])]),
+      trendOf([model("mimo-v2.6-flash", [1200, 900], [70, 70])]),
     );
     expect(1200 / 900 - 1).toBeLessThan(TTFT_FLOOR);
     expect(reading.state).toBe("steady");
@@ -136,10 +136,10 @@ describe("buildSpeedReading", () => {
 
   it("names a first token past the floor, with the numbers and the seconds", () => {
     const reading = buildSpeedReading(
-      trendOf([model("mimo-v2.5", [3400, 1800], [70, 70])]),
+      trendOf([model("mimo-v2.6-flash", [3400, 1800], [70, 70])]),
     );
     expect(reading.state).toBe("slower");
-    expect(reading.lead).toContain("mimo-v2.5");
+    expect(reading.lead).toContain("mimo-v2.6-flash");
     expect(reading.lead).toContain("slow to start");
     expect(reading.line).toContain("3.4 s");
     expect(reading.line).toContain("1.8 s");
@@ -153,7 +153,7 @@ describe("buildSpeedReading", () => {
   // several times before anyone noticed that was why it would not get shorter.
   it("states the move without a percentage and without milliseconds", () => {
     const reading = buildSpeedReading(
-      trendOf([model("mimo-v2.5", [3400, 1800], [70, 70])]),
+      trendOf([model("mimo-v2.6-flash", [3400, 1800], [70, 70])]),
     );
     expect(reading.line).toBe(
       "First token is at 3.4 s, against 1.8 s over the day before. " +
@@ -170,7 +170,7 @@ describe("buildSpeedReading", () => {
   // without "in total", the line invites a subtraction it fails.
   it("says the wait is a total when one model moved on both metrics", () => {
     const reading = buildSpeedReading(
-      trendOf([model("mimo-v2.5", [3400, 1800], [45, 70])]),
+      trendOf([model("mimo-v2.6-flash", [3400, 1800], [45, 70])]),
     );
     expect(reading.metric).toBe("ttft");
     expect(reading.line).toContain("at 3.4 s, against 1.8 s");
@@ -184,7 +184,7 @@ describe("buildSpeedReading", () => {
   // where the wait is exactly the gap between the two printed medians.
   it("leaves the wait unqualified when only the quoted metric moved", () => {
     const reading = buildSpeedReading(
-      trendOf([model("mimo-v2.5", [3400, 1800], [70, 70])]),
+      trendOf([model("mimo-v2.6-flash", [3400, 1800], [70, 70])]),
     );
     expect(reading.line).not.toContain("in total");
   });
@@ -195,7 +195,7 @@ describe("buildSpeedReading", () => {
   // 1.7 s the two printed medians leave between them.
   it("prints a wait that is the difference of the two printed medians", () => {
     const reading = buildSpeedReading(
-      trendOf([model("mimo-v2.5", [3449, 1651], [70, 70])]),
+      trendOf([model("mimo-v2.6-flash", [3449, 1651], [70, 70])]),
     );
     expect(reading.line).toContain("at 3.4 s, against 1.7 s");
     expect(reading.line).toContain("about 1.7 s of extra waiting");
@@ -207,7 +207,7 @@ describe("buildSpeedReading", () => {
   // first-token-only reading would have called normal.
   it("catches a throughput drop while the first token holds", () => {
     const reading = buildSpeedReading(
-      trendOf([model("mimo-v2.5", [900, 900], [39, 70])]),
+      trendOf([model("mimo-v2.6-flash", [900, 900], [39, 70])]),
     );
     expect(70 / 39 - 1).toBeGreaterThan(TPS_FLOOR);
     expect(reading.state).toBe("slower");
@@ -220,7 +220,7 @@ describe("buildSpeedReading", () => {
   // has to lead the sentence even though its percentage is smaller.
   it("leads with the move that costs the most seconds, not the largest percentage", () => {
     const reading = buildSpeedReading(
-      trendOf([model("mimo-v2.5", [3400, 1800], [40, 70])]),
+      trendOf([model("mimo-v2.6-flash", [3400, 1800], [40, 70])]),
     );
     expect(reading.state).toBe("slower");
     expect(reading.metric).toBe("tps");
@@ -236,25 +236,27 @@ describe("buildSpeedReading", () => {
   it("does not claim both models moved when they moved on different metrics", () => {
     const reading = buildSpeedReading(
       trendOf([
-        model("mimo-v2.5", [3400, 1800], [70, 70]),
-        model("mimo-v2.5-pro", [900, 900], [45, 70]),
+        model("mimo-v2.6-flash", [3400, 1800], [70, 70]),
+        model("mimo-v2.6-pro", [900, 900], [45, 70]),
       ]),
     );
     expect(reading.state).toBe("slower");
     expect(reading.lead).not.toContain("Both models");
+    // The one it led with is the headline's subject.
+    expect(reading.lead).toContain("mimo-v2.6-flash");
     // The one it did not lead with is still named, once.
-    expect(reading.line).toContain("mimo-v2.5");
-    expect(reading.line.match(/mimo-v2\.5-pro/g)?.length ?? 0).toBeLessThan(2);
+    expect(reading.line).toContain("mimo-v2.6-pro");
+    expect(reading.line.match(/mimo-v2\.6-pro/g)?.length ?? 0).toBeLessThan(2);
   });
 
   // A single-model payload can have both its metrics fire, which is not two
   // models by any reading.
   it("never says both models when the block carries one", () => {
     const reading = buildSpeedReading(
-      trendOf([model("mimo-v2.5", [3400, 1800], [45, 70])]),
+      trendOf([model("mimo-v2.6-flash", [3400, 1800], [45, 70])]),
     );
     expect(reading.lead).not.toContain("Both models");
-    expect(reading.lead).toContain("mimo-v2.5");
+    expect(reading.lead).toContain("mimo-v2.6-flash");
   });
 
   // No request is answered by both models, so summing their penalties states a
@@ -263,8 +265,8 @@ describe("buildSpeedReading", () => {
   it("costs the wait in the lead model's own seconds, not the sum across models", () => {
     const reading = buildSpeedReading(
       trendOf([
-        model("mimo-v2.5", [3400, 1800], [70, 70]),
-        model("mimo-v2.5-pro", [3400, 1800], [70, 70]),
+        model("mimo-v2.6-flash", [3400, 1800], [70, 70]),
+        model("mimo-v2.6-pro", [3400, 1800], [70, 70]),
       ]),
     );
     // 1.6 s on one model, not 3.2 s across two.
@@ -277,14 +279,14 @@ describe("buildSpeedReading", () => {
   it("uses the lower floor when both models move together", () => {
     const both = buildSpeedReading(
       trendOf([
-        model("mimo-v2.5", [3000, 2000], [70, 70]),
-        model("mimo-v2.5-pro", [3000, 2000], [70, 70]),
+        model("mimo-v2.6-flash", [3000, 2000], [70, 70]),
+        model("mimo-v2.6-pro", [3000, 2000], [70, 70]),
       ]),
     );
     const alone = buildSpeedReading(
       trendOf([
-        model("mimo-v2.5", [3000, 2000], [70, 70]),
-        model("mimo-v2.5-pro", [900, 900], [70, 70]),
+        model("mimo-v2.6-flash", [3000, 2000], [70, 70]),
+        model("mimo-v2.6-pro", [900, 900], [70, 70]),
       ]),
     );
     expect(3000 / 2000 - 1).toBeGreaterThan(TTFT_FLOOR_BOTH);
@@ -309,7 +311,9 @@ describe("buildSpeedReading", () => {
       [2, 2],
     ]) {
       const reading = buildSpeedReading(
-        trendOf([model("mimo-v2.5", [3400, 1800], [70, 70], recent, before)]),
+        trendOf([
+          model("mimo-v2.6-flash", [3400, 1800], [70, 70], recent, before),
+        ]),
       );
       expect(reading.state).toBe("slower");
       expect(reading.line).not.toContain("cut off");
@@ -324,7 +328,7 @@ describe("buildSpeedReading", () => {
   // halved; a figure nobody prints cannot be spent the wrong way round.
   it("states a throughput drop as the two rates, without a share", () => {
     const reading = buildSpeedReading(
-      trendOf([model("mimo-v2.5", [900, 900], [35, 70])]),
+      trendOf([model("mimo-v2.6-flash", [900, 900], [35, 70])]),
     );
     expect(reading.line).toContain(
       "It is producing 35.0 tokens per second, against 70.0 over the day before",
@@ -336,7 +340,7 @@ describe("buildSpeedReading", () => {
   // recovery carries no lead, no line, no plot.
   it("keeps a recovered first token off the page entirely", () => {
     const reading = buildSpeedReading(
-      trendOf([model("mimo-v2.5", [500, 900], [70, 70])]),
+      trendOf([model("mimo-v2.6-flash", [500, 900], [70, 70])]),
     );
     expect(reading.state).toBe("quicker");
     expect(reading.lead).toBe("");
@@ -350,15 +354,15 @@ describe("buildSpeedReading", () => {
   it("gives each model its own figures when both moved", () => {
     const reading = buildSpeedReading(
       trendOf([
-        model("mimo-v2.5", [3600, 1800], [70, 70]),
-        model("mimo-v2.5-pro", [2800, 1800], [70, 70]),
+        model("mimo-v2.6-flash", [3600, 1800], [70, 70]),
+        model("mimo-v2.6-pro", [2800, 1800], [70, 70]),
       ]),
     );
     expect(reading.lead).toContain("Both models");
     expect(reading.line).toContain(
-      "mimo-v2.5's first token is at 3.6 s, against 1.8 s over the day before",
+      "mimo-v2.6-flash's first token is at 3.6 s, against 1.8 s over the day before",
     );
-    expect(reading.line).toContain("mimo-v2.5-pro's first token is at 2.8 s");
+    expect(reading.line).toContain("mimo-v2.6-pro's first token is at 2.8 s");
     // The reference span rides on the first clause only.
     expect(reading.line).toContain("at 2.8 s, against 1.8 s.");
     expect(reading.line).not.toContain("Its first token");
@@ -369,15 +373,15 @@ describe("buildSpeedReading", () => {
   it("splits the extra wait per model when the two differ", () => {
     const reading = buildSpeedReading(
       trendOf([
-        model("mimo-v2.5", [3600, 1800], [70, 70]),
-        model("mimo-v2.5-pro", [2800, 1800], [70, 70]),
+        model("mimo-v2.6-flash", [3600, 1800], [70, 70]),
+        model("mimo-v2.6-pro", [2800, 1800], [70, 70]),
       ]),
     );
     // The unit is said once, so only the first figure carries the phrase.
     expect(reading.line).toContain(
-      "1.8 s of extra waiting on a full-length answer for mimo-v2.5",
+      "1.8 s of extra waiting on a full-length answer for mimo-v2.6-flash",
     );
-    expect(reading.line).toContain("1.0 s for mimo-v2.5-pro");
+    expect(reading.line).toContain("1.0 s for mimo-v2.6-pro");
     expect(reading.line).not.toContain("each");
   });
 
@@ -385,8 +389,8 @@ describe("buildSpeedReading", () => {
   it("says each only when both models cost the same wait", () => {
     const reading = buildSpeedReading(
       trendOf([
-        model("mimo-v2.5", [3000, 2000], [70, 70]),
-        model("mimo-v2.5-pro", [3000, 2000], [70, 70]),
+        model("mimo-v2.6-flash", [3000, 2000], [70, 70]),
+        model("mimo-v2.6-pro", [3000, 2000], [70, 70]),
       ]),
     );
     expect(reading.line).toContain(
@@ -398,7 +402,7 @@ describe("buildSpeedReading", () => {
   // having changed.
   it("says so in words when a span cannot produce a median", () => {
     const reading = buildSpeedReading(
-      trendOf([model("mimo-v2.5", [null, 900], [null, 70])]),
+      trendOf([model("mimo-v2.6-flash", [null, 900], [null, 70])]),
     );
     expect(reading.state).toBe("unknown");
     expect(reading.lead).toContain("Not enough answers");
@@ -417,7 +421,7 @@ describe("buildSpeedReading", () => {
       trendOf(
         [
           withTail(
-            model("mimo-v2.5", [2016, 954], [70, 70]),
+            model("mimo-v2.6-flash", [2016, 954], [70, 70]),
             "ttft",
             [950, 940, 960, 950],
           ),
@@ -445,7 +449,7 @@ describe("buildSpeedReading", () => {
       trendOf(
         [
           withTail(
-            model("mimo-v2.5", [4032, 1908], [70, 70]),
+            model("mimo-v2.6-flash", [4032, 1908], [70, 70]),
             "ttft",
             [4000, 3800, 4200, 4000],
           ),
@@ -461,7 +465,7 @@ describe("buildSpeedReading", () => {
       trendOf(
         [
           withTail(
-            model("mimo-v2.5", [4032, 1908], [70, 70]),
+            model("mimo-v2.6-flash", [4032, 1908], [70, 70]),
             "ttft",
             [2860, 2860, 2860, 2860],
           ),
@@ -479,7 +483,7 @@ describe("buildSpeedReading", () => {
       trendOf(
         [
           withTail(
-            model("mimo-v2.5", [4032, 1908], [70, 70]),
+            model("mimo-v2.6-flash", [4032, 1908], [70, 70]),
             "ttft",
             [1900, 1880],
             2,
@@ -499,7 +503,7 @@ describe("buildSpeedReading", () => {
       trendOf(
         [
           withTail(
-            model("mimo-v2.5", [900, 900], [70, 70]),
+            model("mimo-v2.6-flash", [900, 900], [70, 70]),
             "ttft",
             [3400, 3500, 3400, 3600],
           ),
@@ -521,7 +525,7 @@ describe("buildSpeedReading", () => {
       trendOf(
         [
           withTail(
-            model("mimo-v2.5", [900, 900], [70, 70]),
+            model("mimo-v2.6-flash", [900, 900], [70, 70]),
             "ttft",
             [1700, 900, 1750, 1700],
           ),
@@ -539,7 +543,7 @@ describe("buildSpeedReading", () => {
       trendOf(
         [
           withTail(
-            model("mimo-v2.5", [900, 900], [35, 70]),
+            model("mimo-v2.6-flash", [900, 900], [35, 70]),
             "tps",
             [70, 69, 71, 70],
           ),
@@ -559,12 +563,12 @@ describe("buildSpeedReading", () => {
       trendOf(
         [
           withTail(
-            model("mimo-v2.5", [3600, 1800], [70, 70]),
+            model("mimo-v2.6-flash", [3600, 1800], [70, 70]),
             "ttft",
             [1800, 1810, 1790, 1800],
           ),
           withTail(
-            model("mimo-v2.5-pro", [2800, 1800], [70, 70]),
+            model("mimo-v2.6-pro", [2800, 1800], [70, 70]),
             "ttft",
             [1800, 1790, 1810, 1800],
           ),
@@ -573,8 +577,8 @@ describe("buildSpeedReading", () => {
       ),
     );
     expect(reading.state).toBe("recovered");
-    expect(reading.line).toContain("mimo-v2.5's first token was slower");
-    expect(reading.line).toContain("mimo-v2.5-pro's first token was slower");
+    expect(reading.line).toContain("mimo-v2.6-flash's first token was slower");
+    expect(reading.line).toContain("mimo-v2.6-pro's first token was slower");
     expect(reading.line).toContain("3.6 s against 1.8 s");
     expect(reading.line).toContain("2.8 s against 1.8 s");
   });
@@ -584,19 +588,19 @@ describe("buildSpeedReading", () => {
   // past its floor sits inside the ordinary spread.
   it("says nothing at all when a model got quicker", () => {
     const reading = buildSpeedReading(
-      trendOf([model("mimo-v2.5", [900, 900], [100, 70])]),
+      trendOf([model("mimo-v2.6-flash", [900, 900], [100, 70])]),
     );
     expect(reading.state).toBe("quicker");
     expect(reading.lead).toBe("");
     expect(reading.line).toBe("");
   });
   // A doubling is a real move and a two-second first token is not a headline.
-  // The page published exactly this — "mimo-v2.5 is slow to start right now"
+  // The page published exactly this — "mimo-v2.6-flash is slow to start right now"
   // over 2016 ms — while the other model, three and a half seconds to first
   // token, sat underneath it with a chip on its card.
   it("keeps a doubled first token off the headline while the wait is still short", () => {
     const reading = buildSpeedReading(
-      trendOf([model("mimo-v2.5", [2016, 954], [70, 70])]),
+      trendOf([model("mimo-v2.6-flash", [2016, 954], [70, 70])]),
     );
     expect(2016 / 954 - 1).toBeGreaterThan(TTFT_FLOOR);
     expect(2016).toBeLessThan(SLOW_TTFT_MS);
@@ -615,7 +619,7 @@ describe("buildSpeedReading", () => {
   // second is faster than anyone reads, however fast it arrived yesterday.
   it("keeps a throughput drop off the headline while the rate is still quick", () => {
     const reading = buildSpeedReading(
-      trendOf([model("mimo-v2.5", [900, 900], [45, 70])]),
+      trendOf([model("mimo-v2.6-flash", [900, 900], [45, 70])]),
     );
     expect(70 / 45 - 1).toBeGreaterThan(TPS_FLOOR);
     expect(45).toBeGreaterThan(SLOW_TPS);
@@ -628,7 +632,7 @@ describe("buildSpeedReading", () => {
   // a big one does not have to pass it on its own.
   it("leads once the reading itself is slow", () => {
     const reading = buildSpeedReading(
-      trendOf([model("mimo-v2.5", [3400, 1800], [45, 70])]),
+      trendOf([model("mimo-v2.6-flash", [3400, 1800], [45, 70])]),
     );
     expect(3400).toBeGreaterThanOrEqual(SLOW_TTFT_MS);
     expect(reading.state).toBe("slower");
@@ -640,19 +644,19 @@ describe("buildSpeedReading", () => {
   it("leads with the flagship when both models are slow", () => {
     const reading = buildSpeedReading(
       trendOf([
-        model("mimo-v2.5-pro", [900, 900], [40, 70]),
-        model("mimo-v2.5", [4100, 2000], [70, 70]),
+        model("mimo-v2.6-pro", [900, 900], [40, 70]),
+        model("mimo-v2.6-flash", [4100, 2000], [70, 70]),
       ]),
     );
     expect(reading.state).toBe("slower");
     // The smaller model's first token adds 2.1 s; the flagship's throughput
     // drop adds under 1.2 s, and still takes the headline.
     expect(reading.lead).toBe(
-      "mimo-v2.5-pro is generating more slowly right now",
+      "mimo-v2.6-pro is generating more slowly right now",
     );
     expect(reading.metric).toBe("tps");
-    expect(reading.moves[0]!.modelID).toBe("mimo-v2.5-pro");
-    expect(reading.line).toContain("mimo-v2.5 is slow to start too.");
+    expect(reading.moves[0]!.modelID).toBe("mimo-v2.6-pro");
+    expect(reading.line).toContain("mimo-v2.6-flash is slow to start too.");
   });
 
   // The absolute floors decide WHETHER the page speaks, not who it names: the
@@ -661,19 +665,19 @@ describe("buildSpeedReading", () => {
   it("leads with the flagship even where its own reading is not slow", () => {
     const reading = buildSpeedReading(
       trendOf([
-        model("mimo-v2.5-pro", [900, 900], [45, 70]),
-        model("mimo-v2.5", [4100, 2000], [70, 70]),
+        model("mimo-v2.6-pro", [900, 900], [45, 70]),
+        model("mimo-v2.6-flash", [4100, 2000], [70, 70]),
       ]),
     );
     expect(45).toBeGreaterThan(SLOW_TPS);
     expect(4100).toBeGreaterThanOrEqual(SLOW_TTFT_MS);
     expect(reading.state).toBe("slower");
     expect(reading.lead).toBe(
-      "mimo-v2.5-pro is generating more slowly right now",
+      "mimo-v2.6-pro is generating more slowly right now",
     );
     expect(reading.metric).toBe("tps");
-    expect(reading.moves[0]!.modelID).toBe("mimo-v2.5-pro");
-    expect(reading.line).toContain("mimo-v2.5 is slow to start too.");
+    expect(reading.moves[0]!.modelID).toBe("mimo-v2.6-pro");
+    expect(reading.line).toContain("mimo-v2.6-flash is slow to start too.");
   });
 
   // ...and nothing slow anywhere still says nothing at all. The flagship rule
@@ -681,8 +685,8 @@ describe("buildSpeedReading", () => {
   it("stays minor when neither model is slow in absolute terms", () => {
     const reading = buildSpeedReading(
       trendOf([
-        model("mimo-v2.5-pro", [900, 900], [45, 70]),
-        model("mimo-v2.5", [2000, 1000], [70, 70]),
+        model("mimo-v2.6-pro", [900, 900], [45, 70]),
+        model("mimo-v2.6-flash", [2000, 1000], [70, 70]),
       ]),
     );
     expect(reading.state).toBe("minor");
@@ -697,8 +701,8 @@ describe("buildSpeedReading", () => {
   it("keeps an absolute claim off a flagship reading that is not slow", () => {
     const reading = buildSpeedReading(
       trendOf([
-        model("mimo-v2.5-pro", [2000, 900], [50, 70]),
-        model("mimo-v2.5", [900, 900], [30, 70]),
+        model("mimo-v2.6-pro", [2000, 900], [50, 70]),
+        model("mimo-v2.6-flash", [900, 900], [30, 70]),
       ]),
     );
     expect(2000).toBeLessThan(SLOW_TTFT_MS);
@@ -716,13 +720,13 @@ describe("buildSpeedReading", () => {
   it("leads with the flagship's slow metric, not its costliest one", () => {
     const reading = buildSpeedReading(
       trendOf([
-        model("mimo-v2.5-pro", [3100, 1000], [41, 100]),
-        model("mimo-v2.5", [900, 900], [70, 70]),
+        model("mimo-v2.6-pro", [3100, 1000], [41, 100]),
+        model("mimo-v2.6-flash", [900, 900], [70, 70]),
       ]),
     );
     expect(41).toBeGreaterThan(SLOW_TPS);
     expect(reading.metric).toBe("ttft");
-    expect(reading.lead).toBe("mimo-v2.5-pro is slow to start right now");
+    expect(reading.lead).toBe("mimo-v2.6-pro is slow to start right now");
   });
 
   // The ranking is cross-metric and the absolute floors are not, so the
@@ -730,7 +734,7 @@ describe("buildSpeedReading", () => {
   // that is not slow outranks, by seconds, a first token that is.
   it("lets a slow first token lead past a quicker throughput move", () => {
     const reading = buildSpeedReading(
-      trendOf([model("mimo-v2.5", [3100, 1000], [41, 100])]),
+      trendOf([model("mimo-v2.6-flash", [3100, 1000], [41, 100])]),
     );
     // Both cleared their relative floors, and only the first token is slow.
     expect(41).toBeGreaterThan(SLOW_TPS);

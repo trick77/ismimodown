@@ -80,7 +80,7 @@
 import { colorForModel } from "./charts/options";
 
 const CONSOLE_URL = "https://platform.xiaomimimo.com/console";
-const MODELS = ["mimo-v2.5-pro", "mimo-v2.5"];
+const MODELS = ["mimo-v2.6-pro", "mimo-v2.6-flash"];
 
 export function Masthead() {
   return (
@@ -134,7 +134,7 @@ export function Masthead() {
           the sentence, which is the heading's job.
 
           whitespace-nowrap because the hyphen is a break opportunity: at 1280px
-          the line broke after it and the first ID read as "mimo-" / "v2.5"
+          the line broke after it and the first ID read as "mimo-" / "v2.6-pro"
           across two lines, which is a different string. */}
       {/* The measure was 52ch — under half the container's width, which read as
           a narrow column against the full-width panels below it. Set to where
@@ -147,16 +147,16 @@ export function Masthead() {
         Latency, throughput, availability and answer correctness for{" "}
         <span
           className="num whitespace-nowrap text-[0.92em]"
-          style={{ color: colorForModel("mimo-v2.5-pro", MODELS) }}
+          style={{ color: colorForModel("mimo-v2.6-pro", MODELS) }}
         >
-          mimo-v2.5-pro
+          mimo-v2.6-pro
         </span>{" "}
         and{" "}
         <span
           className="num whitespace-nowrap text-[0.92em]"
-          style={{ color: colorForModel("mimo-v2.5", MODELS) }}
+          style={{ color: colorForModel("mimo-v2.6-flash", MODELS) }}
         >
-          mimo-v2.5
+          mimo-v2.6-flash
         </span>
         , separating how long it takes to <em>reach</em> the API endpoint from
         what happens once you are there.

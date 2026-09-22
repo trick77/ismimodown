@@ -23,7 +23,7 @@ func TestEventsStreamsAPublishedCycle(t *testing.T) {
 	broker := sse.New()
 	h := NewServer(Deps{
 		DB: db, Samples: samples.New(db), Broker: broker,
-		Models: []string{"mimo-v2.5"},
+		Models: []string{"mimo-v2.6-flash"},
 	})
 
 	srv := httptest.NewServer(h)

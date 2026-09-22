@@ -26,17 +26,17 @@ describe("colorForModel", () => {
   // Colour follows the MODEL, never its rank, so a model keeps its hue when the
   // ordering changes.
   it("is stable per model regardless of position", () => {
-    const a = ["mimo-v2.5", "mimo-v2.5-pro"];
-    const b = ["mimo-v2.5-pro", "mimo-v2.5"];
+    const a = ["mimo-v2.6-flash", "mimo-v2.6-pro"];
+    const b = ["mimo-v2.6-pro", "mimo-v2.6-flash"];
     // The same hue in both orderings — this is what lets DefaultModels be
     // reordered without the two models trading colours.
-    expect(colorForModel("mimo-v2.5", a)).toBe(SERIES_COLORS[0]);
-    expect(colorForModel("mimo-v2.5", b)).toBe(SERIES_COLORS[0]);
-    expect(colorForModel("mimo-v2.5-pro", a)).toBe(SERIES_COLORS[1]);
-    expect(colorForModel("mimo-v2.5-pro", b)).toBe(SERIES_COLORS[1]);
+    expect(colorForModel("mimo-v2.6-flash", a)).toBe(SERIES_COLORS[0]);
+    expect(colorForModel("mimo-v2.6-flash", b)).toBe(SERIES_COLORS[0]);
+    expect(colorForModel("mimo-v2.6-pro", a)).toBe(SERIES_COLORS[1]);
+    expect(colorForModel("mimo-v2.6-pro", b)).toBe(SERIES_COLORS[1]);
     // The two series must never share a colour.
-    expect(colorForModel("mimo-v2.5", a)).not.toBe(
-      colorForModel("mimo-v2.5-pro", a),
+    expect(colorForModel("mimo-v2.6-flash", a)).not.toBe(
+      colorForModel("mimo-v2.6-pro", a),
     );
   });
 
@@ -46,17 +46,17 @@ describe("colorForModel", () => {
 
   // A model RENAMED in DefaultModels without an entry here must not land on the
   // hue the model beside it is already drawing with. By position it would:
-  // "mimo-v3" first would take SERIES_COLORS[0], which mimo-v2.5 holds.
+  // "mimo-v3" first would take SERIES_COLORS[0], which mimo-v2.6-flash holds.
   it("never hands an unknown model a hue a known one holds", () => {
-    const models = ["mimo-v3", "mimo-v2.5"];
+    const models = ["mimo-v3", "mimo-v2.6-flash"];
     expect(colorForModel("mimo-v3", models)).not.toBe(
-      colorForModel("mimo-v2.5", models),
+      colorForModel("mimo-v2.6-flash", models),
     );
   });
 });
 
 describe("buildLineOption", () => {
-  const series = { "mimo-v2.5": [pt(1000, 900), pt(2000, 950)] };
+  const series = { "mimo-v2.6-flash": [pt(1000, 900), pt(2000, 950)] };
 
   it("emits one series per model in the given order", () => {
     const opt = buildLineOption({
@@ -99,7 +99,7 @@ describe("buildLineOption", () => {
   it("uses a linear axis within the threshold", () => {
     const opt = buildLineOption({
       series,
-      order: ["mimo-v2.5"],
+      order: ["mimo-v2.6-flash"],
       colorOf: () => "#fff",
       unit: "ms",
     });
@@ -177,7 +177,7 @@ describe("buildLineOption", () => {
   it("leaves a linear axis unbounded and unticked", () => {
     const opt = buildLineOption({
       series,
-      order: ["mimo-v2.5"],
+      order: ["mimo-v2.6-flash"],
       colorOf: () => "#fff",
       unit: "ms",
     });
@@ -258,7 +258,7 @@ describe("buildDecompositionOption", () => {
   // why they are stacked.
   it("splits TTFT into the edge and the residual", () => {
     const opt = buildDecompositionOption([
-      { id: "mimo-v2.5", ttft: 916, edge: 180 },
+      { id: "mimo-v2.6-flash", ttft: 916, edge: 180 },
     ]);
     expect(opt.series[0]!.name).toBe("to the edge");
     expect(opt.series[0]!.data).toEqual([180]);
@@ -271,10 +271,10 @@ describe("buildDecompositionOption", () => {
   // the bottom bar and read as last against the cards and legends above it.
   it("draws the first model as the top bar", () => {
     const opt = buildDecompositionOption([
-      { id: "mimo-v2.5-pro", ttft: 916, edge: 180 },
-      { id: "mimo-v2.5", ttft: 700, edge: 180 },
+      { id: "mimo-v2.6-pro", ttft: 916, edge: 180 },
+      { id: "mimo-v2.6-flash", ttft: 700, edge: 180 },
     ]);
-    expect(opt.yAxis.data).toEqual(["mimo-v2.5-pro", "mimo-v2.5"]);
+    expect(opt.yAxis.data).toEqual(["mimo-v2.6-pro", "mimo-v2.6-flash"]);
     expect(opt.yAxis.inverse).toBe(true);
   });
 
@@ -300,12 +300,12 @@ describe("buildDecompositionOption", () => {
   });
 
   // Both segments are drawn on EVERY model's row, so neither may wear a model
-  // hue: doing so made one colour mean "mimo-v2.5" in the cards and
+  // hue: doing so made one colour mean "mimo-v2.6-flash" in the cards and
   // "server-side" here, on the same screen, including on the pro row.
   it("paints neither segment in a model colour", () => {
     const opt = buildDecompositionOption([
-      { id: "mimo-v2.5", ttft: 916, edge: 180 },
-      { id: "mimo-v2.5-pro", ttft: 1400, edge: 180 },
+      { id: "mimo-v2.6-flash", ttft: 916, edge: 180 },
+      { id: "mimo-v2.6-pro", ttft: 1400, edge: 180 },
     ]);
     for (const s of opt.series) {
       expect(SERIES_COLORS as readonly string[]).not.toContain(
