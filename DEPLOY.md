@@ -232,6 +232,13 @@ the latency history and the page does not open with three months of network
 readings beside empty latency charts. **0007 deletes data and there is no way
 back.** The same backup covers it.
 
+0007 fails DIFFERENTLY from 0006 on a rollback, and quietly. An older binary on
+a 0007-migrated database boots clean, writes clean and logs nothing — 0007
+changes no column, so there is no INSERT to break. It simply finds the deleted
+history gone. There is no `persist cycle failed` line to grep for and no error
+anywhere: the only symptom is a dashboard whose charts start at the redeploy.
+Restore the backup; rolling the binary back does not bring the rows with it.
+
 An older binary on a migrated database boots clean — the migration is already
 recorded — and then stores nothing at all, because its INSERT names a column
 that no longer exists. A cycle is written in ONE transaction, so that failure

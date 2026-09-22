@@ -34,6 +34,14 @@
 -- `_pragma=foreign_keys(on)`, so the cascade fires and this one statement takes
 -- all four tables. Nothing REFERENCES cycles from outside them.
 --
+-- Reached through infer_probes, so the one shape this cannot see is a
+-- pre-rename cycle that stored NO inference row at all: Save requires Net to be
+-- non-empty and puts no matching requirement on Infer. Such a cycle keeps its
+-- network readings. It is caller-bug-only in practice — every dispatch path
+-- records a row, a timeout included — and there is no other column that says
+-- which generation a bare cycle belongs to, so this selects on the fact that
+-- actually distinguishes them rather than inventing a date cutoff.
+--
 -- So this is destructive and deliberate: three months of latency, availability,
 -- correctness AND network history for the superseded pair goes at once.
 -- Retention would have deleted it on a rolling window anyway; this is the same
