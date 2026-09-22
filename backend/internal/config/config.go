@@ -107,8 +107,13 @@ const DefaultUserAgent = "opencode/1.18.11 ai-sdk/openai-compatible/3.0.20 ai-sd
 // the probe keeps working and only the numbers become wrong.
 const DefaultSystemPrompt = "You are a helpful assistant."
 
-// DefaultModels are the two probed models, confirmed served on the tp- key by
-// the pre-implementation curl against /v1/models.
+// DefaultModels are the two probed models.
+//
+// IDs taken from llmwire's profiles.yaml (wire_model_id, entries marked
+// verified: measured, 2026-09-22), NOT from a curl against this deployment's
+// /v1/models. If an ID is not served on the tp- key, every probe 404s and the
+// page publishes the result as a MiMo outage — so confirm against /v1/models
+// before or immediately after the first deploy that carries a new ID.
 //
 // mimo-v2.6-pro is the flagship; mimo-v2.6-flash is a 309B-parameter
 // Mixture-of-Experts model with 15B activated per token. Different weight
@@ -155,17 +160,19 @@ type ModelPrice struct {
 // third party editing a number should not silently change a figure this
 // dashboard publishes as its own cost.
 //
-// KNOWN WRONG, in a known direction. The vendor's own pay-as-you-go page
+// KNOWN WRONG, in a known direction, and EVERY rate below is wrong — not just
+// the headline one. The vendor's own pay-as-you-go page
 // (https://mimo.mi.com/docs/en-US/price/pay-as-you-go, Overseas USD table, read
 // 2026-09-22) lists mimo-v2.6-pro at 0.435 in / 0.87 out / 0.0036 cached and
-// mimo-v2.6-flash at 0.14 / 0.28 / 0.0028. The table below therefore overstates
-// pro's output rate by roughly 3.4x. It is kept so the cost panel's figures stay
-// continuous across the generation change; reconcile against the vendor page
-// when this table is next touched.
+// mimo-v2.6-flash at 0.14 / 0.28 / 0.0028. Against those figures this table
+// overstates, in multiples: pro 2.3x in, 3.4x out, 55.6x cached; flash 2.9x in,
+// 7.1x out, 28.6x cached.
 //
-// What the panel reports is the tokens this dashboard actually spent priced
-// against these rates. It is the right order of magnitude and the wrong document
-// to argue with an accountant about: nothing here sees a real invoice.
+// So the cached rates are wrong by one to two ORDERS OF MAGNITUDE, and the old
+// "right order of magnitude" defence does not cover them. What the panel
+// reports is the tokens this dashboard actually spent priced against these
+// rates; nothing here sees a real invoice. Reconcile against the vendor page
+// when this table is next touched.
 //
 // Every model in DefaultModels MUST have an entry here. Nothing downstream
 // tolerates a missing one any more: /api/cost prices every row it finds, so a

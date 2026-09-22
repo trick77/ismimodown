@@ -39,8 +39,8 @@ export const TPS_FLOOR = 0.2;
 // take the banner. The floors above are relative; these two are absolute, and
 // the page needs both.
 //
-// "mimo-v2.6-flash is slow to start right now" was published over a first token of
-// 2016 ms, against 954 ms the day before. Every word of the measurement was
+// A "<model> is slow to start right now" headline was published over a first
+// token of 2016 ms, against 954 ms the day before. Every word of the measurement was
 // true — it had doubled, it was well past its floor — and the claim in the
 // largest type on the page was false: two seconds to first token is fast, and
 // the model whose card sat underneath it starts in three and a half. A

@@ -134,8 +134,8 @@ export function Masthead() {
           the sentence, which is the heading's job.
 
           whitespace-nowrap because the hyphen is a break opportunity: at 1280px
-          the line broke after it and the first ID read as "mimo-" / "v2.6-pro"
-          across two lines, which is a different string. */}
+          the line broke after one and the ID read as two lines split at the
+          hyphen, which is a different string. */}
       {/* The measure was 52ch — under half the container's width, which read as
           a narrow column against the full-width panels below it. Set to where
           the sentence stops being three ragged lines.

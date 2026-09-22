@@ -595,8 +595,8 @@ describe("buildSpeedReading", () => {
     expect(reading.line).toBe("");
   });
   // A doubling is a real move and a two-second first token is not a headline.
-  // The page published exactly this — "mimo-v2.6-flash is slow to start right now"
-  // over 2016 ms — while the other model, three and a half seconds to first
+  // The page published exactly this — a "<model> is slow to start right now"
+  // headline over 2016 ms — while the other model, three and a half seconds to first
   // token, sat underneath it with a chip on its card.
   it("keeps a doubled first token off the headline while the wait is still short", () => {
     const reading = buildSpeedReading(

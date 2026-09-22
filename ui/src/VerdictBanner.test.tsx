@@ -204,7 +204,7 @@ describe("VerdictBanner", () => {
     const plot = screen.getByTestId("trend-plot");
     expect(plot).toHaveTextContent("mimo-v2.6-pro");
     // The steady model keeps its own legend entry off the plot. Matched on the
-    // whole label, since its id is a prefix of the one that did move.
+    // whole label, so a partial paint of the other ID cannot satisfy it.
     expect(
       screen.queryByText("mimo-v2.6-flash", { selector: "span" }),
     ).not.toBeInTheDocument();
@@ -365,13 +365,37 @@ describe("VerdictBanner", () => {
     );
     const pro = screen.getByText("mimo-v2.6-pro");
     const fast = screen.getByText("mimo-v2.6-flash");
-    // Painted, and two different hues — the prefix must not swallow the suffix.
+    // Painted, and two different hues — one ID must not swallow the other.
     expect(pro).toHaveStyle({ color: colorForModel("mimo-v2.6-pro", MODELS) });
     expect(fast).toHaveStyle({
       color: colorForModel("mimo-v2.6-flash", MODELS),
     });
     // The possessive stays prose: the match ends at the ID.
     expect(fast).toHaveTextContent(/^mimo-v2\.6-flash$/);
+  });
+
+  // The current pair shares no prefix, so nothing above can fail if the
+  // longest-first sort in paintModels is deleted. The sort is kept for a future
+  // pair where one ID IS a prefix of the other, which is exactly the shape this
+  // synthetic pair has: matching the short one first would paint "mimo-x" and
+  // leave "-pro" sitting in body text.
+  it("paints a prefixed ID whole, not just its prefix", () => {
+    const pair = ["mimo-x", "mimo-x-pro"];
+    render(
+      <VerdictBanner
+        verdict={{
+          state: "degraded",
+          headline: "mimo-x-pro is having problems right now",
+          detail: [],
+        }}
+        models={pair}
+        trend={trend([model("mimo-x-pro", [3400, 1800])])}
+        loading={false}
+      />,
+    );
+    const painted = screen.getByText("mimo-x-pro");
+    expect(painted).toHaveTextContent(/^mimo-x-pro$/);
+    expect(painted).toHaveStyle({ color: colorForModel("mimo-x-pro", pair) });
   });
   // The clause is a claim about the run record too, not only about speed. A
   // verdict can be normal and still carry a line — one failed run inside the
