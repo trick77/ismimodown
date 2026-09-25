@@ -25,5 +25,4 @@ backend/web/dist/*
 # Local Claude Code settings
 .claude/
 
-# Local git worktrees
-.agents/worktrees/
+.agents/
