@@ -107,13 +107,20 @@ const DefaultUserAgent = "opencode/1.18.11 ai-sdk/openai-compatible/3.0.20 ai-sd
 // the probe keeps working and only the numbers become wrong.
 const DefaultSystemPrompt = "You are a helpful assistant."
 
-// DefaultModels are the two probed models, confirmed served on the tp- key by
-// the pre-implementation curl against /v1/models.
+// DefaultModels are the two probed models.
 //
-// mimo-v2.5 is the omnimodal model; mimo-v2.5-pro is the 1T/42B-active text
-// flagship. Different weight classes, so latency between them is comparable and
-// quality is not — which the UI must say. The -asr and -tts variants the
-// endpoint also serves are not chat models and are deliberately absent.
+// IDs taken from llmwire's profiles.yaml (wire_model_id, entries marked
+// verified: measured, 2026-09-22), NOT from a curl against this deployment's
+// /v1/models. If an ID is not served on the tp- key, every probe 404s and the
+// page publishes the result as a MiMo outage — so confirm against /v1/models
+// before or immediately after the first deploy that carries a new ID.
+//
+// mimo-v2.6-pro is the flagship; mimo-v2.6-flash is a 309B-parameter
+// Mixture-of-Experts model with 15B activated per token. Different weight
+// classes, so latency between them is comparable and quality is not — which the
+// UI must say. Both accept image input at this generation, so there is no
+// text-only sibling to route around. The -asr and -tts variants the endpoint
+// also serves are not chat models and are deliberately absent.
 //
 // Not configurable. The registry still takes the list as a parameter, so adding
 // a model or a second vendor stays a small change here rather than an
@@ -128,7 +135,7 @@ const DefaultSystemPrompt = "You are a helpful assistant."
 // page. It also reorders dispatch within a cycle, which changes nothing
 // measured: runs are serialised DispatchGap apart either way, and every row is
 // stamped with its cycle's started_at rather than its own.
-var DefaultModels = []string{"mimo-v2.5-pro", "mimo-v2.5"}
+var DefaultModels = []string{"mimo-v2.6-pro", "mimo-v2.6-flash"}
 
 // ModelPrice is one model's list price, in USD per MILLION tokens.
 //
@@ -145,25 +152,40 @@ type ModelPrice struct {
 
 // DefaultPrices is what a million tokens costs for each probed model, in USD.
 //
-// Source: LiteLLM's model_prices_and_context_window.json, read 2026-08-05, for
-// openrouter/xiaomi/mimo-v2.5 and openrouter/xiaomi/mimo-v2.5-pro. Vendored
-// rather than fetched: the container is distroless and offline by design, and a
-// third party editing a number should not silently change a figure this
-// dashboard publishes as its own cost. Edit this table when the rates move.
+// Source: LiteLLM's model_prices_and_context_window.json, read 2026-08-05.
+// Vendored rather than fetched: the container is distroless and offline by
+// design, and a third party editing a number should not silently change a
+// figure this dashboard publishes as its own cost.
 //
-// These are MiMo's published per-token rates, and what the panel reports is the
-// tokens this dashboard actually spent priced against them. It is the right
-// order of magnitude and the wrong document to argue with an accountant about:
-// nothing here sees a real invoice, so a rate that has moved since the date
-// above is wrong everywhere at once and silently.
+// THE RATES DID NOT MOVE AT THIS GENERATION. The vendor's pay-as-you-go page
+// lists the same figures for the 2.6 pair as for the pair before it, so these
+// numbers are unchanged here and only their keys were rewritten.
+//
+// They have always disagreed with the vendor, and that disagreement is about
+// the SOURCE, not the model. The vendor's own page
+// (https://mimo.mi.com/docs/en-US/price/pay-as-you-go, Overseas USD table, read
+// 2026-09-22) lists pro at 0.435 in / 0.87 out / 0.0036 cached and flash at
+// 0.14 / 0.28 / 0.0028, against which this table overstates every lane: pro
+// 2.3x in, 3.4x out, 55.6x cached; flash 2.9x in, 7.1x out, 28.6x cached. The
+// route billed here is a token plan settling in subscription credits rather
+// than either list, so neither source is an invoice. Picking between them is a
+// question about which list to publish and wants its own change.
+//
+// What the panel reports is the tokens this dashboard actually spent, priced
+// against these rates. Nothing here sees a real invoice.
+//
+// One more gap, independent of the rates: Cost() prices an unrecognised
+// model_id at the zero value, and retention keeps samples for 3 months, so
+// after a model rename that much history contributes nothing to a total that
+// still presents itself as complete. See the note in samples/cost.go.
 //
 // Every model in DefaultModels MUST have an entry here. Nothing downstream
 // tolerates a missing one any more: /api/cost prices every row it finds, so a
 // gap would quietly drop those runs out of a total that still presents itself
 // as complete. config_test.go pins the two lists against each other.
 var DefaultPrices = map[string]ModelPrice{
-	"mimo-v2.5":     {In: 0.40, Out: 2.00, Cached: 0.08},
-	"mimo-v2.5-pro": {In: 1.00, Out: 3.00, Cached: 0.20},
+	"mimo-v2.6-flash": {In: 0.40, Out: 2.00, Cached: 0.08},
+	"mimo-v2.6-pro":   {In: 1.00, Out: 3.00, Cached: 0.20},
 }
 
 // OffPeakCoefficient is MiMo's reduced-rate multiplier, applied to tokens spent

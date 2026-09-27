@@ -10,7 +10,7 @@ const NOW = new Date("2026-08-04T12:00:00Z");
 
 const failure = (over: Partial<Failure> = {}): Failure => ({
   at: "2026-08-04T11:58:00Z",
-  model_id: "mimo-v2.5",
+  model_id: "mimo-v2.6-flash",
   error_class: "http_error",
   http_status: 503,
   // null, not false: the call never completed, so there was no answer to
@@ -49,7 +49,7 @@ describe("RecentErrors", () => {
     render(<RecentErrors failures={[failure()]} />);
 
     const cells = cellsOfFirstRow();
-    expect(cells[1]).toBe("mimo-v2.5");
+    expect(cells[1]).toBe("mimo-v2.6-flash");
     expect(cells[2]).toContain("http_error");
     expect(cells[3]).toBe("503");
   });

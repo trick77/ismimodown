@@ -10,7 +10,7 @@ const NOW = new Date("2026-08-04T12:00:00Z");
 
 const sample = (over: Partial<Sample> = {}): Sample => ({
   at: "2026-08-04T12:00:00Z",
-  model_id: "mimo-v2.5",
+  model_id: "mimo-v2.6-flash",
   ttft_ms: 900,
   total_ms: 1700,
   itl_p50_ms: 24,
@@ -62,8 +62,8 @@ describe("newestFirst", () => {
   // would swap places between renders on a table a reader scans down.
   it("breaks a tie between models the same way every time", () => {
     const at = "2026-08-04T12:00:00Z";
-    const a = sample({ at, model_id: "mimo-v2.5" });
-    const b = sample({ at, model_id: "mimo-v2.5-pro" });
+    const a = sample({ at, model_id: "mimo-v2.6-flash" });
+    const b = sample({ at, model_id: "mimo-v2.6-pro" });
     expect(newestFirst([[a], [b]]).map((s) => s.model_id)).toEqual(
       newestFirst([[b], [a]]).map((s) => s.model_id),
     );
@@ -74,13 +74,13 @@ describe("newestFirst", () => {
   it("keeps every run of a cycle that both models ran", () => {
     const at = "2026-08-04T12:00:00Z";
     const merged = newestFirst([
-      [sample({ at, model_id: "mimo-v2.5" })],
-      [sample({ at, model_id: "mimo-v2.5-pro" })],
+      [sample({ at, model_id: "mimo-v2.6-flash" })],
+      [sample({ at, model_id: "mimo-v2.6-pro" })],
     ]);
     expect(merged).toHaveLength(2);
     expect(merged.map((s) => s.model_id)).toEqual([
-      "mimo-v2.5",
-      "mimo-v2.5-pro",
+      "mimo-v2.6-flash",
+      "mimo-v2.6-pro",
     ]);
   });
 });
@@ -118,7 +118,7 @@ describe("SamplesTable", () => {
   it("covers about an hour of both models", () => {
     const at = (min: number) =>
       new Date(Date.UTC(2026, 7, 4, 12, 0) - min * 60_000).toISOString();
-    const groups = ["mimo-v2.5", "mimo-v2.5-pro"].map((model_id) =>
+    const groups = ["mimo-v2.6-flash", "mimo-v2.6-pro"].map((model_id) =>
       Array.from({ length: 20 }, (_, i) => sample({ model_id, at: at(i * 5) })),
     );
     render(<SamplesTable perGroup={groups} />);
@@ -189,11 +189,11 @@ describe("SamplesTable", () => {
   it("names the model beside the time", () => {
     render(
       <SamplesTable
-        perGroup={[[sample()], [sample({ model_id: "mimo-v2.5-pro" })]]}
+        perGroup={[[sample()], [sample({ model_id: "mimo-v2.6-pro" })]]}
       />,
     );
-    expect(cellsOfFirstRow()[1]).toBe("mimo-v2.5");
-    expect(screen.getByText("mimo-v2.5-pro")).toBeInTheDocument();
+    expect(cellsOfFirstRow()[1]).toBe("mimo-v2.6-flash");
+    expect(screen.getByText("mimo-v2.6-pro")).toBeInTheDocument();
   });
 
   // The omission this table was fixed for: it fetched and drew the first model
@@ -203,13 +203,13 @@ describe("SamplesTable", () => {
     render(
       <SamplesTable
         perGroup={[
-          [sample({ model_id: "mimo-v2.5" })],
-          [sample({ model_id: "mimo-v2.5-pro" })],
+          [sample({ model_id: "mimo-v2.6-flash" })],
+          [sample({ model_id: "mimo-v2.6-pro" })],
         ]}
       />,
     );
     expect(bodyRows()).toBe(2);
-    expect(screen.getByText("mimo-v2.5-pro")).toBeInTheDocument();
+    expect(screen.getByText("mimo-v2.6-pro")).toBeInTheDocument();
   });
 
   // A run that failed before an answer existed is never graded. A dash, not a

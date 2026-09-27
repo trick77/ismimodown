@@ -50,7 +50,7 @@ func TestSaveWritesTheWholeCycle(t *testing.T) {
 	id, err := s.Save(context.Background(), Cycle{
 		StartedAt: time.Date(2026, 8, 4, 6, 0, 0, 0, time.UTC),
 		Net:       okNet(),
-		Infer:     []probe.InferResult{okInfer("mimo-v2.5", 912)},
+		Infer:     []probe.InferResult{okInfer("mimo-v2.6-flash", 912)},
 	})
 	if err != nil {
 		t.Fatalf("Save: %v", err)
@@ -87,7 +87,7 @@ func TestEveryInferRowHasNetworkReadingsInItsOwnCycle(t *testing.T) {
 			StartedAt: time.Now().Add(time.Duration(i) * time.Minute),
 			Net:       okNet(),
 			Infer: []probe.InferResult{
-				okInfer("mimo-v2.5", 900), okInfer("mimo-v2.5-pro", 1100),
+				okInfer("mimo-v2.6-flash", 900), okInfer("mimo-v2.6-pro", 1100),
 			},
 		}); err != nil {
 			t.Fatalf("Save: %v", err)
@@ -115,7 +115,7 @@ func TestSaveRejectsACycleWithNoNetworkReadings(t *testing.T) {
 
 	_, err := s.Save(context.Background(), Cycle{
 		StartedAt: time.Now(),
-		Infer:     []probe.InferResult{okInfer("mimo-v2.5", 900)},
+		Infer:     []probe.InferResult{okInfer("mimo-v2.6-flash", 900)},
 	})
 	if err == nil {
 		t.Fatal("expected Save to reject a cycle with no network readings")
@@ -132,7 +132,7 @@ func TestFailedRunStoresNullTimingsNotZeros(t *testing.T) {
 	id, err := s.Save(context.Background(), Cycle{
 		StartedAt: time.Now(), Net: okNet(),
 		Infer: []probe.InferResult{{
-			ModelID: "mimo-v2.5", TotalMs: 240000, OK: false, ErrorClass: probe.ErrClassTimeout,
+			ModelID: "mimo-v2.6-flash", TotalMs: 240000, OK: false, ErrorClass: probe.ErrClassTimeout,
 			ErrorDetail: "context deadline exceeded",
 		}},
 	})
@@ -182,7 +182,7 @@ func TestTimeoutDoesNotPoisonThePercentile(t *testing.T) {
 		if _, err := s.Save(ctx, Cycle{
 			StartedAt: time.Now().Add(time.Duration(i) * time.Minute),
 			Net:       okNet(),
-			Infer:     []probe.InferResult{okInfer("mimo-v2.5", 900)},
+			Infer:     []probe.InferResult{okInfer("mimo-v2.6-flash", 900)},
 		}); err != nil {
 			t.Fatalf("Save: %v", err)
 		}
@@ -190,7 +190,7 @@ func TestTimeoutDoesNotPoisonThePercentile(t *testing.T) {
 	if _, err := s.Save(ctx, Cycle{
 		StartedAt: time.Now().Add(10 * time.Minute), Net: okNet(),
 		Infer: []probe.InferResult{{
-			ModelID: "mimo-v2.5", TotalMs: 240000, OK: false, ErrorClass: probe.ErrClassTimeout,
+			ModelID: "mimo-v2.6-flash", TotalMs: 240000, OK: false, ErrorClass: probe.ErrClassTimeout,
 		}},
 	}); err != nil {
 		t.Fatalf("Save: %v", err)
@@ -408,8 +408,8 @@ func TestSaveIsAtomic(t *testing.T) {
 	_, err := s.Save(context.Background(), Cycle{
 		StartedAt: time.Now(), Net: bad,
 		Infer: []probe.InferResult{
-			okInfer("mimo-v2.5", 900),
-			okInfer("mimo-v2.5-pro", 900),
+			okInfer("mimo-v2.6-flash", 900),
+			okInfer("mimo-v2.6-pro", 900),
 		},
 	})
 	if err == nil {
@@ -442,14 +442,14 @@ func TestSweepDeletesOnlyBeyondTheWindow(t *testing.T) {
 
 	oldID, err := s.Save(ctx, Cycle{
 		StartedAt: now.Add(-100 * 24 * time.Hour),
-		Net:       okNet(), Infer: []probe.InferResult{okInfer("mimo-v2.5", 900)},
+		Net:       okNet(), Infer: []probe.InferResult{okInfer("mimo-v2.6-flash", 900)},
 	})
 	if err != nil {
 		t.Fatalf("Save old: %v", err)
 	}
 	newID, err := s.Save(ctx, Cycle{
 		StartedAt: now.Add(-1 * time.Hour),
-		Net:       okNet(), Infer: []probe.InferResult{okInfer("mimo-v2.5", 900)},
+		Net:       okNet(), Infer: []probe.InferResult{okInfer("mimo-v2.6-flash", 900)},
 	})
 	if err != nil {
 		t.Fatalf("Save new: %v", err)

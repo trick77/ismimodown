@@ -44,8 +44,8 @@ describe("Masthead", () => {
     render(<Masthead />);
 
     // Then
-    expect(screen.getByText("mimo-v2.5")).toBeInTheDocument();
-    expect(screen.getByText("mimo-v2.5-pro")).toBeInTheDocument();
+    expect(screen.getByText("mimo-v2.6-flash")).toBeInTheDocument();
+    expect(screen.getByText("mimo-v2.6-pro")).toBeInTheDocument();
   });
 
   // The one link off this page, and the one place a reader can go do something

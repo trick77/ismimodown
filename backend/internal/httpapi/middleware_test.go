@@ -99,7 +99,7 @@ func TestSecurityHeadersAreOnEveryResponse(t *testing.T) {
 	db := openTestDB(t)
 	h := NewServer(Deps{
 		Version: "test", DB: db, Samples: samples.New(db),
-		Models: []string{"mimo-v2.5"},
+		Models: []string{"mimo-v2.6-flash"},
 	})
 
 	want := map[string]string{
@@ -233,7 +233,7 @@ func TestNoHSTSFromTheApplication(t *testing.T) {
 // for convenience is how that distinction gets lost.
 func TestNoCORSHeaders(t *testing.T) {
 	db := openTestDB(t)
-	h := NewServer(Deps{Version: "test", DB: db, Samples: samples.New(db), Models: []string{"mimo-v2.5"}})
+	h := NewServer(Deps{Version: "test", DB: db, Samples: samples.New(db), Models: []string{"mimo-v2.6-flash"}})
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/dashboard?window=24h", nil)
