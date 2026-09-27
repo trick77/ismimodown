@@ -126,12 +126,12 @@ func TestRequestShapeIsWhatMimoNeeds(t *testing.T) {
 
 	c := NewClient(testConfig(srv.URL))
 	if _, err := c.Run(context.Background(), Request{
-		ModelID: "mimo-v2.5", Prompt: "q", MaxTokens: 150,
+		ModelID: "mimo-v2.6-flash", Prompt: "q", MaxTokens: 150,
 	}); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 
-	if got.Model != "mimo-v2.5" {
+	if got.Model != "mimo-v2.6-flash" {
 		t.Errorf("model = %q", got.Model)
 	}
 	if !got.Stream {
@@ -193,7 +193,7 @@ func TestTimingsMatchTheConstructedStream(t *testing.T) {
 
 	c := NewClient(testConfig(srv.URL))
 	res, err := c.Run(context.Background(), Request{
-		ModelID: "mimo-v2.5", Prompt: "q", MaxTokens: 150,
+		ModelID: "mimo-v2.6-flash", Prompt: "q", MaxTokens: 150,
 	})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
@@ -358,7 +358,7 @@ func TestFailedRunIsStillARecordedSample(t *testing.T) {
 	defer srv.Close()
 
 	res, err := NewClient(testConfig(srv.URL)).Run(context.Background(), Request{
-		ModelID: "mimo-v2.5", Prompt: "q", MaxTokens: 150,
+		ModelID: "mimo-v2.6-flash", Prompt: "q", MaxTokens: 150,
 	})
 	if err != nil {
 		t.Fatalf("Run must not return an error for a transport failure: %v", err)
@@ -369,7 +369,7 @@ func TestFailedRunIsStillARecordedSample(t *testing.T) {
 	if res.ErrorClass == "" {
 		t.Error("a failed sample must carry an error class")
 	}
-	if res.ModelID != "mimo-v2.5" {
+	if res.ModelID != "mimo-v2.6-flash" {
 		t.Error("a failed sample must still identify what was being probed")
 	}
 	if res.TotalMs <= 0 {
@@ -727,7 +727,7 @@ func TestRunRejectsARequestWithNoOutputCap(t *testing.T) {
 	defer srv.Close()
 
 	_, err := NewClient(testConfig(srv.URL)).Run(context.Background(), Request{
-		ModelID: "mimo-v2.5", Prompt: "q", // MaxTokens deliberately unset
+		ModelID: "mimo-v2.6-flash", Prompt: "q", // MaxTokens deliberately unset
 	})
 	if err == nil {
 		t.Fatal("expected an error for a request with no output cap")

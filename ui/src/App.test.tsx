@@ -12,7 +12,7 @@ const cleanCycles = (n = 12) =>
       Date.parse("2026-08-04T12:00:00Z") - i * 5 * 60 * 1000,
     ).toISOString(),
     fault: "ok",
-    models: { "mimo-v2.5": { ok: true, answer_ok: true } },
+    models: { "mimo-v2.6-flash": { ok: true, answer_ok: true } },
   }));
 
 const summary = (over: Record<string, unknown> = {}) => ({
@@ -20,7 +20,7 @@ const summary = (over: Record<string, unknown> = {}) => ({
   cycles: 288,
   models: [
     {
-      model_id: "mimo-v2.5",
+      model_id: "mimo-v2.6-flash",
       ttft: { n: 288, sufficient: true, p50_ms: 916, p95_ms: 1400 },
       itl: { n: 288, sufficient: true, p50_ms: 24, p95_ms: 40 },
       tps: { n: 288, sufficient: true, p50_ms: 41, p95_ms: 60 },
@@ -101,8 +101,8 @@ const cost = () => ({
 // the server's now, and a fixture that collapsed it would hide a merge that
 // dropped a group.
 const sampleGroups = (over: Record<string, unknown[]> = {}) => [
-  { model_id: "mimo-v2.5", samples: over["mimo-v2.5"] ?? [] },
-  { model_id: "mimo-v2.5-pro", samples: over["mimo-v2.5-pro"] ?? [] },
+  { model_id: "mimo-v2.6-flash", samples: over["mimo-v2.6-flash"] ?? [] },
+  { model_id: "mimo-v2.6-pro", samples: over["mimo-v2.6-pro"] ?? [] },
 ];
 
 // The whole page, in one body. Overrides stay per-part, so every call site
@@ -120,7 +120,7 @@ const dashboard = (overrides: Record<string, unknown> = {}) => ({
     network: overrides.net ?? emptyNet,
   },
   cost: overrides.cost ?? cost(),
-  pulse: overrides.pulse ?? [{ model_id: "mimo-v2.5", cycles: [] }],
+  pulse: overrides.pulse ?? [{ model_id: "mimo-v2.6-flash", cycles: [] }],
   samples:
     overrides.samples ??
     sampleGroups(overrides.sampleRows as Record<string, unknown[]>),
@@ -170,7 +170,9 @@ describe("App", () => {
     await waitFor(() =>
       expect(screen.getByTestId("verdict")).toHaveTextContent(/normal/i),
     );
-    expect(screen.getByTestId("model-card-mimo-v2.5")).toBeInTheDocument();
+    expect(
+      screen.getByTestId("model-card-mimo-v2.6-flash"),
+    ).toBeInTheDocument();
     expect(screen.getByText("916 ms")).toBeInTheDocument();
   });
 
@@ -190,7 +192,9 @@ describe("App", () => {
         total: {
           ...emptySeries,
           metric: "total",
-          models: { "mimo-v2.5": [{ t: 0, n: 1, censored: 0, p50: 1700 }] },
+          models: {
+            "mimo-v2.6-flash": [{ t: 0, n: 1, censored: 0, p50: 1700 }],
+          },
         },
       }),
     );
@@ -217,7 +221,7 @@ describe("App", () => {
   it("draws an ungraded run without dropping it", async () => {
     const row = (over: Record<string, unknown>) => ({
       at: "2026-08-04T12:00:00Z",
-      model_id: "mimo-v2.5",
+      model_id: "mimo-v2.6-flash",
       ttft_ms: 900,
       total_ms: 1700,
       itl_p50_ms: 24,
@@ -231,17 +235,17 @@ describe("App", () => {
       "fetch",
       mockFetch({
         sampleRows: {
-          "mimo-v2.5": [row({})],
+          "mimo-v2.6-flash": [row({})],
           // A run that failed before an answer existed, sharing the cycle.
-          "mimo-v2.5-pro": [
-            row({ model_id: "mimo-v2.5-pro", answer_ok: null, ttft_ms: 4200 }),
+          "mimo-v2.6-pro": [
+            row({ model_id: "mimo-v2.6-pro", answer_ok: null, ttft_ms: 4200 }),
           ],
         },
       }),
     );
     render(<App />);
 
-    expect(await screen.findByText("mimo-v2.5-pro")).toBeInTheDocument();
+    expect(await screen.findByText("mimo-v2.6-pro")).toBeInTheDocument();
     expect(screen.getByText("4.2 s")).toBeInTheDocument();
   });
 
@@ -267,12 +271,12 @@ describe("App", () => {
       mockFetch({
         samples: [
           {
-            model_id: "mimo-v2.5",
-            samples: [row("mimo-v2.5", 916)],
+            model_id: "mimo-v2.6-flash",
+            samples: [row("mimo-v2.6-flash", 916)],
           },
           {
-            model_id: "mimo-v2.5-pro",
-            samples: [row("mimo-v2.5-pro", 242)],
+            model_id: "mimo-v2.6-pro",
+            samples: [row("mimo-v2.6-pro", 242)],
           },
         ],
       }),
@@ -451,7 +455,7 @@ describe("App", () => {
     vi.stubGlobal("fetch", mockFetch());
     render(<App />);
 
-    await screen.findByTestId("model-card-mimo-v2.5");
+    await screen.findByTestId("model-card-mimo-v2.6-flash");
     const banner = screen.getByTestId("verdict");
     expect(banner).toHaveClass("min-h-[159px]");
     // And gives it back where the headline fits on one line, rather than
@@ -466,10 +470,12 @@ describe("App", () => {
       vi.stubGlobal("fetch", mockFetch());
       render(<App />);
 
-      await screen.findByTestId("model-card-mimo-v2.5");
+      await screen.findByTestId("model-card-mimo-v2.6-flash");
       const main = screen.getByRole("main");
       expect(main).toContainElement(screen.getByTestId("verdict"));
-      expect(main).toContainElement(screen.getByTestId("model-card-mimo-v2.5"));
+      expect(main).toContainElement(
+        screen.getByTestId("model-card-mimo-v2.6-flash"),
+      );
       // A <header> nested in <main> is no longer a banner, which is the one
       // landmark a reader uses to find out what site they are on.
       expect(main).not.toContainElement(
@@ -486,7 +492,7 @@ describe("App", () => {
       vi.stubGlobal("fetch", mockFetch());
       render(<App />);
 
-      await screen.findByTestId("model-card-mimo-v2.5");
+      await screen.findByTestId("model-card-mimo-v2.6-flash");
       const levels = screen
         .getAllByRole("heading")
         .map((h) => Number(h.tagName[1]));
@@ -712,8 +718,8 @@ describe("the pulse strip", () => {
         // One group per model, as the daemon sends them. The strip merges
         // them; a page that drew only the first would paint this cycle green.
         pulse: [
-          cycle("mimo-v2.5"),
-          cycle("mimo-v2.5-pro", {
+          cycle("mimo-v2.6-flash"),
+          cycle("mimo-v2.6-pro", {
             ok: false,
             ttft_ms: null,
             error_class: "timeout",
@@ -726,7 +732,7 @@ describe("the pulse strip", () => {
     // Waited on a card, not on the strip: the strip is in the document from
     // the first render now — it holds its frame while the fetch is in flight —
     // so awaiting it would no longer gate on the response having landed.
-    await screen.findByTestId("model-card-mimo-v2.5");
+    await screen.findByTestId("model-card-mimo-v2.6-flash");
     const strip = screen.getByTestId("pulse-strip");
     // Both models reported the same cycle, so it is one bar — and the failure
     // on the second model is what it shows.
