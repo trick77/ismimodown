@@ -28,7 +28,7 @@ const series = (points: Point[]): ModelSeries => ({
   window: "24h",
   bucket_s: 900,
   metric: "ttft",
-  models: { "mimo-v2.5": points },
+  models: { "mimo-v2.6-flash": points },
 });
 
 const panel = (points: Point[], bucketS = 900) => (
@@ -36,7 +36,7 @@ const panel = (points: Point[], bucketS = 900) => (
     title="Time to first token"
     subtitle="P50 per bucket."
     series={{ ...series(points), bucket_s: bucketS }}
-    models={["mimo-v2.5"]}
+    models={["mimo-v2.6-flash"]}
     unit="ms"
   />
 );

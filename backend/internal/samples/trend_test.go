@@ -35,10 +35,10 @@ func TestTrendSeparatesTheRecentSpanFromTheDayBeforeIt(t *testing.T) {
 	ctx := context.Background()
 
 	recentFrom := now.Add(-TrendRecent)
-	seedTrendCycles(t, s, "mimo-v2.5", now.Add(-TrendRecent-TrendReference), recentFrom, 800, 70)
-	seedTrendCycles(t, s, "mimo-v2.5", recentFrom, now, 1600, 45)
+	seedTrendCycles(t, s, "mimo-v2.6-flash", now.Add(-TrendRecent-TrendReference), recentFrom, 800, 70)
+	seedTrendCycles(t, s, "mimo-v2.6-flash", recentFrom, now, 1600, 45)
 
-	tr, err := s.Trend(ctx, []string{"mimo-v2.5"}, now)
+	tr, err := s.Trend(ctx, []string{"mimo-v2.6-flash"}, now)
 	if err != nil {
 		t.Fatalf("Trend: %v", err)
 	}
@@ -87,15 +87,15 @@ func TestTrendSpansDoNotOverlap(t *testing.T) {
 	// That run must land on the recent side and nowhere else — `>= from AND
 	// < to` on both queries is what makes it unambiguous, and an inclusive
 	// upper bound would count it twice.
-	seedTrendCycles(t, s, "mimo-v2.5", now.Add(-TrendRecent-TrendReference), recentFrom, 800, 70)
+	seedTrendCycles(t, s, "mimo-v2.6-flash", now.Add(-TrendRecent-TrendReference), recentFrom, 800, 70)
 	if _, err := s.Save(context.Background(), Cycle{
 		StartedAt: recentFrom, Net: okNet(),
-		Infer: []probe.InferResult{okInfer("mimo-v2.5", 1600)},
+		Infer: []probe.InferResult{okInfer("mimo-v2.6-flash", 1600)},
 	}); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
 
-	tr, err := s.Trend(context.Background(), []string{"mimo-v2.5"}, now)
+	tr, err := s.Trend(context.Background(), []string{"mimo-v2.6-flash"}, now)
 	if err != nil {
 		t.Fatalf("Trend: %v", err)
 	}
@@ -118,10 +118,10 @@ func TestTrendSuppressesASpanBelowTheSampleThreshold(t *testing.T) {
 
 	// Nineteen runs in the recent span, one short of the threshold, and a full
 	// day behind it.
-	seedTrendCycles(t, s, "mimo-v2.5", now.Add(-TrendRecent-TrendReference), now.Add(-TrendRecent), 800, 70)
-	seedTrendCycles(t, s, "mimo-v2.5", now.Add(-95*time.Minute), now, 1600, 45)
+	seedTrendCycles(t, s, "mimo-v2.6-flash", now.Add(-TrendRecent-TrendReference), now.Add(-TrendRecent), 800, 70)
+	seedTrendCycles(t, s, "mimo-v2.6-flash", now.Add(-95*time.Minute), now, 1600, 45)
 
-	tr, err := s.Trend(context.Background(), []string{"mimo-v2.5"}, now)
+	tr, err := s.Trend(context.Background(), []string{"mimo-v2.6-flash"}, now)
 	if err != nil {
 		t.Fatalf("Trend: %v", err)
 	}
@@ -145,20 +145,20 @@ func TestTrendExcludesFailuresAndKeepsCensoringVisible(t *testing.T) {
 	now := time.Date(2026, 8, 20, 12, 0, 0, 0, time.UTC)
 	ctx := context.Background()
 
-	seedTrendCycles(t, s, "mimo-v2.5", now.Add(-TrendRecent-TrendReference), now.Add(-TrendRecent), 800, 70)
-	seedTrendCycles(t, s, "mimo-v2.5", now.Add(-TrendRecent), now.Add(-30*time.Minute), 1600, 45)
+	seedTrendCycles(t, s, "mimo-v2.6-flash", now.Add(-TrendRecent-TrendReference), now.Add(-TrendRecent), 800, 70)
+	seedTrendCycles(t, s, "mimo-v2.6-flash", now.Add(-TrendRecent), now.Add(-30*time.Minute), 1600, 45)
 
 	// A run our own timeout ladder cut off, inside the recent span.
 	if _, err := s.Save(ctx, Cycle{
 		StartedAt: now.Add(-20 * time.Minute), Net: okNet(),
 		Infer: []probe.InferResult{{
-			ModelID: "mimo-v2.5", OK: false, ErrorClass: probe.CensoringErrorClasses[0],
+			ModelID: "mimo-v2.6-flash", OK: false, ErrorClass: probe.CensoringErrorClasses[0],
 		}},
 	}); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
 
-	tr, err := s.Trend(ctx, []string{"mimo-v2.5"}, now)
+	tr, err := s.Trend(ctx, []string{"mimo-v2.6-flash"}, now)
 	if err != nil {
 		t.Fatalf("Trend: %v", err)
 	}

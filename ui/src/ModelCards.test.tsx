@@ -7,7 +7,7 @@ import { FAULT_OK } from "./api/types";
 
 function model(over: Partial<ModelSummary> = {}): ModelSummary {
   return {
-    model_id: "mimo-v2.5",
+    model_id: "mimo-v2.6-flash",
     ttft: { n: 288, sufficient: true, p50_ms: 916, p95_ms: 1400 },
     itl: { n: 288, sufficient: true, p50_ms: 24, p95_ms: 40 },
     tps: { n: 288, sufficient: true, p50_ms: 41, p95_ms: 60 },
@@ -41,7 +41,7 @@ const summary = (
 // apart, like the daemon serves it.
 const recentModelFailures = (
   failing: number[],
-  modelId = "mimo-v2.5",
+  modelId = "mimo-v2.6-flash",
 ): RecentCycle[] =>
   Array.from({ length: 36 }, (_, i) => ({
     at: new Date(
@@ -89,12 +89,14 @@ describe("ModelCards", () => {
   it("renders one card per model", () => {
     render(
       <ModelCards
-        summary={summary([model(), model({ model_id: "mimo-v2.5-pro" })])}
+        summary={summary([model(), model({ model_id: "mimo-v2.6-pro" })])}
         baseline={null}
       />,
     );
-    expect(screen.getByTestId("model-card-mimo-v2.5")).toBeInTheDocument();
-    expect(screen.getByTestId("model-card-mimo-v2.5-pro")).toBeInTheDocument();
+    expect(
+      screen.getByTestId("model-card-mimo-v2.6-flash"),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("model-card-mimo-v2.6-pro")).toBeInTheDocument();
   });
 
   it("shows the headline figures", () => {
@@ -143,7 +145,7 @@ describe("ModelCards", () => {
         baseline={null}
       />,
     );
-    const note = screen.getByTestId("censored-mimo-v2.5");
+    const note = screen.getByTestId("censored-mimo-v2.6-flash");
     expect(note).toHaveTextContent(/12 of 288/);
     // Both halves, because they are different claims and the old copy ran them
     // together: the runs ARE in the availability figure beside this, and they
@@ -157,7 +159,7 @@ describe("ModelCards", () => {
 
   it("stays quiet when nothing was cut off", () => {
     render(<ModelCards summary={summary([model()])} baseline={null} />);
-    expect(screen.queryByTestId("censored-mimo-v2.5")).toBeNull();
+    expect(screen.queryByTestId("censored-mimo-v2.6-flash")).toBeNull();
   });
 
   // Without a floor the card paints an amber box about a single dropped run,
@@ -183,7 +185,7 @@ describe("ModelCards", () => {
         baseline={null}
       />,
     );
-    expect(screen.queryByTestId("censored-mimo-v2.5")).toBeNull();
+    expect(screen.queryByTestId("censored-mimo-v2.6-flash")).toBeNull();
   });
 
   // The reported bug. Three runs cut off by the timeout ladder over 48 hours is
@@ -203,10 +205,10 @@ describe("ModelCards", () => {
       />,
     );
 
-    expect(screen.getByTestId("censored-mimo-v2.5")).toHaveTextContent(
+    expect(screen.getByTestId("censored-mimo-v2.6-flash")).toHaveTextContent(
       /3 of 592 runs were cut off/,
     );
-    const card = screen.getByTestId("model-card-mimo-v2.5");
+    const card = screen.getByTestId("model-card-mimo-v2.6-flash");
     // No green chip anywhere on the card: normal is the resting state, and
     // saying it is a second opinion about what the banner has already said —
     // including on the day the banner says SLOWER, when nothing is failing and
@@ -301,7 +303,7 @@ describe("ModelCards", () => {
       />,
     );
 
-    const card = screen.getByTestId("model-card-mimo-v2.5");
+    const card = screen.getByTestId("model-card-mimo-v2.6-flash");
     expect(card.querySelector("[data-testid='state-chip']")).toHaveAttribute(
       "data-state",
       "elevated",
@@ -321,7 +323,7 @@ describe("ModelCards", () => {
       />,
     );
 
-    const card = screen.getByTestId("model-card-mimo-v2.5");
+    const card = screen.getByTestId("model-card-mimo-v2.6-flash");
     expect(card.querySelector("[data-state='normal']")).toBeNull();
     expect(card.querySelector("[data-state='elevated']")).toBeNull();
     expect(card.querySelector("[data-state='degraded']")).toBeNull();
@@ -351,7 +353,7 @@ describe("ModelCards", () => {
       />,
     );
 
-    const card = screen.getByTestId("model-card-mimo-v2.5");
+    const card = screen.getByTestId("model-card-mimo-v2.6-flash");
     expect(card.querySelector("[data-testid='state-chip']")).toHaveAttribute(
       "data-state",
       "unknown",

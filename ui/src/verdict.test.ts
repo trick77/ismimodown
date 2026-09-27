@@ -12,7 +12,7 @@ import {
   worst,
 } from "./verdict";
 
-const MODEL = "mimo-v2.5";
+const MODEL = "mimo-v2.6-flash";
 const GENERATED_AT = "2026-08-04T12:00:00Z";
 const CYCLE_MS = 5 * 60 * 1000;
 
@@ -483,7 +483,7 @@ describe("buildVerdict", () => {
       summary(),
     );
     expect(v.state).toBe("degraded");
-    expect(v.headline).toMatch(/mimo-v2\.5 is having problems/i);
+    expect(v.headline).toMatch(/mimo-v2\.6-flash is having problems/i);
     expect(v.detail.join(" ")).toMatch(/failed 3 of the last 12 runs/i);
     expect(v.detail.join(" ")).toMatch(/71% longer/);
   });
@@ -511,7 +511,7 @@ describe("buildVerdict", () => {
     expect(v.state).toBe("normal");
     expect(v.headline).toMatch(/Xiaomi MiMo is answering/i);
     expect(v.detail.join(" ")).toMatch(
-      /mimo-v2\.5 failed 1 of the last 12 runs, 10 minutes ago\. One run is not yet a pattern\./i,
+      /mimo-v2\.6-flash failed 1 of the last 12 runs, 10 minutes ago\. One run is not yet a pattern\./i,
     );
   });
 
@@ -546,7 +546,7 @@ describe("buildVerdict", () => {
     expect(v.state).toBe("normal");
     const detail = v.detail.join(" ");
     expect(detail).toMatch(/The last failed cycle was/);
-    expect(detail).toMatch(/mimo-v2\.5 failed 1 of the last 12 runs/);
+    expect(detail).toMatch(/mimo-v2\.6-flash failed 1 of the last 12 runs/);
   });
 
   // Two spread runs, which is where the model branch starts speaking. The
@@ -571,21 +571,21 @@ describe("buildVerdict", () => {
     const v = buildVerdict(
       summary({
         recent: recentModelFailures([0, 1, 2], { wrong: [5, 7] }),
-        models: [model(), model({ model_id: "mimo-v2.5-pro" })],
+        models: [model(), model({ model_id: "mimo-v2.6-pro" })],
       }),
       summary(),
     );
     expect(v.state).toBe("degraded");
-    // mimo-v2.5 is the one failing; mimo-v2.5-pro has no runs in this block at
+    // mimo-v2.6-flash is the one failing; mimo-v2.6-pro has no runs in this block at
     // all, so it must not acquire a sentence it did not earn.
     expect(v.detail.join(" ")).toMatch(
-      /mimo-v2\.5 failed 3 of the last 12 runs/,
+      /mimo-v2\.6-flash failed 3 of the last 12 runs/,
     );
     expect(v.detail.join(" ")).not.toMatch(/not yet a pattern/i);
   });
 
   it("names a second model's lone failure under a degraded first one", () => {
-    const OTHER = "mimo-v2.5-pro";
+    const OTHER = "mimo-v2.6-pro";
     const cycles = recent([], { modelIds: [MODEL, OTHER] }).map((c, i) => ({
       ...c,
       models: {
@@ -601,11 +601,11 @@ describe("buildVerdict", () => {
       summary(),
     );
     expect(v.state).toBe("degraded");
-    expect(v.headline).toMatch(/^mimo-v2\.5 is having problems/);
+    expect(v.headline).toMatch(/^mimo-v2\.6-flash is having problems/);
     const detail = v.detail.join(" ");
-    expect(detail).toMatch(/mimo-v2\.5 failed 3 of the last 12 runs\./);
+    expect(detail).toMatch(/mimo-v2\.6-flash failed 3 of the last 12 runs\./);
     expect(detail).toMatch(
-      /mimo-v2\.5-pro failed 1 of the last 12 runs, 25 minutes ago\. One run is not yet a pattern\./,
+      /mimo-v2\.6-pro failed 1 of the last 12 runs, 25 minutes ago\. One run is not yet a pattern\./,
     );
   });
 
@@ -621,7 +621,7 @@ describe("buildVerdict", () => {
     const v = buildVerdict(summary({ recent: cycles }), summary());
     // The uplink verdict speaks, and it speaks about the uplink.
     expect(v.headline).toMatch(/nothing at the far end was reachable/i);
-    expect(v.detail.join(" ")).not.toMatch(/mimo-v2\.5 failed/i);
+    expect(v.detail.join(" ")).not.toMatch(/mimo-v2\.6-flash failed/i);
   });
 
   // The canary: a silent reroute to a smaller model shows up here before it
@@ -657,7 +657,9 @@ describe("buildVerdict", () => {
       summary(),
     );
     expect(v.state).toBe("elevated");
-    expect(v.headline).toMatch(/mimo-v2\.5 is showing early signs of trouble/i);
+    expect(v.headline).toMatch(
+      /mimo-v2\.6-flash is showing early signs of trouble/i,
+    );
     expect(v.detail.join(" ")).toMatch(
       /did not finish 6 of its last 288 runs — all of them cut off by the timeout limits/i,
     );

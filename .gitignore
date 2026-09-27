@@ -24,3 +24,5 @@ backend/web/dist/*
 
 # Local Claude Code settings
 .claude/
+
+.agents/
