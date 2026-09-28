@@ -17,7 +17,7 @@ if [ -z "${BACKEND_MIMO_API_KEY:-}" ] && [ -f "$ROOT/.env" ]; then
   export BACKEND_MIMO_API_KEY
 fi
 if [ -z "${BACKEND_MIMO_API_KEY:-}" ]; then
-  echo "hack/dev.sh: BACKEND_MIMO_API_KEY is unset and no .env carries it." >&2
+  echo "scripts/dev.sh: BACKEND_MIMO_API_KEY is unset and no .env carries it." >&2
   echo "  cp .env.example .env and fill it in, or export the key." >&2
   exit 1
 fi

@@ -20,8 +20,8 @@ export default defineConfig({
     setupFiles: ["./src/test-setup.ts"],
     coverage: {
       provider: "v8",
-      // json-summary feeds hack/coverage-gate.sh, lcov feeds
-      // hack/patch-coverage.sh, text-summary is for whoever reads the log.
+      // json-summary feeds scripts/coverage-gate.sh, lcov feeds
+      // scripts/patch-coverage.sh, text-summary is for whoever reads the log.
       reporter: ["text-summary", "json-summary", "lcov"],
       // Both gates resolve coverage artifacts from the repo root, alongside the
       // backend's, so these reports land outside ui/.

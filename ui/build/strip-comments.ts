@@ -5,7 +5,7 @@
 // redraws the card, the Safari bug the tab icon's fill exists for. Every one of
 // them is worth keeping where it is: the reader who breaks the rule is the one
 // editing the tag right next to it. None of them is worth serving. They name
-// compose.yaml, hack scripts, component files and repo paths, and View Source
+// compose.yaml, scripts, component files and repo paths, and View Source
 // is not where any of that belongs.
 //
 // Nothing else in the pipeline strips them. Vite leaves HTML comments alone,

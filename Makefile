@@ -13,14 +13,14 @@ backend-coverage:
 	mkdir -p coverage
 	cd backend && go test -race -covermode=atomic -coverpkg=./... -coverprofile=../coverage/backend.out ./...
 	cd backend && go run github.com/boumenot/gocover-cobertura@v1.5.0 < ../coverage/backend.out > ../coverage/backend.xml
-	./hack/coverage-gate.sh backend
+	./scripts/coverage-gate.sh backend
 
 fe-test:
 	cd ui && npm run test -- --run
 
 fe-coverage:
 	cd ui && npm run test:coverage
-	./hack/coverage-gate.sh ui
+	./scripts/coverage-gate.sh ui
 
 fe-build:
 	cd ui && npm ci && npm run build
@@ -32,4 +32,4 @@ run:
 	cd backend && go run ./cmd/ismimodown
 
 dev:
-	./hack/dev.sh
+	./scripts/dev.sh
