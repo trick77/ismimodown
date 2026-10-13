@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "composite": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "allowSyntheticDefaultImports": true,
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.node.tsbuildinfo",
+    "emitDeclarationOnly": true,
+    "outDir": "./node_modules/.tmp/node",
+    "allowImportingTsExtensions": true
+  },
+  "include": ["vite.config.ts", "build", "src/copy.ts"],
+  "exclude": ["build/**/*.test.ts"]
+}

@@ -13,7 +13,7 @@ import (
 	"github.com/trick77/ismimodown/web"
 )
 
-// allLogLines decodes every line in the buffer, not just the "request" ones
+// allLogLines decodes every line in the buffer, not just the "http_request" ones
 // logLines keeps — the ban line carries its own message.
 func allLogLines(t *testing.T, buf *bytes.Buffer) []map[string]any {
 	t.Helper()
@@ -37,7 +37,6 @@ func bannedServer(t *testing.T) http.Handler {
 	t.Helper()
 	db := openTestDB(t)
 	return NewServer(Deps{
-		Version: "test",
 		DB:      db,
 		Samples: samples.New(db),
 		Models:  []string{"mimo-v2.6-flash"},
@@ -77,7 +76,7 @@ func TestBanDoesNotAffectOtherCallers(t *testing.T) {
 
 // An extensionless exploit path is answered by the gate, not by the mux.
 //
-// web.spaHandler used to serve index.html and a 200 for any unknown
+// web.Handler used to serve index.html and a 200 for any unknown
 // extensionless path, which meant /phpmyadmin never produced a 404 for
 // notFoundPenalty to charge and this gate was the only thing seeing it at all.
 // It 404s now, so the gap is narrower — but the gate still has to answer first:
@@ -90,10 +89,9 @@ func TestExtensionlessExploitPathIsBannedBeforeTheMux(t *testing.T) {
 		t.Fatalf("web.Handler: %v", err)
 	}
 	h := NewServer(Deps{
-		Version: "test",
-		DB:      openTestDB(t),
-		Static:  static,
-		Ban:     ban.New(48*time.Hour, 100),
+		DB:     openTestDB(t),
+		Static: static,
+		Ban:    ban.New(48*time.Hour, 100),
 	})
 
 	// An extensionless unknown path that is NOT on the exploit list: a plain
@@ -119,10 +117,9 @@ func TestNormalTrafficIsNeverBanned(t *testing.T) {
 		t.Fatalf("web.Handler: %v", err)
 	}
 	h := NewServer(Deps{
-		Version: "test",
-		DB:      openTestDB(t),
-		Static:  static,
-		Ban:     ban.New(48*time.Hour, 100),
+		DB:     openTestDB(t),
+		Static: static,
+		Ban:    ban.New(48*time.Hour, 100),
 	})
 
 	for _, path := range []string{
@@ -141,15 +138,15 @@ func TestNormalTrafficIsNeverBanned(t *testing.T) {
 
 // A health probe that fails because someone else scanned the box restarts a
 // healthy container. Same reasoning as the 404 penalty's exemption.
-func TestHealthzIsNeverBanned(t *testing.T) {
+func TestReadyzIsNeverBanned(t *testing.T) {
 	h := bannedServer(t)
 
 	getFrom(t, h, "/wp-login.php", "9.9.9.9")
 	if code := getFrom(t, h, "/", "9.9.9.9").Code; code != http.StatusForbidden {
 		t.Fatalf("caller = %d, want 403; the test needs a banned caller", code)
 	}
-	if code := getFrom(t, h, "/healthz", "9.9.9.9").Code; code != http.StatusOK {
-		t.Errorf("/healthz = %d, want 200 even for a banned caller", code)
+	if code := getFrom(t, h, "/readyz", "9.9.9.9").Code; code != http.StatusOK {
+		t.Errorf("/readyz = %d, want 200 even for a banned caller", code)
 	}
 }
 
@@ -245,7 +242,7 @@ func TestRepeatExploitPathResetsTheFullTerm(t *testing.T) {
 	store := ban.New(48*time.Hour, 100)
 	db := openTestDB(t)
 	h := NewServer(Deps{
-		Version: "test", DB: db, Samples: samples.New(db),
+		DB: db, Samples: samples.New(db),
 		Models: []string{"mimo-v2.6-flash"}, Ban: store,
 	})
 
@@ -285,7 +282,7 @@ func TestOrdinaryRequestsFromABannedCallerDoNotRenewTheBan(t *testing.T) {
 	store := ban.New(48*time.Hour, 100)
 	db := openTestDB(t)
 	h := NewServer(Deps{
-		Version: "test", DB: db, Samples: samples.New(db),
+		DB: db, Samples: samples.New(db),
 		Models: []string{"mimo-v2.6-flash"}, Ban: store,
 	})
 
@@ -339,7 +336,7 @@ func TestRepeatedKnockingDoesNotFloodTheBanLog(t *testing.T) {
 // Nil is the documented "no such block" case, and every other test in this
 // package relies on it.
 func TestNilBanStoreServesEverything(t *testing.T) {
-	h := NewServer(Deps{Version: "test", DB: openTestDB(t)})
+	h := NewServer(Deps{DB: openTestDB(t)})
 
 	for i := 0; i < 20; i++ {
 		if code := getFrom(t, h, "/.env", "9.9.9.9").Code; code != http.StatusNotFound {

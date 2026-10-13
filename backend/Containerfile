@@ -10,20 +10,20 @@ RUN npm run build
 
 # --- Stage 2: build the Go binary (pure-Go, no cgo) with the embedded SPA ---
 FROM golang:1.27-alpine AS build
-ARG BACKEND_VERSION=dev
+ARG VERSION=dev
 WORKDIR /app/backend
 COPY backend/go.mod backend/go.sum* ./
 RUN go mod download
 COPY backend/ ./
-# Overwrite the committed backend/web/dist placeholder with the real Vite bundle
-# so //go:embed all:dist bakes the production UI into the binary. vite.config.ts
+# Fill backend/web/dist (only .gitkeep in git) with the real Vite bundle so
+# //go:embed all:dist bakes the production UI into the binary. vite.config.ts
 # builds straight to ../backend/web/dist (not the Vite-default ui/dist), so from
 # the ui stage's WORKDIR that lands at /app/backend/web/dist.
 COPY --from=ui /app/backend/web/dist ./web/dist
 # An empty directory to hand the runtime stage, so /data can be created with the
 # right ownership. distroless has no shell, so mkdir/chown cannot be run there.
 RUN mkdir -p /out/data
-RUN CGO_ENABLED=0 go build -ldflags="-s -w -X github.com/trick77/ismimodown/internal/version.Version=${BACKEND_VERSION}" -o /out/ismimodown ./cmd/ismimodown
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X github.com/trick77/ship/kit/version.Version=${VERSION}" -o /out/ismimodown ./cmd/ismimodown
 
 # --- Stage 3: minimal runtime ---
 #

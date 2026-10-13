@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/trick77/ismimodown/internal/samples"
+
+	"github.com/trick77/ship/kit/httpx"
 )
 
 // cacheMaxAge is what public caches and browsers are told.
@@ -84,7 +86,7 @@ func (s *server) window(w http.ResponseWriter, r *http.Request) (samples.Window,
 	if !ok {
 		// Rejected rather than defaulted: silently charting a different range
 		// than the caller asked for is worse than an error.
-		writeJSONError(w, http.StatusBadRequest, "unknown window")
+		httpx.WriteError(w, http.StatusBadRequest, "unknown window")
 		return samples.Window{}, false
 	}
 	return window, true

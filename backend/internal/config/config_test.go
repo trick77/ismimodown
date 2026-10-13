@@ -323,6 +323,9 @@ func TestLoadRejectsBadValues(t *testing.T) {
 		{"base url with userinfo", "BACKEND_MIMO_BASE_URL", "https://user:tp-livekey@example.com/v1", "BACKEND_MIMO_BASE_URL"},
 		{"base url with a password-only userinfo", "BACKEND_MIMO_BASE_URL", "https://:tp-livekey@example.com/v1", "BACKEND_MIMO_BASE_URL"},
 		{"base url with query string", "BACKEND_MIMO_BASE_URL", "https://example.com/v1?api_key=tp-livekey", "BACKEND_MIMO_BASE_URL"},
+		// A typo must fail the boot, not log at info: a debug session that
+		// silently is not one costs an incident.
+		{"unknown log level", "BACKEND_LOG_LEVEL", "verbose", "BACKEND_LOG_LEVEL"},
 	}
 
 	for _, tc := range cases {
@@ -338,6 +341,24 @@ func TestLoadRejectsBadValues(t *testing.T) {
 				t.Errorf("error should name %s, got: %v", tc.want, err)
 			}
 		})
+	}
+}
+
+// Every fault at once: one restart per typo is how a broken deploy takes an
+// evening.
+func TestLoadReportsEveryFault(t *testing.T) {
+	t.Setenv("BACKEND_MIMO_API_KEY", "")
+	t.Setenv("BACKEND_LOG_LEVEL", "verbose")
+	t.Setenv("BACKEND_PING_REF_SGP_HOST", "example.com:443")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	for _, want := range []string{"BACKEND_MIMO_API_KEY", "BACKEND_LOG_LEVEL", "BACKEND_PING_REF_SGP_HOST"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error should name %s, got: %v", want, err)
+		}
 	}
 }
 

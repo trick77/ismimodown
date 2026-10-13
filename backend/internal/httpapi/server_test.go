@@ -27,11 +27,11 @@ func openTestDB(t *testing.T) *sql.DB {
 	return db
 }
 
-func TestHealthzReportsOKAndVersion(t *testing.T) {
-	srv := New(Deps{Version: "1.2.3", DB: openTestDB(t)})
+func TestReadyzReportsOK(t *testing.T) {
+	srv := New(Deps{DB: openTestDB(t)})
 
 	rec := httptest.NewRecorder()
-	srv.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	srv.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/readyz", nil))
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body.String())
@@ -43,23 +43,35 @@ func TestHealthzReportsOKAndVersion(t *testing.T) {
 	if body["status"] != "ok" {
 		t.Errorf("status = %q, want ok", body["status"])
 	}
-	if body["version"] != "1.2.3" {
-		t.Errorf("version = %q, want 1.2.3", body["version"])
-	}
 }
 
-// A process that is listening but cannot reach SQLite is not healthy: it would
+// A process that is listening but cannot reach SQLite is not ready: it would
 // keep answering 200 to the container healthcheck while recording nothing.
-func TestHealthzFailsWhenDatabaseIsGone(t *testing.T) {
+func TestReadyzFailsWhenDatabaseIsGone(t *testing.T) {
 	db := openTestDB(t)
 	db.Close()
 
-	srv := New(Deps{Version: "dev", DB: db})
+	srv := New(Deps{DB: db})
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503", rec.Code)
+	}
+}
+
+// /healthz is liveness alone: it answers while the database is gone, so the
+// orchestrator restarts on /readyz's verdict, not on a dead process's.
+func TestHealthzIsLivenessOnly(t *testing.T) {
+	db := openTestDB(t)
+	db.Close()
+
+	srv := New(Deps{DB: db})
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/healthz", nil))
 
-	if rec.Code != http.StatusInternalServerError {
-		t.Fatalf("status = %d, want 500", rec.Code)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
 	}
 }
 
@@ -112,6 +124,26 @@ func TestRecoveryTurnsPanicIntoA500(t *testing.T) {
 
 	if rec.Code != http.StatusInternalServerError {
 		t.Errorf("status = %d, want 500", rec.Code)
+	}
+}
+
+// The access log writes its line while the panic unwinds. With Recover outside
+// it, that line said 200 — nothing had been written yet — for a request the
+// client got a 500 for.
+func TestPanicIsLoggedAsA500(t *testing.T) {
+	buf := captureLogs(t)
+	boom := http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		panic("boom")
+	})
+	srv := New(Deps{DB: openTestDB(t), Static: boom})
+	srv.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/panics", nil))
+
+	lines := logLines(t, buf)
+	if len(lines) != 1 {
+		t.Fatalf("got %d request lines, want 1: %s", len(lines), buf.String())
+	}
+	if lines[0]["status"] != float64(http.StatusInternalServerError) {
+		t.Errorf("logged status = %v, want 500", lines[0]["status"])
 	}
 }
 

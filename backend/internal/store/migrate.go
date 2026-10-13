@@ -1,69 +1,35 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"embed"
-	"errors"
 	"fmt"
 	"io/fs"
-	"sort"
+
+	"github.com/trick77/ship/kit/migrate"
 )
 
 //go:embed migrations/*.sql
 var migrationsFS embed.FS
 
 // Migrate applies any embedded migrations not yet recorded in
-// schema_migrations, each in its own transaction, in lexicographic filename
-// order.
+// schema_migrations, each in its own transaction, in version order (kit's
+// migrate).
 func Migrate(db *sql.DB) error {
-	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
-		version    TEXT PRIMARY KEY,
-		applied_at TEXT NOT NULL DEFAULT (datetime('now'))
-	)`); err != nil {
+	ctx := context.Background()
+	if err := adoptLegacyTable(ctx, db); err != nil {
 		return err
 	}
-
-	entries, err := fs.ReadDir(migrationsFS, "migrations")
+	files, err := fs.Sub(migrationsFS, "migrations")
 	if err != nil {
 		return err
 	}
-	names := make([]string, 0, len(entries))
-	for _, e := range entries {
-		if !e.IsDir() {
-			names = append(names, e.Name())
-		}
+	if _, err := migrate.Up(ctx, db, files, migrate.Options{Dialect: migrate.SQLite}); err != nil {
+		return err
 	}
-	sort.Strings(names)
-
-	for _, name := range names {
-		var dummy int
-		err := db.QueryRow(`SELECT 1 FROM schema_migrations WHERE version = ?`, name).Scan(&dummy)
-		if err == nil {
-			continue // already applied
-		}
-		if !errors.Is(err, sql.ErrNoRows) {
-			return err
-		}
-
-		body, err := migrationsFS.ReadFile("migrations/" + name)
-		if err != nil {
-			return err
-		}
-		tx, err := db.Begin()
-		if err != nil {
-			return err
-		}
-		if _, err := tx.Exec(string(body)); err != nil {
-			_ = tx.Rollback()
-			return fmt.Errorf("apply %s: %w", name, err)
-		}
-		if _, err := tx.Exec(`INSERT INTO schema_migrations (version) VALUES (?)`, name); err != nil {
-			_ = tx.Rollback()
-			return fmt.Errorf("record %s: %w", name, err)
-		}
-		if err := tx.Commit(); err != nil {
-			return err
-		}
+	if err := keepLegacyColumn(ctx, db); err != nil {
+		return err
 	}
 
 	// Refresh the planner's statistics once per start.
@@ -78,8 +44,58 @@ func Migrate(db *sql.DB) error {
 	//
 	// Once per start rather than per cycle: the shape of the data does not
 	// change between deploys, and the statistics persist in the file.
-	if _, err := db.Exec(`ANALYZE`); err != nil {
+	if _, err := db.ExecContext(ctx, `ANALYZE`); err != nil {
 		return fmt.Errorf("analyze: %w", err)
+	}
+	return nil
+}
+
+// adoptLegacyTable hands a database written by the runner before kit to kit.
+//
+// That runner keyed schema_migrations on a column named version; kit's is name.
+// The values are the same filenames either way, so renaming the column is the
+// whole adoption. Without it kit's CREATE TABLE IF NOT EXISTS leaves the old
+// table standing, its SELECT name fails, and every deployed database refuses to
+// start. A database already on kit's shape, or a fresh one, is left alone.
+//
+// pragma_table_info lists real columns only, so the generated version column
+// keepLegacyColumn adds never reads as a table still to adopt.
+func adoptLegacyTable(ctx context.Context, db *sql.DB) error {
+	var legacy int
+	if err := db.QueryRowContext(ctx,
+		`SELECT count(*) FROM pragma_table_info('schema_migrations') WHERE name = 'version'`,
+	).Scan(&legacy); err != nil {
+		return fmt.Errorf("inspect schema_migrations: %w", err)
+	}
+	if legacy == 0 {
+		return nil
+	}
+	if _, err := db.ExecContext(ctx,
+		`ALTER TABLE schema_migrations RENAME COLUMN version TO name`); err != nil {
+		return fmt.Errorf("adopt schema_migrations: %w", err)
+	}
+	return nil
+}
+
+// keepLegacyColumn keeps a rollback to the image before kit startable.
+//
+// That image looks each migration up with WHERE version = ?. After the rename
+// it would find no such column and refuse to start, so the one way back from a
+// bad deploy would be closed. A generated column mirroring name answers those
+// lookups and costs nothing: VIRTUAL, never stored, never written by kit.
+func keepLegacyColumn(ctx context.Context, db *sql.DB) error {
+	var present int
+	if err := db.QueryRowContext(ctx,
+		`SELECT count(*) FROM pragma_table_xinfo('schema_migrations') WHERE name = 'version'`,
+	).Scan(&present); err != nil {
+		return fmt.Errorf("inspect schema_migrations: %w", err)
+	}
+	if present > 0 {
+		return nil
+	}
+	if _, err := db.ExecContext(ctx,
+		`ALTER TABLE schema_migrations ADD COLUMN version TEXT GENERATED ALWAYS AS (name) VIRTUAL`); err != nil {
+		return fmt.Errorf("keep schema_migrations.version: %w", err)
 	}
 	return nil
 }

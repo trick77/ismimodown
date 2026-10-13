@@ -10,6 +10,9 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/trick77/ship/kit/env"
+	"github.com/trick77/ship/kit/logging"
 )
 
 // Default probe endpoints and targets. These are the values validated by the
@@ -302,14 +305,8 @@ type Config struct {
 	ProbeTimeout  time.Duration // overall deadline
 }
 
-func env(key, def string) string {
-	if v, ok := os.LookupEnv(key); ok && v != "" {
-		return v
-	}
-	return def
-}
-
-// Load reads configuration from the environment, applying defaults.
+// Load reads configuration from the environment, applying defaults. Every fault
+// is reported at once (kit's env.Reader), not one per restart.
 //
 // Eight variables reach this function. Everything else about how ismimodown probes
 // — the model pair, the price table, the system prompt, the retention window,
@@ -317,22 +314,23 @@ func env(key, def string) string {
 // dashboard measures rather than where it runs. A deployment that could change
 // those could publish a differently-shaped number under the same page.
 func Load() (Config, error) {
+	r := env.New(os.Getenv)
 	cfg := Config{
-		Addr: env("BACKEND_ADDR", ":8080"),
+		Addr: r.String("BACKEND_ADDR", ":8080"),
 		// Still mimostats.db, and deliberately so: this is the one name the
 		// rename to ismimodown left alone. A running deployment bind-mounts
 		// ./data, and its entire history lives in this file — renaming the
 		// default orphans it, silently, on the next restart. config_test
 		// pins the string. Do not "finish" this one.
-		DBPath:            env("BACKEND_DB_PATH", "/data/mimostats.db"),
-		LogLevel:          env("BACKEND_LOG_LEVEL", "info"),
-		BaseURL:           env("BACKEND_MIMO_BASE_URL", DefaultBaseURL),
-		APIKey:            env("BACKEND_MIMO_API_KEY", ""),
-		RefSGPHost:        env("BACKEND_PING_REF_SGP_HOST", DefaultRefSGPHost),
+		DBPath:            r.String("BACKEND_DB_PATH", "/data/mimostats.db"),
+		LogLevel:          r.String("BACKEND_LOG_LEVEL", "info"),
+		BaseURL:           r.String("BACKEND_MIMO_BASE_URL", DefaultBaseURL),
+		APIKey:            r.Required("BACKEND_MIMO_API_KEY"),
+		RefSGPHost:        r.String("BACKEND_PING_REF_SGP_HOST", DefaultRefSGPHost),
 		MimoSGPHost:       DefaultMimoSGPHost,
 		MimoAMSHost:       DefaultMimoAMSHost,
-		RefAMSHost:        env("BACKEND_PING_REF_AMS_HOST", DefaultRefAMSHost),
-		ProbeUserAgent:    env("BACKEND_PROBE_USER_AGENT", DefaultUserAgent),
+		RefAMSHost:        r.String("BACKEND_PING_REF_AMS_HOST", DefaultRefAMSHost),
+		ProbeUserAgent:    r.String("BACKEND_PROBE_USER_AGENT", DefaultUserAgent),
 		ProbeSystemPrompt: DefaultSystemPrompt,
 		Models:            append([]string(nil), DefaultModels...),
 		Prices:            defaultPrices(),
@@ -345,8 +343,10 @@ func Load() (Config, error) {
 		ProbeTimeout:      ProbeTimeout,
 	}
 
-	if cfg.APIKey == "" {
-		return Config{}, fmt.Errorf("BACKEND_MIMO_API_KEY is required")
+	// A typo'd level fails the boot rather than logging at info: a debug
+	// session that silently is not one costs an incident's worth of lines.
+	if _, err := logging.ParseLevel(cfg.LogLevel); err != nil {
+		r.Fail("BACKEND_LOG_LEVEL: %v", err)
 	}
 
 	// Validated for its own sake, not for a hostname any more.
@@ -356,18 +356,20 @@ func Load() (Config, error) {
 	// still load-bearing and has nothing to do with pinging: it refuses a URL
 	// carrying userinfo or a query string, either of which would carry a live
 	// tp- key wherever BaseURL travels, and it refuses a non-http scheme or a
-	// missing host outright.
+	// missing host outright. Never env.Reader.URL: it refuses neither.
 	if _, err := validateBaseURL(cfg.BaseURL); err != nil {
-		return Config{}, err
+		r.Fail("%w", err)
 	}
-
 	if err := validateRefHost(cfg.RefSGPHost, "BACKEND_PING_REF_SGP_HOST"); err != nil {
-		return Config{}, err
+		r.Fail("%w", err)
 	}
 	if err := validateRefHost(cfg.RefAMSHost, "BACKEND_PING_REF_AMS_HOST"); err != nil {
-		return Config{}, err
+		r.Fail("%w", err)
 	}
 
+	if err := r.Err(); err != nil {
+		return Config{}, err
+	}
 	return cfg, nil
 }
 

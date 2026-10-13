@@ -520,7 +520,7 @@ func TestTrendIsIdenticalAcrossWindows(t *testing.T) {
 func TestFailuresCarryNoUpstreamText(t *testing.T) {
 	h, store := newAPIServer(t)
 
-	const secret = "SECRET-PROVIDER-BODY-tp-livekey-fragment"
+	const secret = "SECRET-PROVIDER-BODY-tp-livekey-fragment" // ship:allow-secret: a fake key
 	seedFailure(t, store, time.Minute, "mimo-v2.6-flash", probe.ErrClassAuth, secret, 401)
 
 	rec := get(t, h, "/api/dashboard?window=24h")

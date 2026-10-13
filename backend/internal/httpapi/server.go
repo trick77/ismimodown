@@ -17,6 +17,7 @@ import (
 	"github.com/trick77/ismimodown/internal/ratelimit"
 	"github.com/trick77/ismimodown/internal/samples"
 	"github.com/trick77/ismimodown/internal/scheduler"
+	"github.com/trick77/ship/kit/httpx"
 )
 
 // cacheTTL is how long a rendered response is reused when nothing replaces it.
@@ -48,10 +49,8 @@ type Broker interface {
 // package state, so a test can construct a server with a real temp-file DB and
 // a nil Static and exercise the routes without a container or a config file.
 type Deps struct {
-	// Version is the running build version, surfaced on /healthz.
-	Version string
-	// DB is the sample store. /healthz pings it, so a server whose database
-	// has gone away reports unhealthy rather than serving stale cached JSON.
+	// DB is the sample store. /readyz pings it, so a server whose database
+	// has gone away reports unready rather than serving stale cached JSON.
 	DB *sql.DB
 	// Samples answers every /api query. Optional in tests that only exercise
 	// health or the static shell.
@@ -134,12 +133,14 @@ type Server struct {
 func NewServer(deps Deps) *Server {
 	s := &server{deps: deps, mux: http.NewServeMux(), cache: newResponseCache(cacheTTL)}
 	s.routes()
-	// recovery outermost: a panic inside logging must still become a 500
-	// rather than killing the process.
+	// The access log outermost and Recover inside it, as kit wants: the access
+	// log's line is written while a panic unwinds, so with Recover outside it a
+	// panic was logged as the 200 nothing had written yet. Inside, the line
+	// carries the 500 Recover writes.
 	//
-	// securityHeaders inside logging but outside the mux, so the headers are on
+	// securityHeaders inside Recover but outside the mux, so the headers are on
 	// EVERY response — the SPA, the JSON API, a 404, a 429 from the limiter and
-	// the 500 that recovery writes alike. Placed outermost-but-one it would
+	// the 500 that Recover writes alike. Placed outermost-but-one it would
 	// miss nothing; placed inside the mux it would miss the limiter's rejection.
 	//
 	// notFoundPenalty innermost of the three, wrapping the mux: it must see the
@@ -147,15 +148,16 @@ func NewServer(deps Deps) *Server {
 	// /api path alike — and its own 429 must still be logged and still carry the
 	// security headers.
 	//
-	// banGate between securityHeaders and notFoundPenalty. Inside logging, so
+	// banGate between securityHeaders and notFoundPenalty. Inside the access log, so
 	// every ban and every blocked request is on the record; outside
 	// notFoundPenalty, so a banned caller neither spends the 404 budget nor
 	// reaches the mux — including on /api/events, which is registered on the
 	// outer mux and so bypasses the request limiter entirely.
 	return &Server{
-		Handler: recovery(logging(securityHeaders(banGate(s.deps.Ban, notFoundPenalty(s.deps.NotFoundLimiter, s.mux))))),
-		cache:   s.cache,
-		inner:   s,
+		Handler: httpx.Chain(banGate(s.deps.Ban, notFoundPenalty(s.deps.NotFoundLimiter, s.mux)),
+			accessLog(), httpx.Recover(nil), securityHeaders),
+		cache: s.cache,
+		inner: s,
 	}
 }
 
@@ -169,9 +171,16 @@ func NewServer(deps Deps) *Server {
 func (s *Server) OnCycle() { s.cache.invalidate() }
 
 func (s *server) routes() {
-	s.mux.HandleFunc("GET /healthz", s.handleHealthz)
+	// /healthz is liveness alone; /readyz pings the database: ismimodown's whole
+	// job is writing samples, and a process that is listening but cannot reach
+	// its SQLite file would keep answering while silently recording nothing.
+	var checks []httpx.Check
+	if s.deps.DB != nil {
+		checks = append(checks, httpx.Check{Name: "sqlite", Run: s.deps.DB.PingContext})
+	}
+	httpx.Health(s.mux, nil, checks...)
 
-	// /api/* is rate limited; /healthz and the static shell are not. The
+	// /api/* is rate limited; the probes and the static shell are not. The
 	// container healthcheck must never be throttled, and the SPA is served from
 	// memory.
 	//

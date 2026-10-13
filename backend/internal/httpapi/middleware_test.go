@@ -98,14 +98,14 @@ func TestHealthzIsNotLogged(t *testing.T) {
 func TestSecurityHeadersAreOnEveryResponse(t *testing.T) {
 	db := openTestDB(t)
 	h := NewServer(Deps{
-		Version: "test", DB: db, Samples: samples.New(db),
+		DB: db, Samples: samples.New(db),
 		Models: []string{"mimo-v2.6-flash"},
 	})
 
 	want := map[string]string{
 		"X-Content-Type-Options":       "nosniff",
 		"X-Frame-Options":              "DENY",
-		"Referrer-Policy":              "strict-origin-when-cross-origin",
+		"Referrer-Policy":              "same-origin",
 		"Cross-Origin-Resource-Policy": "same-origin",
 	}
 
@@ -146,7 +146,7 @@ func TestSecurityHeadersAreOnEveryResponse(t *testing.T) {
 // in the policy.
 func TestNoThirdPartyOriginsInThePolicy(t *testing.T) {
 	db := openTestDB(t)
-	h := NewServer(Deps{Version: "test", DB: db, Samples: samples.New(db)})
+	h := NewServer(Deps{DB: db, Samples: samples.New(db)})
 
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/healthz", nil))
@@ -181,7 +181,7 @@ func TestNoThirdPartyOriginsInThePolicy(t *testing.T) {
 // into a page sees the block, which is why the assertion is worth having.
 func TestTheOgCardIsEmbeddableCrossOrigin(t *testing.T) {
 	db := openTestDB(t)
-	h := NewServer(Deps{Version: "test", DB: db, Samples: samples.New(db)})
+	h := NewServer(Deps{DB: db, Samples: samples.New(db)})
 
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/og.png", nil))
@@ -197,7 +197,7 @@ func TestTheOgCardIsEmbeddableCrossOrigin(t *testing.T) {
 // easy way to lose that.
 func TestOnlyTheOgCardIsCrossOrigin(t *testing.T) {
 	db := openTestDB(t)
-	h := NewServer(Deps{Version: "test", DB: db, Samples: samples.New(db)})
+	h := NewServer(Deps{DB: db, Samples: samples.New(db)})
 
 	for _, path := range []string{
 		"/", "/healthz", "/api/dashboard?window=24h",
@@ -218,7 +218,7 @@ func TestOnlyTheOgCardIsCrossOrigin(t *testing.T) {
 // would be wrong on a dev server and redundant in production.
 func TestNoHSTSFromTheApplication(t *testing.T) {
 	db := openTestDB(t)
-	h := NewServer(Deps{Version: "test", DB: db, Samples: samples.New(db)})
+	h := NewServer(Deps{DB: db, Samples: samples.New(db)})
 
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/healthz", nil))
@@ -233,7 +233,7 @@ func TestNoHSTSFromTheApplication(t *testing.T) {
 // for convenience is how that distinction gets lost.
 func TestNoCORSHeaders(t *testing.T) {
 	db := openTestDB(t)
-	h := NewServer(Deps{Version: "test", DB: db, Samples: samples.New(db), Models: []string{"mimo-v2.6-flash"}})
+	h := NewServer(Deps{DB: db, Samples: samples.New(db), Models: []string{"mimo-v2.6-flash"}})
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/dashboard?window=24h", nil)
@@ -265,7 +265,6 @@ func getFrom(t *testing.T, h http.Handler, path, from string) *httptest.Response
 func scannerServer(t *testing.T) http.Handler {
 	t.Helper()
 	return NewServer(Deps{
-		Version:         "test",
 		DB:              openTestDB(t),
 		NotFoundLimiter: ratelimit.New(0.0001, 3),
 	})
@@ -328,7 +327,6 @@ func TestSuccessfulRequestsAreNotCharged(t *testing.T) {
 		_, _ = w.Write([]byte("ok"))
 	})
 	h := NewServer(Deps{
-		Version:         "test",
 		DB:              openTestDB(t),
 		Static:          static,
 		NotFoundLimiter: ratelimit.New(0.0001, 1), // a budget of exactly one 404
@@ -375,7 +373,7 @@ func TestImageMissesAreNotCharged(t *testing.T) {
 //
 // Chrome probes /.well-known/traffic-advice on navigations and devtools asks for
 // /.well-known/appspecific/com.chrome.devtools.json. Neither is an image, and
-// both were free only by accident until web.spaHandler stopped answering
+// both were free only by accident until web.Handler stopped answering
 // extensionless unknown paths with the shell and a 200 — at which point a
 // visitor's own browser started spending a budget meant for wrong guesses.
 func TestWellKnownMissesAreNotCharged(t *testing.T) {
@@ -406,7 +404,7 @@ func TestWellKnownMissesAreNotCharged(t *testing.T) {
 
 // The scenario the extensionless exemption exists for, end to end.
 //
-// Until web.spaHandler stopped serving the shell for unknown extensionless
+// Until web.Handler stopped serving the shell for unknown extensionless
 // paths, every one of them was a 200 — so any such URL a search engine ever
 // discovered went into its index as a real page. They 404 after the deploy that
 // changes it, and the engine recrawls them to find out what happened. If those
@@ -422,7 +420,6 @@ func TestARecrawlOfOldSoftFourOhFourURLsIsNotLockedOut(t *testing.T) {
 		t.Fatalf("web.Handler: %v", err)
 	}
 	h := NewServer(Deps{
-		Version:         "test",
 		DB:              openTestDB(t),
 		Static:          static,
 		NotFoundLimiter: ratelimit.New(0.0001, 5), // production's burst, no useful refill
@@ -514,7 +511,7 @@ func TestImageExtensionMustBeTheLastSegment(t *testing.T) {
 
 // A health probe that fails because someone else scanned the box restarts a
 // healthy container.
-func TestHealthzIsNeverThrottled(t *testing.T) {
+func TestReadyzIsNeverThrottled(t *testing.T) {
 	h := scannerServer(t)
 
 	for i := 0; i < 6; i++ {
@@ -523,8 +520,8 @@ func TestHealthzIsNeverThrottled(t *testing.T) {
 	if code := getFrom(t, h, "/", "9.9.9.9").Code; code != http.StatusTooManyRequests {
 		t.Fatalf("caller = %d, want 429; the test needs a throttled caller", code)
 	}
-	if code := getFrom(t, h, "/healthz", "9.9.9.9").Code; code != http.StatusOK {
-		t.Errorf("/healthz = %d, want 200 even for a throttled caller", code)
+	if code := getFrom(t, h, "/readyz", "9.9.9.9").Code; code != http.StatusOK {
+		t.Errorf("/readyz = %d, want 200 even for a throttled caller", code)
 	}
 }
 
@@ -572,7 +569,6 @@ func TestThrottledResponseShape(t *testing.T) {
 // nothing can produce.
 func TestKnockingWhileBlockedDeepensTheBlock(t *testing.T) {
 	h := NewServer(Deps{
-		Version:         "test",
 		DB:              openTestDB(t),
 		NotFoundLimiter: ratelimit.New(1, 2), // a token a second, floor -2
 	})
@@ -608,7 +604,6 @@ func retryAfter(t *testing.T, rec *httptest.ResponseRecorder) int {
 // reads as "retry immediately" — the opposite of a block that never lifts.
 func TestRetryAfterIsNeverZero(t *testing.T) {
 	h := NewServer(Deps{
-		Version:         "test",
 		DB:              openTestDB(t),
 		NotFoundLimiter: ratelimit.New(0, 1), // no refill at all
 	})
@@ -622,7 +617,7 @@ func TestRetryAfterIsNeverZero(t *testing.T) {
 // Against the REAL SPA handler rather than a nil Static, because the two do not
 // answer the same way and only one of them ships.
 //
-// web.spaHandler now 404s EVERY unknown path, extension or not — but what this
+// web.Handler now 404s EVERY unknown path, extension or not — but what this
 // limiter CHARGES for did not change with it. An extensionless miss was free
 // when it was a 200 and is free now that it is a 404, deliberately: a search
 // engine recrawling a URL the old soft 404 taught it existed must not be able
@@ -636,7 +631,6 @@ func TestChargingFollowsTheRealSPAHandler(t *testing.T) {
 		t.Fatalf("web.Handler: %v", err)
 	}
 	h := NewServer(Deps{
-		Version:         "test",
 		DB:              openTestDB(t),
 		Static:          static,
 		NotFoundLimiter: ratelimit.New(0.0001, 2),
@@ -662,23 +656,29 @@ func TestChargingFollowsTheRealSPAHandler(t *testing.T) {
 
 // The one path that must keep serving the page. Everything else 404s now, so
 // the check that the root itself did not get caught in that earns its own test
-// rather than an assertion buried inside another one.
+// rather than an assertion buried inside another one. Until the UI is built the
+// embedded dist is .gitkeep alone and / is kit's 503 placeholder: either way
+// the shell route answered, never the 404.
 func TestRootStillServesTheShell(t *testing.T) {
 	static, err := web.Handler()
 	if err != nil {
 		t.Fatalf("web.Handler: %v", err)
 	}
-	h := NewServer(Deps{Version: "test", DB: openTestDB(t), Static: static})
+	h := NewServer(Deps{DB: openTestDB(t), Static: static})
 
-	if code := getFrom(t, h, "/", "9.9.9.9").Code; code != http.StatusOK {
-		t.Errorf("GET / = %d, want the shell", code)
+	rec := getFrom(t, h, "/", "9.9.9.9")
+	if rec.Code != http.StatusOK && rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("GET / = %d, want the shell (or the unbuilt placeholder)", rec.Code)
+	}
+	if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/html") {
+		t.Errorf("GET / Content-Type = %q, want text/html", ct)
 	}
 }
 
 // Nil is the documented "no such limit" case, and the tests everywhere else in
 // this package rely on it.
 func TestNilNotFoundLimiterServesEverything(t *testing.T) {
-	h := NewServer(Deps{Version: "test", DB: openTestDB(t)})
+	h := NewServer(Deps{DB: openTestDB(t)})
 
 	for i := 0; i < 20; i++ {
 		if code := getFrom(t, h, "/.env", "9.9.9.9").Code; code != http.StatusNotFound {

@@ -121,37 +121,53 @@ export default function App() {
   // from publishing over a fast later one.
   const loadSeq = useRef(0);
 
-  const load = useCallback(async (key: string) => {
+  // A promise chain rather than async/await: every setter runs in a callback,
+  // after the response, which is what lets the window effect call this.
+  const load = useCallback((key: string): Promise<void> => {
     loadCtl.current?.abort();
     const ctl = new AbortController();
     loadCtl.current = ctl;
     const seq = ++loadSeq.current;
-    try {
-      // One request. It used to be fifteen, in two waves — and the second wave
-      // could not start until the first had answered, because the models to
-      // fan out over came back inside the summary. The daemon has known that
-      // list since it booted.
-      const next = await getDashboard(key, ctl.signal);
-      // A superseded load must not publish. Aborting handles the ones still in
-      // flight; this handles the one that already resolved while a newer
-      // request was being made.
-      if (seq !== loadSeq.current) return;
-      setData(next);
-      setError(null);
-    } catch (err) {
-      if ((err as Error)?.name === "AbortError" || seq !== loadSeq.current) {
-        return;
-      }
-      setError((err as Error)?.message ?? "could not load");
-    } finally {
-      // Guarded for the same reason: without it a superseded load clears the
-      // loading state while the load that replaced it is still running.
-      if (seq === loadSeq.current) setLoading(false);
-    }
+    // One request. It used to be fifteen, in two waves — and the second wave
+    // could not start until the first had answered, because the models to fan
+    // out over came back inside the summary. The daemon has known that list
+    // since it booted.
+    return getDashboard(key, ctl.signal)
+      .then(
+        (next) => {
+          // A superseded load must not publish. Aborting handles the ones
+          // still in flight; this handles the one that already resolved while
+          // a newer request was being made.
+          if (seq !== loadSeq.current) return;
+          setData(next);
+          setError(null);
+        },
+        (err: unknown) => {
+          if (
+            (err as Error)?.name === "AbortError" ||
+            seq !== loadSeq.current
+          ) {
+            return;
+          }
+          setError((err as Error)?.message ?? "could not load");
+        },
+      )
+      .finally(() => {
+        // Guarded for the same reason: without it a superseded load clears the
+        // loading state while the load that replaced it is still running.
+        if (seq === loadSeq.current) setLoading(false);
+      });
   }, []);
 
-  useEffect(() => {
+  // A new window is loading from the render that names it, not from the effect
+  // below: setState in an effect body renders the page twice for one change.
+  const [loadingFor, setLoadingFor] = useState(windowKey);
+  if (loadingFor !== windowKey) {
+    setLoadingFor(windowKey);
     setLoading(true);
+  }
+
+  useEffect(() => {
     void load(windowKey);
     // load aborts its own predecessor, so the cleanup only has to cover the
     // case where nothing replaces it — unmount.
@@ -170,7 +186,9 @@ export default function App() {
   // and without the interval a stream that stays open but stops delivering
   // looks identical to one with nothing to say.
   const windowRef = useRef(windowKey);
-  windowRef.current = windowKey;
+  useEffect(() => {
+    windowRef.current = windowKey;
+  }, [windowKey]);
   useEffect(() => {
     const controller = new AbortController();
 
