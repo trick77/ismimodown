@@ -1,6 +1,6 @@
 module github.com/trick77/ismimodown
 
-go 1.27.0
+go 1.27.2
 
 require (
 	github.com/ncruces/go-sqlite3 v0.35.6
