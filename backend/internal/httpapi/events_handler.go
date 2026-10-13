@@ -5,8 +5,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/trick77/ismimodown/internal/ratelimit"
-
 	"github.com/trick77/ship/kit/httpx"
 )
 
@@ -43,7 +41,7 @@ func (s *server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	// else. This route sits outside that limiter — a request bucket says
 	// nothing about a connection held for hours — so the cap in the broker is
 	// the only bound there is.
-	ch, cancel, ok := s.deps.Broker.Subscribe(ratelimit.ClientIP(r))
+	ch, cancel, ok := s.deps.Broker.Subscribe(clientKey(r))
 	if !ok {
 		// A cap is reached, global or per-caller. 503 rather than holding a
 		// connection that will never be fed — a silent, permanently-idle stream

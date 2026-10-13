@@ -12,8 +12,8 @@ import (
 	"time"
 
 	"github.com/trick77/ismimodown/internal/probe"
-	"github.com/trick77/ismimodown/internal/ratelimit"
 	"github.com/trick77/ismimodown/internal/samples"
+	"github.com/trick77/ship/kit/ratelimit"
 )
 
 // dashboardBody is what the page reads. Only the fields a test asserts on are
@@ -258,7 +258,7 @@ func TestOneLoadIsOneToken(t *testing.T) {
 	h := NewServer(Deps{
 		DB: db, Samples: samples.New(db),
 		Models:  []string{"mimo-v2.6-flash", "mimo-v2.6-pro"},
-		Limiter: ratelimit.New(0.0001, 5), // five tokens, effectively no refill
+		Limiter: ratelimit.New(ratelimit.Options{Rate: 0.0001, Burst: 5}), // five tokens, effectively no refill
 		Now:     func() time.Time { return testNow },
 	})
 

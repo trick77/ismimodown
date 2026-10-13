@@ -7,16 +7,16 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/trick77/ismimodown/internal/ratelimit"
 	"github.com/trick77/ismimodown/internal/samples"
 	"github.com/trick77/ismimodown/web"
+	"github.com/trick77/ship/kit/ratelimit"
 )
 
-// The logging middleware wraps the ResponseWriter, and a wrapper that swallows
+// The middleware chain wraps the ResponseWriter, and a wrapper that swallows
 // Flush would leave every pushed cycle sitting in the buffer — the /api/events
 // stream would appear to work while the dashboard only updated on reload. This
 // is the one middleware behaviour phase 4 hard-depends on.
-func TestStatusRecorderForwardsFlush(t *testing.T) {
+func TestFlushReachesThroughTheChain(t *testing.T) {
 	var flushed bool
 	handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		f, ok := w.(http.Flusher)
@@ -266,7 +266,7 @@ func scannerServer(t *testing.T) http.Handler {
 	t.Helper()
 	return NewServer(Deps{
 		DB:              openTestDB(t),
-		NotFoundLimiter: ratelimit.New(0.0001, 3),
+		NotFoundLimiter: ratelimit.New(ratelimit.Options{Rate: 0.0001, Burst: 3}),
 	})
 }
 
@@ -329,7 +329,7 @@ func TestSuccessfulRequestsAreNotCharged(t *testing.T) {
 	h := NewServer(Deps{
 		DB:              openTestDB(t),
 		Static:          static,
-		NotFoundLimiter: ratelimit.New(0.0001, 1), // a budget of exactly one 404
+		NotFoundLimiter: ratelimit.New(ratelimit.Options{Rate: 0.0001, Burst: 1}), // a budget of exactly one 404
 	})
 
 	for i := 0; i < 50; i++ {
@@ -422,7 +422,7 @@ func TestARecrawlOfOldSoftFourOhFourURLsIsNotLockedOut(t *testing.T) {
 	h := NewServer(Deps{
 		DB:              openTestDB(t),
 		Static:          static,
-		NotFoundLimiter: ratelimit.New(0.0001, 5), // production's burst, no useful refill
+		NotFoundLimiter: ratelimit.New(ratelimit.Options{Rate: 0.0001, Burst: 5}), // production's burst, no useful refill
 	})
 
 	// A crawler working through URLs it learned when they returned 200.
@@ -570,7 +570,7 @@ func TestThrottledResponseShape(t *testing.T) {
 func TestKnockingWhileBlockedDeepensTheBlock(t *testing.T) {
 	h := NewServer(Deps{
 		DB:              openTestDB(t),
-		NotFoundLimiter: ratelimit.New(1, 2), // a token a second, floor -2
+		NotFoundLimiter: ratelimit.New(ratelimit.Options{Rate: 1, Burst: 2}), // a token a second, floor -2
 	})
 
 	// Spend the budget on 404s, which lands the bucket at exactly zero.
@@ -600,12 +600,12 @@ func retryAfter(t *testing.T, rec *httptest.ResponseRecorder) int {
 	return secs
 }
 
-// A limiter that never refills has no wait to report, and "Retry-After: 0"
-// reads as "retry immediately" — the opposite of a block that never lifts.
+// A sub-second wait rounds up, never down to "Retry-After: 0", which reads as
+// "retry immediately".
 func TestRetryAfterIsNeverZero(t *testing.T) {
 	h := NewServer(Deps{
 		DB:              openTestDB(t),
-		NotFoundLimiter: ratelimit.New(0, 1), // no refill at all
+		NotFoundLimiter: ratelimit.New(ratelimit.Options{Rate: 2, Burst: 1}), // half a second per token
 	})
 
 	getFrom(t, h, "/wp-login.php", "9.9.9.9") // spends the only token
@@ -633,7 +633,7 @@ func TestChargingFollowsTheRealSPAHandler(t *testing.T) {
 	h := NewServer(Deps{
 		DB:              openTestDB(t),
 		Static:          static,
-		NotFoundLimiter: ratelimit.New(0.0001, 2),
+		NotFoundLimiter: ratelimit.New(ratelimit.Options{Rate: 0.0001, Burst: 2}),
 	})
 
 	// Extensionless: a real 404 now, and still no charge however many arrive.

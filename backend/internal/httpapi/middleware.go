@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"github.com/trick77/ismimodown/internal/ban"
-	"github.com/trick77/ismimodown/internal/ratelimit"
 	"github.com/trick77/ship/kit/httpx"
+	"github.com/trick77/ship/kit/ratelimit"
 )
 
 // contentSecurityPolicy is the page's resource allow-list.
@@ -54,7 +54,8 @@ const contentSecurityPolicy = "default-src 'self'; " +
 
 // securityHeaders sets the response headers that bound what a browser will do
 // with this site: kit's set (CSP, nosniff, X-Frame-Options DENY,
-// Referrer-Policy same-origin, COOP) plus the two kit does not carry.
+// Referrer-Policy same-origin, COOP, Permissions-Policy) plus the per-path
+// Cross-Origin-Resource-Policy kit does not carry.
 //
 // It lives in the handler rather than in the Traefik labels so it travels with
 // the binary: `make dev` and any future deployment get the same policy as
@@ -71,12 +72,12 @@ func securityHeaders(next http.Handler) http.Handler {
 	kit := httpx.SecurityHeadersWith(httpx.SecurityOptions{
 		CSP:  contentSecurityPolicy,
 		COOP: "same-origin",
+		// Nothing here needs a camera, a microphone or a location, and saying
+		// so stops any future embedded content from asking on the site's behalf.
+		PermissionsPolicy: "camera=(), microphone=(), geolocation=(), interest-cohort=()",
 	})(next)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h := w.Header()
-		// Nothing here needs a camera, a microphone or a location, and saying
-		// so stops any future embedded content from asking on the site's behalf.
-		h.Set("Permissions-Policy", "camera=(), microphone=(), geolocation=(), interest-cohort=()")
 		// No cross-origin caller has any business reading these responses, and
 		// none needs to: the SPA is same-origin. Deliberately no
 		// Access-Control-Allow-Origin anywhere — the API is public to read in a
@@ -85,6 +86,14 @@ func securityHeaders(next http.Handler) http.Handler {
 		kit.ServeHTTP(w, r)
 	})
 }
+
+// clientKey is the caller's identity everywhere a caller is counted: the
+// limiters' buckets, the ban store, the stream cap and the access log. Kit's
+// ClientKey with one trusted hop: behind Traefik, RemoteAddr is the proxy and
+// the LAST X-Forwarded-For entry is the one it appended (the first is
+// caller-supplied and free to invent); an IPv6 caller is its /64, since
+// rotating the low 64 bits is free and a per-address key bounds nobody.
+var clientKey = ratelimit.ClientKey(1)
 
 // isProbePath reports whether p is one of kit's health probes. The container
 // healthcheck is never throttled, banned or logged: it cannot 404 or reach an
@@ -208,7 +217,7 @@ func notFoundPenalty(l *ratelimit.Limiter, next http.Handler) http.Handler {
 			return
 		}
 
-		key := ratelimit.ClientIP(r)
+		key := clientKey(r)
 		if !l.Permitted(key) {
 			// Knocking while blocked costs a token too, and this is the only
 			// path that can put a caller into debt at all: the gate needs a
@@ -225,7 +234,6 @@ func notFoundPenalty(l *ratelimit.Limiter, next http.Handler) http.Handler {
 			writeTooManyRequests(w, r, l.RetryAfter(key))
 			return
 		}
-
 		rec := &statusRecorder{ResponseWriter: w}
 		next.ServeHTTP(rec, r)
 		if rec.status == http.StatusNotFound && !isUncounted404(r.URL.Path) {
@@ -342,7 +350,7 @@ func banGate(store *ban.Store, next http.Handler) http.Handler {
 
 		// The same key the limiters and the request log use, so a ban, a 429
 		// and a log line all name the caller identically.
-		key := ratelimit.ClientIP(r)
+		key := clientKey(r)
 
 		exploit := isExploitPath(r.URL.Path)
 
@@ -418,21 +426,14 @@ func logBan(key, path, kind string, store *ban.Store) {
 // someone who kept knocking is told the length of the debt it dug. A constant
 // would be obeyed and answered with another 429.
 func writeTooManyRequests(w http.ResponseWriter, r *http.Request, retryAfter time.Duration) {
-	// Rounded UP, and never below one second: truncating a 179.5s block to 179
-	// sends an obedient client back half a second early into a second 429, and
-	// a limiter that cannot answer (RetryAfter is 0 when it never refills) must
-	// not emit "Retry-After: 0", which reads as "retry immediately".
-	secs := int(math.Ceil(retryAfter.Seconds()))
-	if secs < 1 {
-		secs = 1
-	}
-	w.Header().Set("Retry-After", strconv.Itoa(secs))
+	// Rounded UP, and never below one second, as kit's TooManyRequests: 179
+	// for a 179.5s block sends an obedient client back early into a second 429,
+	// and "Retry-After: 0" reads as "retry immediately".
 	if strings.HasPrefix(r.URL.Path, "/api/") {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusTooManyRequests)
-		_, _ = w.Write([]byte(`{"error":"rate limited"}` + "\n"))
+		httpx.TooManyRequests(w, retryAfter)
 		return
 	}
+	w.Header().Set("Retry-After", strconv.Itoa(max(int(math.Ceil(retryAfter.Seconds())), 1)))
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(http.StatusTooManyRequests)
 	_, _ = w.Write([]byte("too many requests\n"))
@@ -447,8 +448,8 @@ func writeTooManyRequests(w http.ResponseWriter, r *http.Request, retryAfter tim
 // crawler from a scanner in it. Each response carries the line's request id in
 // X-Request-Id.
 //
-// The caller is ratelimit.ClientIP — the limiter's OWN bucket key, not kit's
-// default. Three things follow from that:
+// The caller is clientKey — the limiters' OWN bucket key, not kit's default.
+// Three things follow from that:
 //
 //   - Behind Traefik, RemoteAddr is the proxy. The key reads the LAST
 //     X-Forwarded-For entry, the one the nearest trusted proxy appended, rather
@@ -464,7 +465,7 @@ func writeTooManyRequests(w http.ResponseWriter, r *http.Request, retryAfter tim
 // deployment decision rather than this file's.
 func accessLog() func(http.Handler) http.Handler {
 	return httpx.AccessLog(nil, httpx.AccessLogOptions{
-		ClientIP:     ratelimit.ClientIP,
+		ClientIP:     clientKey,
 		RoutineLevel: slog.LevelInfo,
 	})
 }
