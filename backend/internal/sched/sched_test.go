@@ -1,40 +1,9 @@
 package sched
 
 import (
-	"context"
 	"testing"
 	"time"
 )
-
-func TestSleepReturnsTrueWhenTheWaitElapses(t *testing.T) {
-	if !Sleep(context.Background(), time.Millisecond) {
-		t.Error("Sleep must return true when the full wait elapsed")
-	}
-}
-
-func TestSleepReturnsFalseWhenCancelled(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-
-	if Sleep(ctx, time.Hour) {
-		t.Error("Sleep must return false when its context is cancelled")
-	}
-}
-
-// A zero delay is not a wait, but it must still report cancellation honestly —
-// a loop that computed a zero delay must not keep going round after its
-// context is done.
-func TestSleepReportsCancellationEvenWithZeroDelay(t *testing.T) {
-	if !Sleep(context.Background(), 0) {
-		t.Error("zero delay on a live context must return true")
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	if Sleep(ctx, 0) {
-		t.Error("zero delay on a cancelled context must return false")
-	}
-}
 
 // The property the cadence depends on: the jitter is symmetric, so the MEAN
 // stays exactly base. A one-sided jitter would drift the mean to

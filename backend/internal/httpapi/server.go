@@ -14,10 +14,10 @@ import (
 
 	"github.com/trick77/ismimodown/internal/ban"
 	"github.com/trick77/ismimodown/internal/config"
-	"github.com/trick77/ismimodown/internal/ratelimit"
 	"github.com/trick77/ismimodown/internal/samples"
 	"github.com/trick77/ismimodown/internal/scheduler"
 	"github.com/trick77/ship/kit/httpx"
+	"github.com/trick77/ship/kit/ratelimit"
 )
 
 // cacheTTL is how long a rendered response is reused when nothing replaces it.
@@ -192,7 +192,7 @@ func (s *server) routes() {
 
 	var apiHandler http.Handler = api
 	if s.deps.Limiter != nil {
-		apiHandler = s.deps.Limiter.Middleware(api)
+		apiHandler = s.deps.Limiter.Middleware(clientKey)(api)
 	}
 	s.mux.Handle("/api/", apiHandler)
 

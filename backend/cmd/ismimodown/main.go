@@ -16,10 +16,8 @@ import (
 	"github.com/trick77/ismimodown/internal/config"
 	"github.com/trick77/ismimodown/internal/httpapi"
 	"github.com/trick77/ismimodown/internal/probe"
-	"github.com/trick77/ismimodown/internal/ratelimit"
 	"github.com/trick77/ismimodown/internal/retention"
 	"github.com/trick77/ismimodown/internal/samples"
-	sched2 "github.com/trick77/ismimodown/internal/sched"
 	"github.com/trick77/ismimodown/internal/scheduler"
 	"github.com/trick77/ismimodown/internal/sse"
 	"github.com/trick77/ismimodown/internal/store"
@@ -27,6 +25,7 @@ import (
 	"github.com/trick77/ship/kit/env"
 	"github.com/trick77/ship/kit/httpx"
 	"github.com/trick77/ship/kit/logging"
+	"github.com/trick77/ship/kit/ratelimit"
 	"github.com/trick77/ship/kit/run"
 	"github.com/trick77/ship/kit/version"
 )
@@ -107,14 +106,14 @@ func daemon() error {
 	// 2 requests/second sustained, 20 in a burst: generous for a browser
 	// loading a dashboard (a handful of parallel fetches), tight enough that a
 	// scraper cannot pin the process.
-	limiter := ratelimit.New(2, 20)
+	limiter := ratelimit.New(ratelimit.Options{Rate: 2, Burst: 20})
 	// Five 404s free, then one forgiven every 30 seconds. A real visitor spends
 	// maybe one or two per visit (/favicon.ico, an apple-touch-icon) and never
 	// notices the budget; a wordlist scanner is cut off within its first half
 	// dozen paths and, because the bucket runs to -5 while it keeps trying, stays
 	// cut off for three minutes rather than the thirty seconds a zero-floored
 	// bucket would cost it.
-	notFoundLimiter := ratelimit.New(1.0/30.0, 5)
+	notFoundLimiter := ratelimit.New(ratelimit.Options{Rate: 1.0 / 30.0, Burst: 5})
 	// Some requests are not a wrong guess to be metered but a scan to be
 	// stopped: /wp-admin/install.php, /.env, anything ending .php. This binary
 	// serves none of it, so there is no honest caller to protect and no budget
@@ -208,20 +207,12 @@ func daemon() error {
 	wg.Add(3)
 	go func() { defer wg.Done(); sched.Run(ctx) }()
 	go func() { defer wg.Done(); sweeper.Run(ctx) }()
-	// Both limiters' bucket maps are keyed by client IP, so each is an unbounded
-	// caller-controlled allocation without a sweep. A full bucket is
-	// indistinguishable from a fresh one, so dropping idle entries loses
-	// nothing — and Sweep keeps any bucket still in debt, so a scanner cannot
-	// clear its record by pausing for the sweep interval.
-	//
-	// The ban store shares the ticker but not the interval: it drops entries
-	// whose 48 hours are up, and nothing else. Passing an idle age here would
-	// forgive a live ban 47 hours early.
+	// The limiters bound and prune their own maps (kit keeps a bucket in debt,
+	// so a scanner cannot clear its record by pausing). The ban store needs a
+	// sweep: it drops entries whose 48 hours are up, and nothing else.
 	go func() {
 		defer wg.Done()
-		for sched2.Sleep(ctx, 10*time.Minute) {
-			limiter.Sweep(30 * time.Minute)
-			notFoundLimiter.Sweep(30 * time.Minute)
+		for run.Sleep(ctx, 10*time.Minute) {
 			banStore.Sweep()
 		}
 	}()

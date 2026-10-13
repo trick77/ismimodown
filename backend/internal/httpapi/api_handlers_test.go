@@ -11,8 +11,8 @@ import (
 
 	"github.com/trick77/ismimodown/internal/config"
 	"github.com/trick77/ismimodown/internal/probe"
-	"github.com/trick77/ismimodown/internal/ratelimit"
 	"github.com/trick77/ismimodown/internal/samples"
+	"github.com/trick77/ship/kit/ratelimit"
 )
 
 var testNow = time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC)
@@ -329,7 +329,7 @@ func TestRateLimitReturns429PastTheBurst(t *testing.T) {
 	h := NewServer(Deps{
 		DB: db, Samples: samples.New(db),
 		Models:  []string{"mimo-v2.6-flash"},
-		Limiter: ratelimit.New(0.0001, 3), // 3 burst, effectively no refill
+		Limiter: ratelimit.New(ratelimit.Options{Rate: 0.0001, Burst: 3}), // 3 burst, effectively no refill
 		Now:     func() time.Time { return testNow },
 	})
 
@@ -356,7 +356,7 @@ func TestReadyzIsNotRateLimited(t *testing.T) {
 	h := NewServer(Deps{
 		DB: db, Samples: samples.New(db),
 		Models:  []string{"mimo-v2.6-flash"},
-		Limiter: ratelimit.New(0.0001, 1),
+		Limiter: ratelimit.New(ratelimit.Options{Rate: 0.0001, Burst: 1}),
 		Now:     func() time.Time { return testNow },
 	})
 

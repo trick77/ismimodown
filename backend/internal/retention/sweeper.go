@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/trick77/ismimodown/internal/samples"
-	"github.com/trick77/ismimodown/internal/sched"
+	"github.com/trick77/ship/kit/run"
 )
 
 // SweepInterval is how often the sweeper runs. Nightly rather than per-cycle:
@@ -37,7 +37,7 @@ func New(store *samples.Store, retention time.Duration) *Sweeper {
 func (s *Sweeper) Run(ctx context.Context) {
 	for {
 		s.SweepOnce(ctx)
-		if !sched.Sleep(ctx, SweepInterval) {
+		if !run.Sleep(ctx, SweepInterval) {
 			return
 		}
 	}

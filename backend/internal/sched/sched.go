@@ -1,36 +1,15 @@
 // Package sched holds the scheduling primitives the probe loop needs: a
-// cancellable sleep, a jittered repeat interval, and the pseudo-random source
-// that feeds the jitter.
+// jittered repeat interval, the aligned next tick, and the pseudo-random source
+// that feeds the jitter. The cancellable sleep is kit's run.Sleep.
 //
 // Ported from peeq, which grew it after three background loops each evolved
 // their own copy and a fix to the jitter maths had to be found three times.
 package sched
 
 import (
-	"context"
 	"math/rand"
 	"time"
 )
-
-// Sleep waits d unless ctx is cancelled first. It returns false if ctx was
-// cancelled (the caller should stop), true if the full wait elapsed.
-//
-// A non-positive d is not a wait at all, but it still reports cancellation
-// honestly: a loop that computed a zero delay must not keep going round after
-// its context is done.
-func Sleep(ctx context.Context, d time.Duration) bool {
-	if d <= 0 {
-		return ctx.Err() == nil
-	}
-	t := time.NewTimer(d)
-	defer t.Stop()
-	select {
-	case <-ctx.Done():
-		return false
-	case <-t.C:
-		return true
-	}
-}
 
 // JitteredInterval returns base plus a SYMMETRIC random jitter in
 // [-jitter, +jitter), never less than min.
