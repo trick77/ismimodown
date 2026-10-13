@@ -28,19 +28,22 @@ Latency monitor for MiMo. Go backend + React dashboard, public read-only. Ration
 
 ## Backend
 
-`slog`, `err` key. Eight `BACKEND_*` env vars, that is the surface; probe shape is constants in `config.go`, no env var. SQLite pure-Go `ncruces/go-sqlite3`, `CGO_ENABLED=0`, WAL, STRICT, no dependabot ignore.
+Plumbing is kit; own code only where kit lacks it (limiters, `banGate`, CORP, Permissions-Policy). `slog`, `err` key. Eight `BACKEND_*` env vars, that is the surface; probe shape is constants in `config.go`, no env var. SQLite pure-Go `ncruces/go-sqlite3`, `CGO_ENABLED=0`, WAL, STRICT, no dependabot ignore.
 
 Cycle builds the dashboard, never a request: `OnCycle` runs `Server.Warm` (all windows, in place) BEFORE `broker.Publish`. Invalidate-then-notify measured 19 s per request at five concurrent cold misses. Misses single-flighted, one build slot (`cpus: "1.0"`), TTL a two-cycle valve. Never shorten it, never add a slot.
 
 Limiters: request limiter guards `/api/*`. 404 limiter charges ONLY a 404 with a non-image extension (`isUncounted404`): never 4xx at large, 200s, image misses, `/.well-known`, extensionless. `banGate` is not a limiter: exploit path (`exploitpaths.go`) = 48 h in-memory block, matched on `r.URL.Path` before the mux, any depth (safe only while no dynamic path segments). Only a REPEAT exploit path renews (NAT pool + own tab would self-renew forever). New path: check `TestRealTrafficIsNotAnExploitPath`.
 
-Tests: `openTestDB(t)` real file in `t.TempDir()`, never `:memory:`. No real API calls, ever. `make test` / `make backend-coverage` (75% floor + patch) / `make run` / `make dev`.
+Tests: `openTestDB(t)` real file in `t.TempDir()`, never `:memory:`. No real API calls, ever. Gate is ship (`ship.yaml`): `make check` (floors/patch 75), `make hooks` per clone; no `.golangci.yaml`. `make test` / `make run` / `make dev`.
+
+- Commit subjects + PR titles: Go style `area: what` (`backend: …`, `ui: …`), gated by ship; release notes list them by area.
+- Release by hand: `gh workflow run Release -f bump=auto`. `backend/web/dist` holds only `.gitkeep` in git (vite `emptyOutDir: false`).
 
 ## Deploy & serving
 
-Distroless, no shell: healthcheck is `ismimodown -healthcheck`. Keep every `compose.yaml` hardening line.
+Distroless, no shell: healthcheck is `ismimodown -healthcheck` (probes `/readyz`, the DB ping; `/healthz` is liveness only). Keep every `compose.yaml` hardening line.
 
-`spaHandler`: `/` serves the shell, everything else 404s (`TestUnknownPathsAreNotFound`). No third-party origin in CSP (`TestNoThirdPartyOriginsInThePolicy`).
+SPA (`kit/spa`, `Routes` = `/` only): `/` serves the shell, everything else 404s (`TestUnknownPathsAreNotFound`). No third-party origin in CSP (`TestNoThirdPartyOriginsInThePolicy`).
 
 ## Naming & copy
 

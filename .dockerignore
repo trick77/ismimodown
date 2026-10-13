@@ -1,21 +1,20 @@
-# The build context is the repo root (see release.yaml). Keep out anything the
-# image does not need — and, more importantly, anything that must never end up
-# in a layer.
-.git
-.github
-docs
-scripts
-bin
-coverage
-data
-node_modules
-*.md
-LICENSE
-Makefile
-compose.yaml
-compose.dev.yaml
+# ship:begin (owned by ship init; repo-specific lines go below the end marker)
+# Allowlist: the images build from the dirs below only. A new root-level file stays out of the context without anyone
+# having to remember this list. BuildKit reads the -f Containerfile outside these rules.
+*
+!backend
+!ui
+# The host's node_modules (darwin native binaries) would land on top of the image's own install; the image builds
+# dist itself.
+ui/node_modules
+ui/dist
+ui/coverage
+# ship:end
+
+# A host build of the embedded bundle stays out: the image builds its own, and
+# COPY --from=ui merges over this directory rather than replacing it, so stale
+# hashed files from the host would ship beside the real ones.
+backend/web/dist
 # Never. The MiMo token-plan key is a live billable credential.
-.env
-.env.*
-!.env.example
-.claude
+**/.env
+**/.env.*

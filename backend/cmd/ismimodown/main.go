@@ -7,14 +7,9 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
-	"net"
-	"net/http"
 	"os"
-	"os/signal"
 	"path/filepath"
-	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/trick77/ismimodown/internal/ban"
@@ -28,8 +23,12 @@ import (
 	"github.com/trick77/ismimodown/internal/scheduler"
 	"github.com/trick77/ismimodown/internal/sse"
 	"github.com/trick77/ismimodown/internal/store"
-	"github.com/trick77/ismimodown/internal/version"
 	"github.com/trick77/ismimodown/web"
+	"github.com/trick77/ship/kit/env"
+	"github.com/trick77/ship/kit/httpx"
+	"github.com/trick77/ship/kit/logging"
+	"github.com/trick77/ship/kit/run"
+	"github.com/trick77/ship/kit/version"
 )
 
 // healthcheckFlag makes the binary probe itself.
@@ -39,67 +38,42 @@ import (
 // shell to the image so it can run one — would undo the reason the image is
 // distroless in the first place.
 var healthcheckFlag = flag.Bool("healthcheck", false,
-	"probe the local /healthz endpoint and exit 0 (healthy) or 1 (not)")
+	"probe the local /readyz endpoint and exit 0 (ready) or 1 (not)")
 
 func main() {
 	flag.Parse()
 	if *healthcheckFlag {
-		if err := healthcheck(); err != nil {
-			fmt.Fprintln(os.Stderr, "healthcheck:", err)
-			os.Exit(1)
-		}
-		return
+		os.Exit(healthcheck())
 	}
-	if err := run(); err != nil {
-		slog.Error("fatal", "err", err)
+	if err := daemon(); err != nil {
+		slog.Error("fatal", logging.Err(err))
 		os.Exit(1)
 	}
 }
 
-// healthcheck hits /healthz over loopback.
+// healthcheck probes /readyz over loopback: readiness pings the database, so a
+// 0 here means the process can both listen and reach its store.
 //
-// It reads BACKEND_ADDR so a non-default port still works, and rewrites a
+// It reads BACKEND_ADDR so a non-default port still works; kit rewrites a
 // wildcard bind to loopback — dialling ":8080" verbatim does not resolve.
-func healthcheck() error {
-	addr := os.Getenv("BACKEND_ADDR")
-	if addr == "" {
-		addr = ":8080"
-	}
-	host, port, err := net.SplitHostPort(addr)
-	if err != nil {
-		return fmt.Errorf("BACKEND_ADDR %q is not host:port: %w", addr, err)
-	}
-	if host == "" || host == "0.0.0.0" || host == "::" {
-		host = "127.0.0.1"
-	}
-
-	client := &http.Client{Timeout: 4 * time.Second}
-	// G704: host and port come from BACKEND_ADDR, already parsed and pinned to
-	// a loopback default above; no request data reaches this URL.
-	resp, err := client.Get("http://" + net.JoinHostPort(host, port) + "/healthz") //nolint:gosec // G704
-	if err != nil {
-		return err
-	}
-	defer func() { _ = resp.Body.Close() }()
-	// /healthz already pings the database, so a 200 here means the process can
-	// both listen and reach its store.
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("status %d", resp.StatusCode)
-	}
-	return nil
+func healthcheck() int {
+	addr := env.New(os.Getenv).String("BACKEND_ADDR", ":8080")
+	return httpx.Healthcheck(httpx.LocalURL(addr, "/readyz"))
 }
 
-func run() error {
+func daemon() error {
 	cfg, err := config.Load()
 	if err != nil {
 		// Logging is not configured yet, so this goes out on the default
 		// handler. A config failure must still be legible.
 		return err
 	}
-	setupLogging(cfg.LogLevel)
+	if _, err := logging.Setup(logging.Options{Level: cfg.LogLevel, LevelVar: "BACKEND_LOG_LEVEL"}); err != nil {
+		return err
+	}
 
 	slog.Info("starting ismimodown",
-		"version", version.Version,
+		"version", version.String(),
 		"base_url", cfg.BaseURL,
 		"db", cfg.DBPath,
 	)
@@ -158,11 +132,10 @@ func run() error {
 	// holding http.Server.Shutdown open until its timeout expires.
 	shutdownCh := make(chan struct{})
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	ctx, stop := run.Context(context.Background())
 	defer stop()
 
 	apiServer := httpapi.NewServer(httpapi.Deps{
-		Version:         version.Version,
 		DB:              db,
 		Samples:         sampleStore,
 		Static:          static,
@@ -220,15 +193,12 @@ func run() error {
 	// never from a build of their own.
 	go warmCache(ctx, apiServer)
 
-	srv := &http.Server{
-		Addr:    cfg.Addr,
-		Handler: apiServer,
-		// ReadHeaderTimeout bounds a slowloris client on a public endpoint.
-		// WriteTimeout is deliberately NOT set: /api/events is a long-lived SSE
-		// stream and any write deadline would sever it mid-connection.
-		ReadHeaderTimeout: 10 * time.Second,
-		IdleTimeout:       120 * time.Second,
-	}
+	// No WriteTimeout (kit sets none): /api/events is a long-lived SSE stream
+	// and any write deadline would sever it mid-connection.
+	srv := httpx.NewServer(cfg.Addr, apiServer)
+	// Signal the streams the moment Shutdown starts, BEFORE it waits on them;
+	// ordinary requests are left to drain normally.
+	srv.RegisterOnShutdown(func() { close(shutdownCh) })
 
 	// The probe loop and the sweeper share the signal context, so SIGTERM stops
 	// them at the same moment it stops accepting requests. Waited on below via
@@ -256,29 +226,18 @@ func run() error {
 		}
 	}()
 
-	errCh := make(chan error, 1)
-	go func() {
-		slog.Info("listening", "addr", cfg.Addr)
-		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			errCh <- err
-		}
-	}()
-
-	select {
-	case err := <-errCh:
-		return err
-	case <-ctx.Done():
-		slog.Info("shutting down")
-	}
-
-	// Signal the streams BEFORE Shutdown starts waiting on them; ordinary
-	// requests are left to drain normally.
-	close(shutdownCh)
-
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-	err = srv.Shutdown(shutdownCtx)
+	slog.Info("listening", "addr", cfg.Addr)
+	err = httpx.Serve(ctx, srv, 15*time.Second)
+	// A failed listen returns with the signal context still live: stop the
+	// loops too, or wg.Wait never returns.
+	stop()
 	wg.Wait()
+	// Past the drain deadline Shutdown has cut the remaining connections; the
+	// process still exits as asked, so that is a note rather than a failure.
+	if errors.Is(err, context.DeadlineExceeded) {
+		slog.Warn("shutdown deadline passed, open connections cut")
+		return nil
+	}
 	return err
 }
 
@@ -293,23 +252,8 @@ func warmCache(ctx context.Context, apiServer *httpapi.Server) {
 	}
 	started := time.Now()
 	if err := apiServer.Warm(ctx); err != nil {
-		slog.Error("dashboard warm-up failed", "err", err)
+		slog.Error("dashboard warm-up failed", logging.Err(err))
 		return
 	}
 	slog.Info("dashboard warmed", "took", time.Since(started).Round(time.Millisecond))
-}
-
-func setupLogging(level string) {
-	var lvl slog.Level
-	switch strings.ToLower(level) {
-	case "debug":
-		lvl = slog.LevelDebug
-	case "warn":
-		lvl = slog.LevelWarn
-	case "error":
-		lvl = slog.LevelError
-	default:
-		lvl = slog.LevelInfo
-	}
-	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: lvl})))
 }

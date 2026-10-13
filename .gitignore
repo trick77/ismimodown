@@ -13,7 +13,7 @@ ui/tsconfig.tsbuildinfo
 !.env.example
 /data/
 backend/web/dist/*
-!backend/web/dist/index.html
+!backend/web/dist/.gitkeep
 
 # Verification screenshots land at the repo root during UI work. They are
 # throwaway evidence, not artifacts, and the repo is public.

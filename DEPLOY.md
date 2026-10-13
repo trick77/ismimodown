@@ -59,7 +59,8 @@ docker compose up -d
 ```
 
 The image comes from `ghcr.io/trick77/ismimodown:latest`, published by the
-release workflow on every push to `master` that touches `backend/` or `ui/`.
+Release workflow, run by hand after a merge: `gh workflow run Release -f bump=auto`.
+A merge alone ships nothing.
 
 **The key is billable.** `.env` is gitignored, along with every `.env.*`
 variant, because this repo is public. Never put a real key in `.env.example`.
@@ -69,7 +70,7 @@ variant, because this repo is public. Never put a real key in `.env.example`.
 ```sh
 docker compose ps                        # healthy within ~30s
 docker compose logs -f ismimodown        # "cycle complete" every ~5 minutes
-curl -s https://ismimodown.com/healthz
+curl -s https://ismimodown.com/readyz     # {"status":"ok"}: listening AND the database answers
 ```
 
 The certificate is the first thing to check on a new host — a self-signed

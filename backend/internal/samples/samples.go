@@ -179,7 +179,7 @@ func insertInfer(ctx context.Context, tx *sql.Tx, cycleID int64, in probe.InferR
 // every dropped slot with its count and span, which is what anyone diagnosing
 // an overrun actually reads. See logMissedTicks in internal/scheduler.
 
-// CountCycles reports how many cycles exist, for tests and /healthz.
+// CountCycles reports how many cycles exist, for tests.
 func (s *Store) CountCycles(ctx context.Context) (int, error) {
 	var n int
 	err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM cycles`).Scan(&n)

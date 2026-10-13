@@ -1,11 +1,12 @@
 package httpapi
 
 import (
-	"encoding/json"
 	"log/slog"
 	"net/http"
 
 	"github.com/trick77/ismimodown/internal/redact"
+	"github.com/trick77/ship/kit/httpx"
+	"github.com/trick77/ship/kit/logging"
 )
 
 // redactErr strips query strings, userinfo and bearer tokens from an error's
@@ -20,15 +21,6 @@ func redactErr(err error) error {
 	return redact.Err(err)
 }
 
-// writeJSONError writes a JSON error body. The message is the CLIENT-facing
-// one: callers must never pass a provider error body or a wrapped internal
-// error through here.
-func writeJSONError(w http.ResponseWriter, status int, message string) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]string{"error": message})
-}
-
 // serverError logs the underlying cause of a 5xx with request context and
 // returns a generic JSON error to the client, so internal details never leak to
 // the browser. Every 500 path should go through here so failures are never
@@ -38,7 +30,9 @@ func serverError(w http.ResponseWriter, r *http.Request, err error, clientMessag
 		"method", r.Method,
 		"path", r.URL.Path,
 		"client_message", clientMessage,
-		"err", redactErr(err),
+		logging.Err(redactErr(err)),
 	)
-	writeJSONError(w, http.StatusInternalServerError, clientMessage)
+	// The message is the CLIENT-facing one: never a provider error body or a
+	// wrapped internal error.
+	httpx.WriteError(w, http.StatusInternalServerError, clientMessage)
 }

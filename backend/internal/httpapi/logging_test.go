@@ -22,7 +22,7 @@ func captureLogs(t *testing.T) *bytes.Buffer {
 	return &buf
 }
 
-// logLines decodes every "request" line the middleware emitted.
+// logLines decodes every "http_request" line the middleware emitted.
 func logLines(t *testing.T, buf *bytes.Buffer) []map[string]any {
 	t.Helper()
 	var out []map[string]any
@@ -34,7 +34,7 @@ func logLines(t *testing.T, buf *bytes.Buffer) []map[string]any {
 		if err := json.Unmarshal([]byte(line), &entry); err != nil {
 			t.Fatalf("log line is not JSON: %s", line)
 		}
-		if entry["msg"] == "request" {
+		if entry["msg"] == "http_request" {
 			out = append(out, entry)
 		}
 	}
@@ -76,8 +76,8 @@ func TestEveryRequestLogsTheCaller(t *testing.T) {
 			if entry["status"] != tc.wantStatus {
 				t.Errorf("status = %v, want %v", entry["status"], tc.wantStatus)
 			}
-			if entry["client"] != "203.0.113.7" {
-				t.Errorf("client = %v, want the caller's address", entry["client"])
+			if entry["ip"] != "203.0.113.7" {
+				t.Errorf("client = %v, want the caller's address", entry["ip"])
 			}
 		})
 	}
@@ -92,8 +92,8 @@ func TestLoggedCallerIsNotTheSpoofableForwardedEntry(t *testing.T) {
 	req.Header.Set("X-Forwarded-For", "1.1.1.1, 203.0.113.7")
 
 	entry := logOne(t, req)
-	if entry["client"] != "203.0.113.7" {
-		t.Errorf("client = %v, want the entry the proxy appended", entry["client"])
+	if entry["ip"] != "203.0.113.7" {
+		t.Errorf("client = %v, want the entry the proxy appended", entry["ip"])
 	}
 }
 
@@ -106,8 +106,8 @@ func TestLoggedCallerMatchesTheLimiterKey(t *testing.T) {
 	req.RemoteAddr = "[2001:db8:1234:5678:abcd:ef01:2345:6789]:443"
 
 	entry := logOne(t, req)
-	if entry["client"] != "2001:db8:1234:5678::/64" {
-		t.Errorf("client = %v, want the /64 block", entry["client"])
+	if entry["ip"] != "2001:db8:1234:5678::/64" {
+		t.Errorf("client = %v, want the /64 block", entry["ip"])
 	}
 }
 
@@ -121,23 +121,23 @@ func TestLogRecordsThePathWithoutTheQueryString(t *testing.T) {
 	if entry["path"] != "/api/dashboard" {
 		t.Errorf("path = %v, want the path alone", entry["path"])
 	}
-	for _, field := range []string{"path", "client"} {
+	for _, field := range []string{"path", "ip"} {
 		if strings.Contains(entry[field].(string), "window=") {
 			t.Errorf("%s carried the query string: %v", field, entry[field])
 		}
 	}
 }
 
-// The healthcheck hits /healthz every 60s. Logging it would bury the requests
+// The healthcheck hits /readyz every 60s. Logging it would bury the requests
 // that matter — and would record the orchestrator as a visitor.
-func TestHealthzLogsNothingAtAll(t *testing.T) {
+func TestReadyzLogsNothingAtAll(t *testing.T) {
 	buf := captureLogs(t)
 	h, _ := newAPIServer(t)
-	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	req := httptest.NewRequest(http.MethodGet, "/readyz", nil)
 	req.RemoteAddr = "203.0.113.7:51234"
 	h.ServeHTTP(httptest.NewRecorder(), req)
 
 	if lines := logLines(t, buf); len(lines) != 0 {
-		t.Errorf("healthz produced %d request lines: %s", len(lines), buf.String())
+		t.Errorf("readyz produced %d request lines: %s", len(lines), buf.String())
 	}
 }

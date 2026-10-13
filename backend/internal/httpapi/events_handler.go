@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/trick77/ismimodown/internal/ratelimit"
+
+	"github.com/trick77/ship/kit/httpx"
 )
 
 // sseHeartbeat keeps idle connections alive.
@@ -23,7 +25,7 @@ const sseHeartbeat = 25 * time.Second
 // semantics.
 func (s *server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	if s.deps.Broker == nil {
-		writeJSONError(w, http.StatusServiceUnavailable, "events unavailable")
+		httpx.WriteError(w, http.StatusServiceUnavailable, "events unavailable")
 		return
 	}
 
@@ -47,7 +49,7 @@ func (s *server) handleEvents(w http.ResponseWriter, r *http.Request) {
 		// connection that will never be fed — a silent, permanently-idle stream
 		// is worse than a refusal the client can retry.
 		w.Header().Set("Retry-After", "30")
-		writeJSONError(w, http.StatusServiceUnavailable, "too many subscribers")
+		httpx.WriteError(w, http.StatusServiceUnavailable, "too many subscribers")
 		return
 	}
 	defer cancel()

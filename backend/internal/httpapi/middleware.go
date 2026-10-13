@@ -5,29 +5,15 @@ import (
 	"math"
 	"net/http"
 	"path"
-	"runtime/debug"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/trick77/ismimodown/internal/ban"
 	"github.com/trick77/ismimodown/internal/ratelimit"
+	"github.com/trick77/ship/kit/httpx"
 )
-
-// recovery converts panics in downstream handlers into 500 responses. Without
-// it, a handler panic bypasses slog entirely and lands on stderr in Go's
-// default log format.
-func recovery(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		defer func() {
-			if rec := recover(); rec != nil {
-				slog.Error("panic recovered", "err", rec, "path", r.URL.Path, "stack", string(debug.Stack()))
-				http.Error(w, "internal server error", http.StatusInternalServerError)
-			}
-		}()
-		next.ServeHTTP(w, r)
-	})
-}
 
 // contentSecurityPolicy is the page's resource allow-list.
 //
@@ -67,7 +53,8 @@ const contentSecurityPolicy = "default-src 'self'; " +
 	"frame-ancestors 'none'"
 
 // securityHeaders sets the response headers that bound what a browser will do
-// with this site.
+// with this site: kit's set (CSP, nosniff, X-Frame-Options DENY,
+// Referrer-Policy same-origin, COOP) plus the two kit does not carry.
 //
 // It lives in the handler rather than in the Traefik labels so it travels with
 // the binary: `make dev` and any future deployment get the same policy as
@@ -81,19 +68,12 @@ const contentSecurityPolicy = "default-src 'self'; " +
 // Set before the handler runs, not after: headers must be in the map before
 // anything writes a status, and the SSE stream writes its own immediately.
 func securityHeaders(next http.Handler) http.Handler {
+	kit := httpx.SecurityHeadersWith(httpx.SecurityOptions{
+		CSP:  contentSecurityPolicy,
+		COOP: "same-origin",
+	})(next)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h := w.Header()
-		h.Set("Content-Security-Policy", contentSecurityPolicy)
-		// Without nosniff a browser is free to ignore the declared type and
-		// guess from the bytes — which is how a JSON response full of
-		// attacker-chosen strings gets executed as HTML on some clients.
-		h.Set("X-Content-Type-Options", "nosniff")
-		// Belt and braces with frame-ancestors above, for clients that honour
-		// only the older header.
-		h.Set("X-Frame-Options", "DENY")
-		// The path can carry a window or model name; no reason to hand even
-		// that to whatever a visitor clicks through to.
-		h.Set("Referrer-Policy", "strict-origin-when-cross-origin")
 		// Nothing here needs a camera, a microphone or a location, and saying
 		// so stops any future embedded content from asking on the site's behalf.
 		h.Set("Permissions-Policy", "camera=(), microphone=(), geolocation=(), interest-cohort=()")
@@ -101,11 +81,22 @@ func securityHeaders(next http.Handler) http.Handler {
 		// none needs to: the SPA is same-origin. Deliberately no
 		// Access-Control-Allow-Origin anywhere — the API is public to read in a
 		// browser tab, not to embed in someone else's page.
-		h.Set("Cross-Origin-Opener-Policy", "same-origin")
 		h.Set("Cross-Origin-Resource-Policy", corpFor(r.URL.Path))
-		next.ServeHTTP(w, r)
+		kit.ServeHTTP(w, r)
 	})
 }
+
+// isProbePath reports whether p is one of kit's health probes. The container
+// healthcheck is never throttled, banned or logged: it cannot 404 or reach an
+// exploit path, so it could only ever be collateral from another caller sharing
+// its key — and a probe that fails because someone else scanned the box
+// restarts a healthy container.
+func isProbePath(p string) bool {
+	return slices.Contains(probePaths, p)
+}
+
+// probePaths is kit's list, read once: isProbePath runs on every request.
+var probePaths = httpx.DefaultProbePaths()
 
 // ogCardPath is the link-preview card, and the ONE response on this site meant
 // to be loaded by another origin.
@@ -197,7 +188,7 @@ func (rec *statusRecorder) Unwrap() http.ResponseWriter {
 // the 404s that software makes without a person asking it to — /favicon.ico on
 // a first visit, Chrome's /.well-known probes, a crawler recrawling a URL the
 // old soft 404 taught it existed — and none of them were ever charged, because
-// until web.spaHandler stopped serving the shell for them they were not 404s at
+// until web.Handler stopped serving the shell for them they were not 404s at
 // all.
 //
 // So what this limiter actually meters is a 404 with a non-image extension:
@@ -212,11 +203,7 @@ func notFoundPenalty(l *ratelimit.Limiter, next http.Handler) http.Handler {
 		return next
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// The container healthcheck is never throttled. It cannot 404, so it
-		// could only ever be collateral from another caller sharing its key —
-		// and a health probe that fails because someone else scanned the box
-		// restarts a healthy container.
-		if r.URL.Path == "/healthz" {
+		if isProbePath(r.URL.Path) {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -289,7 +276,7 @@ func isUncountedAsset(p string) bool {
 // sized for wrong guesses.
 //
 // The extensionless half exists because those paths did not 404 at all until
-// web.spaHandler stopped serving the shell for them, so they have NEVER been
+// web.Handler stopped serving the shell for them, so they have NEVER been
 // charged. Keeping them free is therefore not a concession — it holds this
 // limiter exactly where it has always been while the status code moves. What
 // the status code change breaks if they are charged: a search engine holding
@@ -329,7 +316,7 @@ func isUncounted404(p string) bool {
 //
 // It matches the path on the way IN, before the mux, rather than deriving the
 // trigger from the response status the way notFoundPenalty does. That used to
-// be load-bearing in the strongest sense — web.spaHandler answered any
+// be load-bearing in the strongest sense — web.Handler answered any
 // extensionless unknown path with index.html and a 200, so /phpmyadmin,
 // /wp-admin and /actuator never produced a 404 to react to. It no longer is:
 // those all 404 today. Matching the path is still the right instrument, because
@@ -348,10 +335,7 @@ func banGate(store *ban.Store, next http.Handler) http.Handler {
 		return next
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Exempt for the same reason it is exempt from notFoundPenalty: the
-		// container healthcheck must not fail because of what another caller
-		// did. It cannot reach an exploit path, so this only removes collateral.
-		if r.URL.Path == "/healthz" {
+		if isProbePath(r.URL.Path) {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -454,19 +438,17 @@ func writeTooManyRequests(w http.ResponseWriter, r *http.Request, retryAfter tim
 	_, _ = w.Write([]byte("too many requests\n"))
 }
 
-// logging logs each request with method, path, status, duration and caller.
+// accessLog is kit's access log with this site's caller key.
 //
-// /healthz is skipped: the container healthcheck hits it every 60s and would
-// otherwise be most of the log volume on an idle server.
+// Probes are skipped (kit's default): the healthcheck hits /readyz every 60s
+// and would otherwise be most of the log volume on an idle server. Kit logs
+// r.URL.Path and never the query string. It does log the User-Agent, which is
+// caller-supplied text: the log is operator-only, and the agent is what tells a
+// crawler from a scanner in it. Each response carries the line's request id in
+// X-Request-Id.
 //
-// Deliberately logs r.URL.Path and never the query string. Nothing secret
-// travels in a query string on this API today, but the endpoints are public and
-// unauthenticated, so the log must not become a mirror of arbitrary
-// caller-supplied text.
-//
-// The caller is ratelimit.ClientIP — the limiter's OWN bucket key, not
-// r.RemoteAddr. Three things follow from that, and they are the reason to reuse
-// it rather than read the address again here:
+// The caller is ratelimit.ClientIP — the limiter's OWN bucket key, not kit's
+// default. Three things follow from that:
 //
 //   - Behind Traefik, RemoteAddr is the proxy. The key reads the LAST
 //     X-Forwarded-For entry, the one the nearest trusted proxy appended, rather
@@ -474,40 +456,15 @@ func writeTooManyRequests(w http.ResponseWriter, r *http.Request, retryAfter tim
 //   - IPv6 is already collapsed to its /64, so the log records the block rather
 //     than the address. Rotating the low 64 bits is free, so the /64 is the
 //     identity that means anything anyway.
-//   - A 429 line and the bucket that produced it now name the same thing. A log
-//     that said "some other notion of the caller" would be unable to answer the
-//     only question a burst of 429s raises: one scraper, or many readers.
+//   - A 429 line and the bucket that produced it name the same thing, which is
+//     the only question a burst of 429s raises: one scraper, or many readers.
 //
-// This is every request, not only the failures — so the log is a visitor record
-// for a public page, and how long it is kept is a deployment decision rather
-// than this file's.
-func logging(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/healthz" {
-			next.ServeHTTP(w, r)
-			return
-		}
-		start := time.Now()
-		rec := &statusRecorder{ResponseWriter: w}
-		next.ServeHTTP(rec, r)
-		if rec.status == 0 {
-			rec.status = http.StatusOK
-		}
-		// Level reflects the outcome so failures stand out instead of drowning
-		// in the INFO request stream: 5xx -> ERROR, 4xx -> WARN, otherwise INFO.
-		level := slog.LevelInfo
-		switch {
-		case rec.status >= 500:
-			level = slog.LevelError
-		case rec.status >= 400:
-			level = slog.LevelWarn
-		}
-		slog.LogAttrs(r.Context(), level, "request",
-			slog.String("method", r.Method),
-			slog.String("path", r.URL.Path),
-			slog.Int("status", rec.status),
-			slog.String("dur", time.Since(start).String()),
-			slog.String("client", ratelimit.ClientIP(r)),
-		)
+// Routine lines at INFO rather than kit's DEBUG: this is every request, so the
+// log is a visitor record for a public page, and how long it is kept is a
+// deployment decision rather than this file's.
+func accessLog() func(http.Handler) http.Handler {
+	return httpx.AccessLog(nil, httpx.AccessLogOptions{
+		ClientIP:     ratelimit.ClientIP,
+		RoutineLevel: slog.LevelInfo,
 	})
 }

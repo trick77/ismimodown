@@ -328,7 +328,7 @@ func TestFailedInferenceCallLogsTheClassAtWarn(t *testing.T) {
 // a log line — so it is stripped, and stripped BEFORE the clip, since half a key
 // is still key material.
 func TestLoggedErrorDetailIsRedactedAndBounded(t *testing.T) {
-	key := "tp-livebillablekey000000000000000"
+	key := "tp-livebillablekey000000000000000" // ship:allow-secret: a fake key
 	prober := &gradingProber{res: probe.InferResult{
 		ErrorClass:  probe.ErrClassHTTP,
 		ErrorDetail: "upstream rejected {authorization: Bearer " + key + "} " + strings.Repeat("x", 4000),

@@ -22,7 +22,7 @@ func newAPIServer(t *testing.T) (http.Handler, *samples.Store) {
 	db := openTestDB(t)
 	store := samples.New(db)
 	h := NewServer(Deps{
-		Version: "test", DB: db, Samples: store,
+		DB: db, Samples: store,
 		Models:         []string{"mimo-v2.6-flash", "mimo-v2.6-pro"},
 		ProbeUserAgent: testUserAgent,
 		Now:            func() time.Time { return testNow },
@@ -183,7 +183,7 @@ func TestNetworkSeriesIsSeparateFromModels(t *testing.T) {
 func TestNoPublicEndpointEmitsErrorDetail(t *testing.T) {
 	h, store := newAPIServer(t)
 
-	const secret = "SECRET-PROVIDER-BODY-tp-livekey-fragment"
+	const secret = "SECRET-PROVIDER-BODY-tp-livekey-fragment" // ship:allow-secret: a fake key
 	if _, err := store.Save(context.Background(), samples.Cycle{
 		StartedAt: testNow.Add(-time.Minute),
 		Net: []probe.NetResult{
@@ -351,7 +351,7 @@ func TestRateLimitReturns429PastTheBurst(t *testing.T) {
 
 // The container healthcheck must never be throttled, or a burst of API traffic
 // would make the orchestrator restart a perfectly healthy process.
-func TestHealthzIsNotRateLimited(t *testing.T) {
+func TestReadyzIsNotRateLimited(t *testing.T) {
 	db := openTestDB(t)
 	h := NewServer(Deps{
 		DB: db, Samples: samples.New(db),
@@ -361,8 +361,8 @@ func TestHealthzIsNotRateLimited(t *testing.T) {
 	})
 
 	for i := 0; i < 20; i++ {
-		if rec := get(t, h, "/healthz"); rec.Code != http.StatusOK {
-			t.Fatalf("healthz returned %d on request %d; it must never be throttled", rec.Code, i)
+		if rec := get(t, h, "/readyz"); rec.Code != http.StatusOK {
+			t.Fatalf("readyz returned %d on request %d; it must never be throttled", rec.Code, i)
 		}
 	}
 }
@@ -538,7 +538,7 @@ func TestCostEndpointServesTheWholePanel(t *testing.T) {
 	db := openTestDB(t)
 	store := samples.New(db)
 	h := NewServer(Deps{
-		Version: "test", DB: db, Samples: store,
+		DB: db, Samples: store,
 		Models: []string{"mimo-v2.6-flash"},
 		Prices: map[string]config.ModelPrice{"mimo-v2.6-flash": {In: 1, Out: 10}},
 		Now:    func() time.Time { return testNow },

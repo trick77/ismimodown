@@ -6,7 +6,7 @@
 # bundle exactly as production serves it.
 set -eu
 
-ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 DB_PATH=${BACKEND_DB_PATH:-/tmp/ismimodown-dev.db}
 
 # The probe needs a real key to reach MiMo. Read it from .env if present rather

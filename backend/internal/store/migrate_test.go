@@ -78,7 +78,7 @@ func TestMigrateErrorNamesTheFailingMigration(t *testing.T) {
 	// And it must not have recorded the migration it could not apply.
 	var n int
 	if err := db.QueryRow(
-		`SELECT count(*) FROM schema_migrations WHERE version = '0001_init.sql'`,
+		`SELECT count(*) FROM schema_migrations WHERE name = '0001_init.sql'`,
 	).Scan(&n); err != nil {
 		t.Fatalf("query: %v", err)
 	}
@@ -517,5 +517,81 @@ func TestDropRenamedModelRowsTakesTheWholeRetiredCycle(t *testing.T) {
 		if got != want.n {
 			t.Errorf("%s on the configured cycle = %d, want %d", want.what, got, want.n)
 		}
+	}
+}
+
+// Every deployed database was written by the runner before kit, which keyed
+// schema_migrations on a column named version. Adopting kit must rename it and
+// carry on: nothing re-runs (0001_init would collide with the live tables) and
+// no row is touched. Run twice, because the second start is every start after.
+func TestMigrateAdoptsTheLegacyTable(t *testing.T) {
+	db, err := Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer db.Close()
+
+	migrateUpTo(t, db, "9999")
+	if _, err := db.Exec(
+		`INSERT INTO cycles (id, started_at) VALUES (1, '2026-08-04T06:00:00Z')`); err != nil {
+		t.Fatalf("seed cycle: %v", err)
+	}
+
+	for run := 1; run <= 2; run++ {
+		if err := Migrate(db); err != nil {
+			t.Fatalf("Migrate run %d: %v", run, err)
+		}
+	}
+
+	entries, err := fs.ReadDir(migrationsFS, "migrations")
+	if err != nil {
+		t.Fatalf("read migrations: %v", err)
+	}
+	var recorded, cycles int
+	if err := db.QueryRow(`SELECT count(*) FROM schema_migrations WHERE name LIKE '%.sql'`).Scan(&recorded); err != nil {
+		t.Fatalf("read schema_migrations by name: %v", err)
+	}
+	if recorded != len(entries) {
+		t.Errorf("schema_migrations holds %d rows, want %d: a migration re-ran or went missing", recorded, len(entries))
+	}
+	if err := db.QueryRow(`SELECT count(*) FROM cycles`).Scan(&cycles); err != nil {
+		t.Fatalf("count cycles: %v", err)
+	}
+	if cycles != 1 {
+		t.Errorf("cycles = %d after adoption, want the 1 seeded row", cycles)
+	}
+
+	// A rollback to the image before kit still starts: it looks every
+	// migration up by version, and must find each one applied.
+	for _, e := range entries {
+		var applied int
+		if err := db.QueryRow(
+			`SELECT count(*) FROM schema_migrations WHERE version = ?`, e.Name()).Scan(&applied); err != nil {
+			t.Fatalf("legacy lookup of %s: %v", e.Name(), err)
+		}
+		if applied != 1 {
+			t.Errorf("legacy lookup of %s = %d, want 1", e.Name(), applied)
+		}
+	}
+}
+
+// A database kit created gets the same rollback column.
+func TestMigrateKeepsTheLegacyColumnOnAFreshDatabase(t *testing.T) {
+	db, err := Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer db.Close()
+
+	if err := Migrate(db); err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
+	var applied int
+	if err := db.QueryRow(
+		`SELECT count(*) FROM schema_migrations WHERE version = '0001_init.sql'`).Scan(&applied); err != nil {
+		t.Fatalf("legacy lookup: %v", err)
+	}
+	if applied != 1 {
+		t.Errorf("legacy lookup = %d, want 1", applied)
 	}
 }

@@ -1,0 +1,21 @@
+# The gate (make check, and ship pre-push in the hook) and the release, see github.com/trick77/ship.
+visibility: public
+go:
+  dir: backend
+  # Attributes coverage across package boundaries (the httpapi tests drive store).
+  coverpkg: ./...
+ui:
+  # Reporters from ui/vite.config.ts (lcov into ../coverage/ui), not overridden on the command line.
+  test: npm run test -- --coverage
+  lcov: coverage/ui/lcov.info
+  # ship empties it but for .gitkeep before ui.build; vite writes there with emptyOutDir off.
+  embed: backend/web/dist
+images:
+  - { containerfile: backend/Containerfile }
+allow:
+  - rule: scaffold
+    path: ui/tsconfig.node.json
+    why: >-
+      vite.config.ts imports the build/ plugins (with .ts, as vite's native config loader wants), and static-copy
+      imports src/copy.ts; a composite project must list them all
+

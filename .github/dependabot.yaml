@@ -1,53 +1,114 @@
 version: 2
 updates:
-  # Go backend.
-  #
-  # No ncruces/go-sqlite3 ignore here, deliberately. peeq pins that driver at
-  # v0.23.3 because sqlite-vec's Go bindings are welded to its older API and
-  # host-function ABI. ismimodown has no sqlite-vec — percentiles are plain SQL
-  # over a rolling window — so the pin has no reason to exist and the driver
-  # tracks its current release (v0.35.3 at time of writing).
   - package-ecosystem: gomod
     directory: /backend
+    commit-message: { prefix: deps }   # Go style: "deps: bump …"
     schedule:
       interval: weekly
+      day: sunday
+      time: "07:00"
+      timezone: Europe/Zurich
+    open-pull-requests-limit: 5
     groups:
-      go-minor-and-patch:
-        patterns: ["*"]
-        update-types: ["minor", "patch"]
+      gomod-non-major:
+        patterns:
+          - "*"
+        update-types:
+          - patch
+          - minor
+      gomod-major:
+        patterns:
+          - "*"
+        update-types:
+          - major
 
-  # React frontend (lands in phase 5).
   - package-ecosystem: npm
     directory: /ui
+    commit-message: { prefix: deps }   # Go style: "deps: bump …"
     schedule:
       interval: weekly
+      day: sunday
+      time: "07:00"
+      timezone: Europe/Zurich
+    open-pull-requests-limit: 5
     groups:
-      # First matching group wins, so the specific group comes first and the
-      # catch-all stays last. vite, its react plugin, vitest and its coverage
+      # First matching group wins, so the specific groups come first and the
+      # catch-alls stay last. vite, its react plugin, vitest and its coverage
       # provider are one dependency family: vitest pins a vite major range and
       # @vitest/coverage-v8 pins vitest's exact version, so bumping any one
       # alone fails npm ci on ERESOLVE (or nests a second vite). They always
-      # travel together.
+      # travel together. @tailwindcss/vite peer-depends on vite's major too.
       vite-and-vitest:
-        patterns: ["vite", "@vitejs/*", "vitest", "@vitest/*"]
-      npm-minor-and-patch:
-        patterns: ["*"]
-        update-types: ["minor", "patch"]
+        patterns: ["vite", "@vitejs/*", "vitest", "@vitest/*", "@tailwindcss/vite"]
+      # Pinned exact; a release may format differently and fail the gate's
+      # format:check, so it never blocks the other bumps: its own PR,
+      # reformatted there.
+      prettier:
+        patterns: ["prettier"]
+      # A new rule or recommended-set change can fail the gate's lint: its own
+      # PR, findings fixed there. typescript-eslint, @eslint/js and the
+      # eslint-config-*/eslint-plugin-* packages track eslint's major.
+      eslint:
+        patterns: ["eslint", "eslint-*", "typescript-eslint", "@eslint/*"]
+      npm-non-major:
+        patterns:
+          - "*"
+        update-types:
+          - patch
+          - minor
+      npm-major:
+        patterns:
+          - "*"
+        update-types:
+          - major
+    ignore:
+      # typescript-eslint's peer dependency takes typescript <6.1.0: any newer
+      # one, minor included, fails npm ci on ERESOLVE. Lift this (and
+      # conform's typescriptCap) once typescript-eslint supports newer TS.
+      - dependency-name: "typescript"
+        versions: [">=6.1.0"]
 
-  # GitHub Actions
-  - package-ecosystem: github-actions
-    directory: /
-    schedule:
-      interval: weekly
-    groups:
-      actions:
-        patterns: ["*"]
-
-  # Container base image (backend/Containerfile).
+  # Base images in the Containerfile.
   - package-ecosystem: docker
     directory: /backend
+    commit-message: { prefix: deps }   # Go style: "deps: bump …"
     schedule:
       interval: weekly
+      day: sunday
+      time: "07:00"
+      timezone: Europe/Zurich
+    open-pull-requests-limit: 5
     groups:
-      docker:
-        patterns: ["*"]
+      docker-non-major:
+        patterns:
+          - "*"
+        update-types:
+          - patch
+          - minor
+      docker-major:
+        patterns:
+          - "*"
+        update-types:
+          - major
+
+  - package-ecosystem: github-actions
+    directory: /
+    commit-message: { prefix: deps }   # Go style: "deps: bump …"
+    schedule:
+      interval: weekly
+      day: sunday
+      time: "07:00"
+      timezone: Europe/Zurich
+    open-pull-requests-limit: 5
+    groups:
+      actions-non-major:
+        patterns:
+          - "*"
+        update-types:
+          - patch
+          - minor
+      actions-major:
+        patterns:
+          - "*"
+        update-types:
+          - major

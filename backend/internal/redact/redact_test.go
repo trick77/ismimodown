@@ -11,7 +11,7 @@ import (
 // echoed it back in. bearerRe only fires on the literal word "Bearer"; these are
 // the shapes that get past it.
 func TestKeyIsStrippedWhateverTheHeaderIsCalled(t *testing.T) {
-	const key = "tp-livebillablekey000000000000000"
+	const key = "tp-livebillablekey000000000000000" // ship:allow-secret: a fake key
 	for _, in := range []string{
 		"authorization: Bearer " + key,
 		"x-api-key: " + key,
@@ -59,7 +59,7 @@ func TestQueryStringAndUserinfoAreStripped(t *testing.T) {
 // Err works on the rendered message, so wrapping depth cannot hide a credential
 // from it.
 func TestErrRedactsThroughWrapping(t *testing.T) {
-	inner := errors.New("Bearer tp-livebillablekey000000000000000")
+	inner := errors.New("Bearer tp-livebillablekey000000000000000") // ship:allow-secret: a fake key
 	wrapped := fmt.Errorf("probe failed: %w", inner)
 
 	got := Err(wrapped).Error()
