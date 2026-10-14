@@ -2,12 +2,9 @@
 visibility: public
 go:
   dir: backend
-  # Attributes coverage across package boundaries (the httpapi tests drive store).
-  coverpkg: ./...
 ui:
   # Reporters from ui/vite.config.ts (lcov into ../coverage/ui), not overridden on the command line.
   test: npm run test -- --coverage
-  lcov: coverage/ui/lcov.info
   # ship empties it but for .gitkeep before ui.build; vite writes there with emptyOutDir off.
   embed: backend/web/dist
 images:
