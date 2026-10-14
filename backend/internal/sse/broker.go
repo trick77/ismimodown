@@ -47,7 +47,7 @@ func New() *Broker {
 }
 
 // Subscribe registers a listener from key, which identifies the caller —
-// ratelimit.ClientIP, so an IPv4 address or an IPv6 /64.
+// httpapi's clientKey, so an IPv4 address or an IPv6 /64.
 //
 // The second return is false when either the global cap or the per-caller cap
 // is reached; the caller must then answer 503 rather than holding a connection

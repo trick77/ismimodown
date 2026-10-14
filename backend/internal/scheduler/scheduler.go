@@ -15,6 +15,7 @@ import (
 	"github.com/trick77/ismimodown/internal/redact"
 	"github.com/trick77/ismimodown/internal/samples"
 	"github.com/trick77/ismimodown/internal/sched"
+	"github.com/trick77/ship/kit/run"
 )
 
 // CycleInterval is the base cadence. Everything in a cycle happens on the same
@@ -116,10 +117,10 @@ type Deps struct {
 	Rand func() float64
 
 	// Wait is the sleep seam, and it exists for DispatchGap. Defaults to
-	// sched.Sleep, which is what production uses; a test that drove a dozen
+	// run.Sleep, which is what production uses; a test that drove a dozen
 	// cycles through the real one would spend DispatchGap per probe in wall
 	// time for a gap it is not the subject of. Returns false when ctx was
-	// cancelled first, exactly like sched.Sleep.
+	// cancelled first, exactly like run.Sleep.
 	Wait func(ctx context.Context, d time.Duration) bool
 }
 
@@ -179,7 +180,7 @@ func New(deps Deps) *Scheduler {
 		deps.Rand = sched.PseudoRand()
 	}
 	if deps.Wait == nil {
-		deps.Wait = sched.Sleep
+		deps.Wait = run.Sleep
 	}
 	return &Scheduler{
 		deps: deps,
@@ -203,7 +204,7 @@ func (s *Scheduler) Run(ctx context.Context) {
 		d, missed := s.nextDelay()
 		s.logMissedTicks(missed)
 
-		if !sched.Sleep(ctx, d) {
+		if !run.Sleep(ctx, d) {
 			slog.Info("scheduler stopping")
 			return
 		}

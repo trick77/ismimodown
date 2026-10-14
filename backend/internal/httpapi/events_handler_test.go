@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/trick77/ismimodown/internal/ratelimit"
 	"github.com/trick77/ismimodown/internal/samples"
 	"github.com/trick77/ismimodown/internal/sse"
+	"github.com/trick77/ship/kit/ratelimit"
 )
 
 // The stream is the reason the dashboard updates without polling, so it has to
@@ -146,7 +146,7 @@ func TestEventsIsNotSubjectToTheRequestRateLimiter(t *testing.T) {
 }
 
 func newExhaustedLimiter() *ratelimit.Limiter {
-	l := ratelimit.New(0.00001, 1)
+	l := ratelimit.New(ratelimit.Options{Rate: 0.00001, Burst: 1})
 	l.Allow("192.0.2.1") // burn the only token for the test's client
 	return l
 }
@@ -232,9 +232,9 @@ func TestEventsWorksWithoutAShutdownChannel(t *testing.T) {
 }
 
 // The per-client stream cap is only a bound if the handler actually tells the
-// broker WHO is asking. Keyed on the same ClientIP the request limiter uses, so
-// the two agree on identity behind Traefik.
-func TestEventsSubscribesWithTheClientIP(t *testing.T) {
+// broker WHO is asking. Keyed on the same clientKey the request limiter uses,
+// so the two agree on identity behind Traefik.
+func TestEventsSubscribesWithTheClientKey(t *testing.T) {
 	db := openTestDB(t)
 	fake := &keyRecordingBroker{}
 	h := NewServer(Deps{DB: db, Samples: samples.New(db), Broker: fake})
