@@ -83,7 +83,7 @@ func TestHealthzIsNotLogged(t *testing.T) {
 	// normally while bypassing the logging wrapper.
 	srv := New(Deps{DB: openTestDB(t)})
 	rec := httptest.NewRecorder()
-	srv.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	srv.ServeHTTP(rec, localRequest(http.MethodGet, "/healthz"))
 
 	if rec.Code != http.StatusOK {
 		t.Errorf("status = %d, want 200", rec.Code)
@@ -111,7 +111,7 @@ func TestSecurityHeadersAreOnEveryResponse(t *testing.T) {
 
 	for _, path := range []string{"/healthz", "/api/dashboard?window=24h", "/api/nope", "/does-not-exist"} {
 		rec := httptest.NewRecorder()
-		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+		h.ServeHTTP(rec, localRequest(http.MethodGet, path))
 
 		for name, value := range want {
 			if got := rec.Header().Get(name); got != value {
@@ -149,7 +149,7 @@ func TestNoThirdPartyOriginsInThePolicy(t *testing.T) {
 	h := NewServer(Deps{DB: db, Samples: samples.New(db)})
 
 	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	h.ServeHTTP(rec, localRequest(http.MethodGet, "/healthz"))
 	csp := rec.Header().Get("Content-Security-Policy")
 
 	// "https://" and "http://" both, so a plaintext origin is not the way in.
@@ -205,7 +205,7 @@ func TestOnlyTheOgCardIsCrossOrigin(t *testing.T) {
 		"/og.png/x", "/x/og.png",
 	} {
 		rec := httptest.NewRecorder()
-		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+		h.ServeHTTP(rec, localRequest(http.MethodGet, path))
 
 		if got := rec.Header().Get("Cross-Origin-Resource-Policy"); got != "same-origin" {
 			t.Errorf("%s: CORP = %q, want same-origin", path, got)
@@ -221,7 +221,7 @@ func TestNoHSTSFromTheApplication(t *testing.T) {
 	h := NewServer(Deps{DB: db, Samples: samples.New(db)})
 
 	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	h.ServeHTTP(rec, localRequest(http.MethodGet, "/healthz"))
 
 	if got := rec.Header().Get("Strict-Transport-Security"); got != "" {
 		t.Errorf("Strict-Transport-Security = %q; it belongs on the TLS edge", got)
@@ -510,17 +510,19 @@ func TestImageExtensionMustBeTheLastSegment(t *testing.T) {
 }
 
 // A health probe that fails because someone else scanned the box restarts a
-// healthy container.
+// healthy container. Kit's probes answer loopback only, so the throttled caller
+// is loopback itself: the healthcheck shares its key with anything else in the
+// container.
 func TestReadyzIsNeverThrottled(t *testing.T) {
 	h := scannerServer(t)
 
 	for i := 0; i < 6; i++ {
-		getFrom(t, h, "/.env", "9.9.9.9")
+		getFrom(t, h, "/.env", "127.0.0.1")
 	}
-	if code := getFrom(t, h, "/", "9.9.9.9").Code; code != http.StatusTooManyRequests {
+	if code := getFrom(t, h, "/", "127.0.0.1").Code; code != http.StatusTooManyRequests {
 		t.Fatalf("caller = %d, want 429; the test needs a throttled caller", code)
 	}
-	if code := getFrom(t, h, "/readyz", "9.9.9.9").Code; code != http.StatusOK {
+	if code := getFrom(t, h, "/readyz", "127.0.0.1").Code; code != http.StatusOK {
 		t.Errorf("/readyz = %d, want 200 even for a throttled caller", code)
 	}
 }
