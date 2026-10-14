@@ -28,7 +28,7 @@ Latency monitor for MiMo. Go backend + React dashboard, public read-only. Ration
 
 ## Backend
 
-Plumbing is kit; own code only where kit lacks it (limiters, `banGate`, CORP, Permissions-Policy). `slog`, `err` key. Eight `BACKEND_*` env vars, that is the surface; probe shape is constants in `config.go`, no env var. SQLite pure-Go `ncruces/go-sqlite3`, `CGO_ENABLED=0`, WAL, STRICT, no dependabot ignore.
+Plumbing is kit; own code only where kit lacks it (404 rules, `banGate`, CORP). `slog`, `err` key. Eight `BACKEND_*` env vars, that is the surface; probe shape is constants in `config.go`, no env var. SQLite pure-Go `ncruces/go-sqlite3`, `CGO_ENABLED=0`, WAL, STRICT, no dependabot ignore.
 
 Cycle builds the dashboard, never a request: `OnCycle` runs `Server.Warm` (all windows, in place) BEFORE `broker.Publish`. Invalidate-then-notify measured 19 s per request at five concurrent cold misses. Misses single-flighted, one build slot (`cpus: "1.0"`), TTL a two-cycle valve. Never shorten it, never add a slot.
 
