@@ -27,11 +27,19 @@ func openTestDB(t *testing.T) *sql.DB {
 	return db
 }
 
+// localRequest is a request from loopback, the container healthcheck's
+// vantage: kit's probes answer a direct local caller only and 404 anyone else.
+func localRequest(method, target string) *http.Request {
+	req := httptest.NewRequest(method, target, nil)
+	req.RemoteAddr = "127.0.0.1:40000"
+	return req
+}
+
 func TestReadyzReportsOK(t *testing.T) {
 	srv := New(Deps{DB: openTestDB(t)})
 
 	rec := httptest.NewRecorder()
-	srv.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+	srv.ServeHTTP(rec, localRequest(http.MethodGet, "/readyz"))
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body.String())
@@ -53,7 +61,7 @@ func TestReadyzFailsWhenDatabaseIsGone(t *testing.T) {
 
 	srv := New(Deps{DB: db})
 	rec := httptest.NewRecorder()
-	srv.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+	srv.ServeHTTP(rec, localRequest(http.MethodGet, "/readyz"))
 
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("status = %d, want 503", rec.Code)
@@ -68,7 +76,7 @@ func TestHealthzIsLivenessOnly(t *testing.T) {
 
 	srv := New(Deps{DB: db})
 	rec := httptest.NewRecorder()
-	srv.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	srv.ServeHTTP(rec, localRequest(http.MethodGet, "/healthz"))
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", rec.Code)
@@ -79,7 +87,7 @@ func TestHealthzRejectsNonGET(t *testing.T) {
 	srv := New(Deps{DB: openTestDB(t)})
 
 	rec := httptest.NewRecorder()
-	srv.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/healthz", nil))
+	srv.ServeHTTP(rec, localRequest(http.MethodPost, "/healthz"))
 
 	if rec.Code != http.StatusMethodNotAllowed {
 		t.Errorf("status = %d, want 405", rec.Code)

@@ -129,12 +129,13 @@ func TestLogRecordsThePathWithoutTheQueryString(t *testing.T) {
 }
 
 // The healthcheck hits /readyz every 60s. Logging it would bury the requests
-// that matter — and would record the orchestrator as a visitor.
+// that matter — and would record the orchestrator as a visitor. It probes over
+// loopback, the only caller kit's probes answer.
 func TestReadyzLogsNothingAtAll(t *testing.T) {
 	buf := captureLogs(t)
 	h, _ := newAPIServer(t)
 	req := httptest.NewRequest(http.MethodGet, "/readyz", nil)
-	req.RemoteAddr = "203.0.113.7:51234"
+	req.RemoteAddr = "127.0.0.1:51234"
 	h.ServeHTTP(httptest.NewRecorder(), req)
 
 	if lines := logLines(t, buf); len(lines) != 0 {

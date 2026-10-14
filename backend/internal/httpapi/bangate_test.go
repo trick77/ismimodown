@@ -137,15 +137,17 @@ func TestNormalTrafficIsNeverBanned(t *testing.T) {
 }
 
 // A health probe that fails because someone else scanned the box restarts a
-// healthy container. Same reasoning as the 404 penalty's exemption.
+// healthy container. Same reasoning as the 404 penalty's exemption. Kit's
+// probes answer loopback only, so the banned caller is loopback itself: the
+// healthcheck shares its key with anything else in the container.
 func TestReadyzIsNeverBanned(t *testing.T) {
 	h := bannedServer(t)
 
-	getFrom(t, h, "/wp-login.php", "9.9.9.9")
-	if code := getFrom(t, h, "/", "9.9.9.9").Code; code != http.StatusForbidden {
+	getFrom(t, h, "/wp-login.php", "127.0.0.1")
+	if code := getFrom(t, h, "/", "127.0.0.1").Code; code != http.StatusForbidden {
 		t.Fatalf("caller = %d, want 403; the test needs a banned caller", code)
 	}
-	if code := getFrom(t, h, "/readyz", "9.9.9.9").Code; code != http.StatusOK {
+	if code := getFrom(t, h, "/readyz", "127.0.0.1").Code; code != http.StatusOK {
 		t.Errorf("/readyz = %d, want 200 even for a banned caller", code)
 	}
 }

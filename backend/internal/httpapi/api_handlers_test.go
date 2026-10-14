@@ -361,7 +361,7 @@ func TestReadyzIsNotRateLimited(t *testing.T) {
 	})
 
 	for i := 0; i < 20; i++ {
-		if rec := get(t, h, "/readyz"); rec.Code != http.StatusOK {
+		if rec := getFrom(t, h, "/readyz", "127.0.0.1"); rec.Code != http.StatusOK {
 			t.Fatalf("readyz returned %d on request %d; it must never be throttled", rec.Code, i)
 		}
 	}
