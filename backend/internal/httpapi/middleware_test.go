@@ -42,40 +42,6 @@ func TestFlushReachesThroughTheChain(t *testing.T) {
 	}
 }
 
-// http.ResponseController walks Unwrap; without it, deadline control and other
-// controller operations fail on any wrapped writer.
-func TestStatusRecorderUnwraps(t *testing.T) {
-	inner := httptest.NewRecorder()
-	rec := &statusRecorder{ResponseWriter: inner}
-
-	if got := rec.Unwrap(); got != http.ResponseWriter(inner) {
-		t.Error("Unwrap must return the underlying writer")
-	}
-}
-
-// A handler that writes without calling WriteHeader still produced a 200, and
-// the log line must say 200 rather than 0.
-func TestStatusRecorderDefaultsToOKOnBareWrite(t *testing.T) {
-	rec := &statusRecorder{ResponseWriter: httptest.NewRecorder()}
-
-	if _, err := rec.Write([]byte("x")); err != nil {
-		t.Fatalf("Write: %v", err)
-	}
-	if rec.status != http.StatusOK {
-		t.Errorf("status = %d, want 200 inferred from a bare Write", rec.status)
-	}
-}
-
-func TestStatusRecorderCapturesExplicitStatus(t *testing.T) {
-	rec := &statusRecorder{ResponseWriter: httptest.NewRecorder()}
-
-	rec.WriteHeader(http.StatusTeapot)
-
-	if rec.status != http.StatusTeapot {
-		t.Errorf("status = %d, want %d", rec.status, http.StatusTeapot)
-	}
-}
-
 // /healthz is hit by the container healthcheck every 60s and would otherwise be
 // most of the log volume on an idle server, drowning the requests that matter.
 func TestHealthzIsNotLogged(t *testing.T) {

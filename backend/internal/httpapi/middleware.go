@@ -138,38 +138,6 @@ func corpFor(p string) string {
 	return "same-origin"
 }
 
-// statusRecorder wraps http.ResponseWriter to capture the response status code.
-type statusRecorder struct {
-	http.ResponseWriter
-	status int
-}
-
-func (rec *statusRecorder) WriteHeader(code int) {
-	rec.status = code
-	rec.ResponseWriter.WriteHeader(code)
-}
-
-func (rec *statusRecorder) Write(b []byte) (int, error) {
-	if rec.status == 0 {
-		rec.status = http.StatusOK
-	}
-	return rec.ResponseWriter.Write(b)
-}
-
-// Flush forwards flushes so the /api/events SSE handler keeps working through
-// the wrapper — without it every pushed cycle would sit in the buffer and the
-// dashboard would only update on reload.
-func (rec *statusRecorder) Flush() {
-	if f, ok := rec.ResponseWriter.(http.Flusher); ok {
-		f.Flush()
-	}
-}
-
-// Unwrap exposes the underlying writer for http.ResponseController.
-func (rec *statusRecorder) Unwrap() http.ResponseWriter {
-	return rec.ResponseWriter
-}
-
 // notFoundPenalty throttles a caller by the 404s it causes rather than by the
 // requests it makes.
 //
@@ -234,9 +202,11 @@ func notFoundPenalty(l *ratelimit.Limiter, next http.Handler) http.Handler {
 			writeTooManyRequests(w, r, l.RetryAfter(key))
 			return
 		}
-		rec := &statusRecorder{ResponseWriter: w}
+		// kit's status writer flushes through, so the /api/events SSE handler
+		// keeps streaming behind it.
+		rec := httpx.NewStatusWriter(w)
 		next.ServeHTTP(rec, r)
-		if rec.status == http.StatusNotFound && !isUncounted404(r.URL.Path) {
+		if rec.Status() == http.StatusNotFound && !isUncounted404(r.URL.Path) {
 			l.Charge(key, 1)
 		}
 	})
