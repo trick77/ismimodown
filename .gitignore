@@ -1,8 +1,5 @@
 bin/
 node_modules
-coverage/
-# tsc -b build-mode stamp file, written by the UI typecheck.
-ui/tsconfig.tsbuildinfo
 .env
 # Any .env variant — backups, per-host copies, editor swap files. A bare `.env`
 # rule leaves `.env.bak`/`.env.local` untracked-but-committable, which is how
@@ -12,8 +9,6 @@ ui/tsconfig.tsbuildinfo
 .env.*
 !.env.example
 /data/
-backend/web/dist/*
-!backend/web/dist/.gitkeep
 
 # Verification screenshots land at the repo root during UI work. They are
 # throwaway evidence, not artifacts, and the repo is public.
@@ -26,3 +21,13 @@ backend/web/dist/*
 .claude/
 
 .agents/
+
+# ship:begin (owned by ship init; the repo's own lines go above the begin marker)
+# What the gate and the UI build write into the tree.
+coverage/ui/
+ui/node_modules/
+ui/*.tsbuildinfo
+# The UI build the Go binary embeds; .gitkeep stays tracked so go:embed's dir exists in a fresh clone.
+backend/web/dist/*
+!backend/web/dist/.gitkeep
+# ship:end
