@@ -4,7 +4,7 @@ go 1.27.2
 
 require (
 	github.com/ncruces/go-sqlite3 v0.35.6
-	github.com/trick77/ship/kit v0.13.1
+	github.com/trick77/ship/kit v0.16.0
 )
 
 require (
