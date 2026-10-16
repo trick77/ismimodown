@@ -122,7 +122,9 @@ func TestNilStaticHandler404s(t *testing.T) {
 }
 
 func TestRecoveryTurnsPanicIntoA500(t *testing.T) {
-	boom := http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+	// The handler's own header must not reach the 500; securityHeaders' must.
+	boom := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Cross-Origin-Resource-Policy", "cross-origin")
 		panic("boom")
 	})
 	srv := New(Deps{DB: openTestDB(t), Static: boom})
@@ -132,6 +134,16 @@ func TestRecoveryTurnsPanicIntoA500(t *testing.T) {
 
 	if rec.Code != http.StatusInternalServerError {
 		t.Errorf("status = %d, want 500", rec.Code)
+	}
+	// Recover restores the header it saw on entry: securityHeaders must run
+	// before it for the 500 to carry them.
+	if got := rec.Header().Get("Cross-Origin-Resource-Policy"); got != "same-origin" {
+		t.Errorf("Cross-Origin-Resource-Policy = %q on the 500, want same-origin", got)
+	}
+	for _, h := range []string{"Content-Security-Policy", "X-Frame-Options", "X-Content-Type-Options"} {
+		if rec.Header().Get(h) == "" {
+			t.Errorf("no %s on the 500", h)
+		}
 	}
 }
 
