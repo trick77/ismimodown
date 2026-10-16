@@ -138,24 +138,27 @@ func NewServer(deps Deps) *Server {
 	// panic was logged as the 200 nothing had written yet. Inside, the line
 	// carries the 500 Recover writes.
 	//
-	// securityHeaders inside Recover but outside the mux, so the headers are on
-	// EVERY response — the SPA, the JSON API, a 404, a 429 from the limiter and
-	// the 500 that Recover writes alike. Placed outermost-but-one it would
-	// miss nothing; placed inside the mux it would miss the limiter's rejection.
+	// securityHeaders outside Recover and the mux, so the headers are on EVERY
+	// response — the SPA, the JSON API, a 404, a 429 from the limiter and the
+	// 500 that Recover writes alike. Inside Recover the 500 would lose them:
+	// Recover restores the header it saw on entry (kit v0.13.0 on). Inside the
+	// mux they would miss the limiter's rejection. Any middleware that sets a
+	// header the 500 must carry goes outside Recover too; anything that can
+	// panic goes inside it.
 	//
-	// notFoundPenalty innermost of the three, wrapping the mux: it must see the
+	// notFoundPenalty innermost, wrapping the mux: it must see the
 	// status the mux produced — a 404 from the SPA handler or from an unmatched
 	// /api path alike — and its own 429 must still be logged and still carry the
 	// security headers.
 	//
-	// banGate between securityHeaders and notFoundPenalty. Inside the access log, so
+	// banGate inside Recover, outside notFoundPenalty. Inside the access log, so
 	// every ban and every blocked request is on the record; outside
 	// notFoundPenalty, so a banned caller neither spends the 404 budget nor
 	// reaches the mux — including on /api/events, which is registered on the
 	// outer mux and so bypasses the request limiter entirely.
 	return &Server{
 		Handler: httpx.Chain(banGate(s.deps.Ban, notFoundPenalty(s.deps.NotFoundLimiter, s.mux)),
-			accessLog(), httpx.Recover(nil), securityHeaders),
+			accessLog(), securityHeaders, httpx.Recover(nil)),
 		cache: s.cache,
 		inner: s,
 	}
