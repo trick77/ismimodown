@@ -9,12 +9,11 @@
 ui/node_modules
 ui/dist
 ui/coverage
+# The host's UI build in the Go tree: the image builds dist in its own stage, a stale one must not come in with the
+# context.
+backend/web/dist
 # ship:end
 
-# A host build of the embedded bundle stays out: the image builds its own, and
-# COPY --from=ui merges over this directory rather than replacing it, so stale
-# hashed files from the host would ship beside the real ones.
-backend/web/dist
 # Never. The MiMo token-plan key is a live billable credential.
 **/.env
 **/.env.*
