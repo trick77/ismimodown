@@ -187,8 +187,10 @@ func daemon() error {
 	// never from a build of their own.
 	go warmCache(ctx, apiServer)
 
-	// No WriteTimeout (kit sets none): /api/events is a long-lived SSE stream
-	// and any write deadline would sever it mid-connection.
+	// No server WriteTimeout (kit sets none): /api/events is a long-lived SSE
+	// stream and a whole-response deadline would sever it mid-connection.
+	// kit's sse.Writer bounds each write instead (10 s per frame), so a reader
+	// that stops draining is still cut off.
 	srv := httpx.NewServer(cfg.Addr, apiServer)
 	// End the streams the moment Shutdown starts, BEFORE it waits on them:
 	// Shutdown never cancels a request's context, so an open dashboard would
