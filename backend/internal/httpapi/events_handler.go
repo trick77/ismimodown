@@ -17,6 +17,20 @@ import (
 // by EventSource and by a fetch-based reader alike.
 const sseHeartbeat = 25 * time.Second
 
+// HubOptions are the caps of the /api/events hub.
+//
+// Each stream is held open for hours, outside any request rate limit, so the
+// caps are the only bound there is. 100 bounds the process; 4 bounds one
+// caller (clientKey), or a single scraper takes every slot from one address
+// and hands the 503 to everyone else. Four rather than one: a reader may
+// have several tabs open, a reload briefly overlaps the stream it replaces,
+// and households and offices share one egress address. A one-deep buffer:
+// the payload is a cycle notification, and a reader that has not drained the
+// last one gains nothing from a queue of stale ones.
+func HubOptions() sse.HubOptions {
+	return sse.HubOptions{Buffer: 1, Max: 100, MaxPerKey: 4}
+}
+
 // handleEvents streams completed cycles.
 //
 // fetch + ReadableStream on the client rather than EventSource, which is why

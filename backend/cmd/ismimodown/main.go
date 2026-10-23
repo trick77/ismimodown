@@ -102,15 +102,7 @@ func daemon() error {
 	}
 
 	sampleStore := samples.New(db)
-	// Each stream is held open for hours, outside any request rate limit, so the
-	// caps are the only bound there is. 100 bounds the process; 4 bounds one
-	// caller (clientKey), or a single scraper takes every slot from one address
-	// and hands the 503 to everyone else. Four rather than one: a reader may
-	// have several tabs open, a reload briefly overlaps the stream it replaces,
-	// and households and offices share one egress address. A one-deep buffer:
-	// the payload is a cycle notification, and a reader that has not drained the
-	// last one gains nothing from a queue of stale ones.
-	broker := sse.NewHub[[]byte](sse.HubOptions{Buffer: 1, Max: 100, MaxPerKey: 4})
+	broker := sse.NewHub[[]byte](httpapi.HubOptions())
 	// 2 requests/second sustained, 20 in a burst: generous for a browser
 	// loading a dashboard (a handful of parallel fetches), tight enough that a
 	// scraper cannot pin the process.

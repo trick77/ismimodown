@@ -249,7 +249,9 @@ const testHubMax = 8
 
 // newTestHub is the daemon's hub shape with a smaller global cap.
 func newTestHub() *sse.Hub[[]byte] {
-	return sse.NewHub[[]byte](sse.HubOptions{Buffer: 1, Max: testHubMax, MaxPerKey: 4})
+	o := HubOptions()
+	o.Max = testHubMax
+	return sse.NewHub[[]byte](o)
 }
 
 // A writer that cannot flush would leave every event in the buffer: refuse
