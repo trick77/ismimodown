@@ -19,7 +19,6 @@ import (
 	"github.com/trick77/ismimodown/internal/retention"
 	"github.com/trick77/ismimodown/internal/samples"
 	"github.com/trick77/ismimodown/internal/scheduler"
-	"github.com/trick77/ismimodown/internal/sse"
 	"github.com/trick77/ismimodown/internal/store"
 	"github.com/trick77/ismimodown/web"
 	"github.com/trick77/ship/kit/env"
@@ -27,6 +26,7 @@ import (
 	"github.com/trick77/ship/kit/logging"
 	"github.com/trick77/ship/kit/ratelimit"
 	"github.com/trick77/ship/kit/run"
+	"github.com/trick77/ship/kit/sse"
 	"github.com/trick77/ship/kit/version"
 )
 
@@ -102,7 +102,7 @@ func daemon() error {
 	}
 
 	sampleStore := samples.New(db)
-	broker := sse.New()
+	broker := sse.NewHub[[]byte](httpapi.HubOptions())
 	// 2 requests/second sustained, 20 in a burst: generous for a browser
 	// loading a dashboard (a handful of parallel fetches), tight enough that a
 	// scraper cannot pin the process.
@@ -127,10 +127,6 @@ func daemon() error {
 	// few dozen such requests a day.
 	banStore := ban.New(48*time.Hour, 10_000)
 
-	// Closed when shutdown begins, so long-lived SSE handlers return instead of
-	// holding http.Server.Shutdown open until its timeout expires.
-	shutdownCh := make(chan struct{})
-
 	ctx, stop := run.Context(context.Background())
 	defer stop()
 
@@ -142,7 +138,6 @@ func daemon() error {
 		Limiter:         limiter,
 		NotFoundLimiter: notFoundLimiter,
 		Ban:             banStore,
-		Shutdown:        shutdownCh,
 		Models:          cfg.Models,
 		Prices:          cfg.Prices,
 		ProbeUserAgent:  cfg.ProbeUserAgent,
@@ -192,12 +187,17 @@ func daemon() error {
 	// never from a build of their own.
 	go warmCache(ctx, apiServer)
 
-	// No WriteTimeout (kit sets none): /api/events is a long-lived SSE stream
-	// and any write deadline would sever it mid-connection.
+	// No server WriteTimeout (kit sets none): /api/events is a long-lived SSE
+	// stream and a whole-response deadline would sever it mid-connection.
+	// kit's sse.Writer bounds each write instead (10 s per frame), so a reader
+	// that stops draining is still cut off.
 	srv := httpx.NewServer(cfg.Addr, apiServer)
-	// Signal the streams the moment Shutdown starts, BEFORE it waits on them;
-	// ordinary requests are left to drain normally.
-	srv.RegisterOnShutdown(func() { close(shutdownCh) })
+	// End the streams the moment Shutdown starts, BEFORE it waits on them:
+	// Shutdown never cancels a request's context, so an open dashboard would
+	// hold it until the drain timeout. BaseContext would cancel every in-flight
+	// request instead, failing a mid-flight /api/dashboard on a graceful
+	// restart; closing the hub ends only the streams and lets the rest drain.
+	srv.RegisterOnShutdown(broker.Close)
 
 	// The probe loop and the sweeper share the signal context, so SIGTERM stops
 	// them at the same moment it stops accepting requests. Waited on below via

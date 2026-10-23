@@ -34,7 +34,7 @@ import (
 // offpeak_active/offpeak_until, which flip at most one cycle late once a day.
 const cacheTTL = 2 * scheduler.CycleInterval
 
-// Broker is the SSE fan-out seam. *sse.Broker satisfies it.
+// Broker is the SSE fan-out seam. kit's *sse.Hub[[]byte] satisfies it.
 //
 // Subscribe takes the caller's identity (the client IP) because the stream is
 // capped per caller as well as globally: without the key, one scraper takes
@@ -71,21 +71,6 @@ type Deps struct {
 	// long as the store's TTL — see banGate. Optional: nil means no such
 	// caller is ever blocked, only metered by NotFoundLimiter.
 	Ban *ban.Store
-	// Shutdown is closed when the process begins shutting down. Only the SSE
-	// handler watches it, and that is the point.
-	//
-	// http.Server.Shutdown waits for active connections but never cancels their
-	// request contexts, so an /api/events handler blocked on r.Context() keeps a
-	// connection alive until the shutdown timeout expires — one open dashboard
-	// turns every restart into a 15s hang and a non-zero exit.
-	//
-	// The obvious fix is srv.BaseContext returning the signal context, but that
-	// cancels EVERY in-flight request: a mid-flight /api/dashboard loses its DB
-	// query and returns 500 on what should be a graceful restart. Signalling
-	// only the long-lived stream fixes the hang, lets ordinary requests drain,
-	// and — unlike BaseContext, which can only live in main() — sits where it
-	// can be tested.
-	Shutdown <-chan struct{}
 
 	// The configured model set. Every /api route that serves per-model data
 	// answers from this rather than from whatever ids happen to be in the
@@ -201,7 +186,7 @@ func (s *server) routes() {
 
 	// The event stream sits OUTSIDE the request rate limiter: it is one request
 	// that lasts hours, so a per-request token bucket says nothing useful about
-	// it. Its bound is the subscriber cap in the broker instead.
+	// it. Its bound is the subscriber cap in the hub instead.
 	s.mux.HandleFunc("GET /api/events", s.handleEvents)
 
 	if s.deps.Static != nil {

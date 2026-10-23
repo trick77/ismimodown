@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -180,6 +181,45 @@ func TestNetworkSeriesIsSeparateFromModels(t *testing.T) {
 // The failures block was the one shape that nearly crossed this line, and it
 // does not: it serves the error class and the HTTP status, both of which are
 // the daemon's own vocabulary, and leaves the upstream text where it was.
+// A failed build is a 500 with the fixed phrase. The cause goes to the log
+// only, redacted: a MiMo transport error carries the request URL, key and all.
+func TestFailedBuildKeepsTheCauseOutOfTheBodyAndRedactsTheLog(t *testing.T) {
+	buf := captureLogs(t)
+	s := &server{cache: newResponseCache(cacheTTL)}
+	cause := errors.New(`Get "https://token-plan-sgp.xiaomimimo.com/v1/models?key=tp-secret": timeout`)
+
+	rec := httptest.NewRecorder()
+	s.writeJSON(rec, httptest.NewRequest(http.MethodGet, "/api/dashboard", nil), "dashboard:24h",
+		func() (any, error) { return nil, cause })
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500", rec.Code)
+	}
+	body := rec.Body.String()
+	if strings.Contains(body, "xiaomimimo") || strings.Contains(body, "tp-secret") {
+		t.Errorf("response leaked the cause: %s", body)
+	}
+	if !strings.Contains(body, "could not build response") {
+		t.Errorf("response should carry the fixed phrase, got: %s", body)
+	}
+	var logged map[string]any
+	for _, entry := range allLogLines(t, buf) {
+		if entry["msg"] == "request failed" {
+			logged = entry
+		}
+	}
+	if logged == nil {
+		t.Fatalf("no request failed line logged: %s", buf.String())
+	}
+	errText, _ := logged["err"].(string)
+	if strings.Contains(errText, "tp-secret") {
+		t.Errorf("log kept the key: %s", errText)
+	}
+	if !strings.Contains(errText, "/v1/models") {
+		t.Errorf("redaction removed the useful diagnostic: %s", errText)
+	}
+}
+
 func TestNoPublicEndpointEmitsErrorDetail(t *testing.T) {
 	h, store := newAPIServer(t)
 
