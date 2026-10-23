@@ -2,11 +2,9 @@ package httpapi
 
 import (
 	"log/slog"
-	"math"
 	"net/http"
 	"path"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
@@ -396,14 +394,11 @@ func logBan(key, path, kind string, store *ban.Store) {
 // someone who kept knocking is told the length of the debt it dug. A constant
 // would be obeyed and answered with another 429.
 func writeTooManyRequests(w http.ResponseWriter, r *http.Request, retryAfter time.Duration) {
-	// Rounded UP, and never below one second, as kit's TooManyRequests: 179
-	// for a 179.5s block sends an obedient client back early into a second 429,
-	// and "Retry-After: 0" reads as "retry immediately".
 	if strings.HasPrefix(r.URL.Path, "/api/") {
 		httpx.TooManyRequests(w, retryAfter)
 		return
 	}
-	w.Header().Set("Retry-After", strconv.Itoa(max(int(math.Ceil(retryAfter.Seconds())), 1)))
+	httpx.SetRetryAfter(w, retryAfter)
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(http.StatusTooManyRequests)
 	_, _ = w.Write([]byte("too many requests\n"))

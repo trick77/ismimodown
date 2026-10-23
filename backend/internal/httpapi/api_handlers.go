@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/trick77/ismimodown/internal/redact"
 	"github.com/trick77/ismimodown/internal/samples"
 
 	"github.com/trick77/ship/kit/httpx"
@@ -38,7 +39,9 @@ func (s *server) writeJSON(w http.ResponseWriter, r *http.Request, cacheKey stri
 		body, err = render()
 	}
 	if err != nil {
-		serverError(w, r, err, "could not build response")
+		// The client gets the fixed phrase; the log gets the cause, redacted,
+		// since a provider error can carry a credential or a query string.
+		httpx.ServerError(w, r, redact.Err(err), "could not build response")
 		return
 	}
 	s.sendJSON(w, body)
