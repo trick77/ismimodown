@@ -19,7 +19,6 @@ import (
 	"github.com/trick77/ismimodown/internal/retention"
 	"github.com/trick77/ismimodown/internal/samples"
 	"github.com/trick77/ismimodown/internal/scheduler"
-	"github.com/trick77/ismimodown/internal/sse"
 	"github.com/trick77/ismimodown/internal/store"
 	"github.com/trick77/ismimodown/web"
 	"github.com/trick77/ship/kit/env"
@@ -27,6 +26,7 @@ import (
 	"github.com/trick77/ship/kit/logging"
 	"github.com/trick77/ship/kit/ratelimit"
 	"github.com/trick77/ship/kit/run"
+	"github.com/trick77/ship/kit/sse"
 	"github.com/trick77/ship/kit/version"
 )
 
@@ -102,7 +102,15 @@ func daemon() error {
 	}
 
 	sampleStore := samples.New(db)
-	broker := sse.New()
+	// Each stream is held open for hours, outside any request rate limit, so the
+	// caps are the only bound there is. 100 bounds the process; 4 bounds one
+	// caller (clientKey), or a single scraper takes every slot from one address
+	// and hands the 503 to everyone else. Four rather than one: a reader may
+	// have several tabs open, a reload briefly overlaps the stream it replaces,
+	// and households and offices share one egress address. A one-deep buffer:
+	// the payload is a cycle notification, and a reader that has not drained the
+	// last one gains nothing from a queue of stale ones.
+	broker := sse.NewHub[[]byte](sse.HubOptions{Buffer: 1, Max: 100, MaxPerKey: 4})
 	// 2 requests/second sustained, 20 in a burst: generous for a browser
 	// loading a dashboard (a handful of parallel fetches), tight enough that a
 	// scraper cannot pin the process.
@@ -127,10 +135,6 @@ func daemon() error {
 	// few dozen such requests a day.
 	banStore := ban.New(48*time.Hour, 10_000)
 
-	// Closed when shutdown begins, so long-lived SSE handlers return instead of
-	// holding http.Server.Shutdown open until its timeout expires.
-	shutdownCh := make(chan struct{})
-
 	ctx, stop := run.Context(context.Background())
 	defer stop()
 
@@ -142,7 +146,6 @@ func daemon() error {
 		Limiter:         limiter,
 		NotFoundLimiter: notFoundLimiter,
 		Ban:             banStore,
-		Shutdown:        shutdownCh,
 		Models:          cfg.Models,
 		Prices:          cfg.Prices,
 		ProbeUserAgent:  cfg.ProbeUserAgent,
@@ -195,9 +198,12 @@ func daemon() error {
 	// No WriteTimeout (kit sets none): /api/events is a long-lived SSE stream
 	// and any write deadline would sever it mid-connection.
 	srv := httpx.NewServer(cfg.Addr, apiServer)
-	// Signal the streams the moment Shutdown starts, BEFORE it waits on them;
-	// ordinary requests are left to drain normally.
-	srv.RegisterOnShutdown(func() { close(shutdownCh) })
+	// End the streams the moment Shutdown starts, BEFORE it waits on them:
+	// Shutdown never cancels a request's context, so an open dashboard would
+	// hold it until the drain timeout. BaseContext would cancel every in-flight
+	// request instead, failing a mid-flight /api/dashboard on a graceful
+	// restart; closing the hub ends only the streams and lets the rest drain.
+	srv.RegisterOnShutdown(broker.Close)
 
 	// The probe loop and the sweeper share the signal context, so SIGTERM stops
 	// them at the same moment it stops accepting requests. Waited on below via

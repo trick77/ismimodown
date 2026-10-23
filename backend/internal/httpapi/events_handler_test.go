@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"github.com/trick77/ismimodown/internal/samples"
-	"github.com/trick77/ismimodown/internal/sse"
 	"github.com/trick77/ship/kit/ratelimit"
+	"github.com/trick77/ship/kit/sse"
 )
 
 // The stream is the reason the dashboard updates without polling, so it has to
@@ -20,7 +20,7 @@ import (
 // would leave every event in the buffer.
 func TestEventsStreamsAPublishedCycle(t *testing.T) {
 	db := openTestDB(t)
-	broker := sse.New()
+	broker := newTestHub()
 	h := NewServer(Deps{
 		DB: db, Samples: samples.New(db), Broker: broker,
 		Models: []string{"mimo-v2.6-flash"},
@@ -49,7 +49,7 @@ func TestEventsStreamsAPublishedCycle(t *testing.T) {
 
 	// Wait until the handler has actually subscribed, then publish.
 	deadline := time.Now().Add(3 * time.Second)
-	for broker.Count() == 0 {
+	for broker.Len() == 0 {
 		if time.Now().After(deadline) {
 			t.Fatal("handler never subscribed")
 		}
@@ -78,7 +78,7 @@ func TestEventsStreamsAPublishedCycle(t *testing.T) {
 // never feed — a silent, permanently-idle stream is worse than a retryable 503.
 func TestEventsRefusesPastTheSubscriberCap(t *testing.T) {
 	db := openTestDB(t)
-	broker := sse.New()
+	broker := newTestHub()
 	h := NewServer(Deps{DB: db, Samples: samples.New(db), Broker: broker})
 
 	// Fill every slot directly.
@@ -90,7 +90,7 @@ func TestEventsRefusesPastTheSubscriberCap(t *testing.T) {
 	}()
 	// A distinct key per slot, so this fills the global cap rather than
 	// tripping the per-client one after four.
-	for i := 0; i < sse.MaxSubscribers; i++ {
+	for i := 0; i < testHubMax; i++ {
 		_, cancel, ok := broker.Subscribe(fmt.Sprintf("10.0.0.%d", i))
 		if !ok {
 			t.Fatalf("failed to fill slot %d", i)
@@ -128,7 +128,7 @@ func TestEventsWithoutABrokerIsUnavailable(t *testing.T) {
 // watching.
 func TestEventsIsNotSubjectToTheRequestRateLimiter(t *testing.T) {
 	db := openTestDB(t)
-	broker := sse.New()
+	broker := newTestHub()
 	h := NewServer(Deps{
 		DB: db, Samples: samples.New(db), Broker: broker,
 		Limiter: newExhaustedLimiter(),
@@ -161,17 +161,16 @@ func contextWithImmediateCancel() (context.Context, context.CancelFunc) {
 // active connections but never cancels their request contexts, so a handler
 // blocked on r.Context() alone would hold the connection until the shutdown
 // timeout expired — one open dashboard turning every restart into a hang and a
-// non-zero exit.
+// non-zero exit. The daemon mounts the hub's Close with RegisterOnShutdown, as
+// here.
 func TestEventsReturnsWhenShutdownIsSignalled(t *testing.T) {
 	db := openTestDB(t)
-	broker := sse.New()
-	shutdown := make(chan struct{})
-	h := NewServer(Deps{
-		DB: db, Samples: samples.New(db), Broker: broker, Shutdown: shutdown,
-	})
+	broker := newTestHub()
+	h := NewServer(Deps{DB: db, Samples: samples.New(db), Broker: broker})
 
 	srv := httptest.NewServer(h)
 	defer srv.Close()
+	srv.Config.RegisterOnShutdown(broker.Close)
 
 	resp, err := http.Get(srv.URL + "/api/events") //nolint:bodyclose // closed by the defer below
 	if err != nil {
@@ -181,16 +180,20 @@ func TestEventsReturnsWhenShutdownIsSignalled(t *testing.T) {
 
 	// Wait until the handler is actually subscribed and streaming.
 	deadline := time.Now().Add(3 * time.Second)
-	for broker.Count() == 0 {
+	for broker.Len() == 0 {
 		if time.Now().After(deadline) {
 			t.Fatal("handler never subscribed")
 		}
 		time.Sleep(2 * time.Millisecond)
 	}
 
-	close(shutdown)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	shutdownErr := make(chan error, 1)
+	go func() { shutdownErr <- srv.Config.Shutdown(ctx) }()
 
-	// The body must reach EOF quickly, without the client cancelling.
+	// The body must reach EOF quickly, without the client cancelling, and
+	// Shutdown must drain rather than run out its deadline.
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -206,28 +209,8 @@ func TestEventsReturnsWhenShutdownIsSignalled(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("stream did not close on shutdown; Shutdown would hang until its timeout")
 	}
-}
-
-// With no shutdown channel wired, the handler must still work — a nil channel
-// blocks forever in a select, which is the correct behaviour here.
-func TestEventsWorksWithoutAShutdownChannel(t *testing.T) {
-	db := openTestDB(t)
-	broker := sse.New()
-	h := NewServer(Deps{DB: db, Samples: samples.New(db), Broker: broker})
-
-	srv := httptest.NewServer(h)
-	defer srv.Close()
-
-	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/api/events", nil)
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	resp, err := http.DefaultClient.Do(req.WithContext(ctx))
-	if err != nil {
-		t.Fatalf("connect: %v", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("status = %d, want 200", resp.StatusCode)
+	if err := <-shutdownErr; err != nil {
+		t.Errorf("Shutdown = %v, want a clean drain", err)
 	}
 }
 
@@ -260,3 +243,40 @@ func (b *keyRecordingBroker) Subscribe(key string) (<-chan []byte, func(), bool)
 	ch := make(chan []byte)
 	return ch, func() {}, true
 }
+
+// testHubMax is the global cap of the test hub: small, so filling it is cheap.
+const testHubMax = 8
+
+// newTestHub is the daemon's hub shape with a smaller global cap.
+func newTestHub() *sse.Hub[[]byte] {
+	return sse.NewHub[[]byte](sse.HubOptions{Buffer: 1, Max: testHubMax, MaxPerKey: 4})
+}
+
+// A writer that cannot flush would leave every event in the buffer: refuse
+// with a 500 before the stream's 200 rather than open a stream that delivers
+// nothing. Called on the handler itself: the middleware's writers all flush,
+// passing the call down, so through the chain this writer would get its 200.
+func TestEventsRefusesAWriterThatCannotFlush(t *testing.T) {
+	db := openTestDB(t)
+	broker := newTestHub()
+	h := NewServer(Deps{DB: db, Samples: samples.New(db), Broker: broker})
+
+	w := &noFlushWriter{header: http.Header{}}
+	h.inner.handleEvents(w, httptest.NewRequest(http.MethodGet, "/api/events", nil))
+
+	if w.code != http.StatusInternalServerError {
+		t.Errorf("status = %d, want 500", w.code)
+	}
+	if broker.Len() != 0 {
+		t.Errorf("subscriptions = %d after the handler returned, want 0", broker.Len())
+	}
+}
+
+type noFlushWriter struct {
+	header http.Header
+	code   int
+}
+
+func (w *noFlushWriter) Header() http.Header         { return w.header }
+func (w *noFlushWriter) Write(b []byte) (int, error) { return len(b), nil }
+func (w *noFlushWriter) WriteHeader(code int)        { w.code = code }
