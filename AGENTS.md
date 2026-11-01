@@ -37,6 +37,7 @@ Limiters: request limiter guards `/api/*`. 404 limiter charges ONLY a 404 with a
 Tests: `openTestDB(t)` real file in `t.TempDir()`, never `:memory:`. No real API calls, ever. Gate is ship (`ship.yaml`): `make check` (floors/patch 75), `make hooks` per clone; no `.golangci.yaml`. `make test` / `make run` / `make dev`.
 
 - Commit subjects + PR titles: Go style `area: what` (`backend: …`, `ui: …`), gated by ship; release notes list them by area.
+- Fresh clone: `ship hooks` before the first push (check, conform and init install it too); without the pre-push hook a push skips the gate.
 - Release by hand: `gh workflow run Release -f bump=auto`. `backend/web/dist` holds only `.gitkeep` in git (vite `emptyOutDir: false`).
 
 ## Deploy & serving
