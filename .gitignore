@@ -22,6 +22,9 @@ node_modules
 
 .agents/
 
+# Pre-coverage/ui ship runs wrote reports to the root coverage/.
+/coverage/
+
 # ship:begin (owned by ship init; the repo's own lines go above the begin marker)
 # What the gate and the UI build write into the tree.
 coverage/ui/
