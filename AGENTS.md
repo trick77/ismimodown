@@ -1,10 +1,10 @@
 # AGENTS.md
 
-Latency monitor for MiMo. Go backend + React dashboard, public read-only. Rationale is in code comments; this is the rule list.
+Rationale is in code comments; this is the rule list.
 
 ## Secrets
 
-`BACKEND_MIMO_API_KEY` is live, billable, repo public: `.env` only, never `.env.example`, fixtures, commits, logs. `BACKEND_MIMO_BASE_URL` takes no userinfo/query (`config.Load` refuses); same for any new value a public endpoint echoes. `error_detail` is operator-only, never served (tested).
+`BACKEND_MIMO_API_KEY` is live, billable, repo public: `.env` only, never `.env.example`, fixtures, commits, logs. `BACKEND_MIMO_BASE_URL` takes no userinfo/query (`config.Load` refuses); same for any new value a public endpoint echoes. `error_detail` is operator-only, never served.
 
 ## Measurement invariants
 
@@ -28,31 +28,29 @@ Latency monitor for MiMo. Go backend + React dashboard, public read-only. Ration
 
 ## Backend
 
-Plumbing is kit; own code only where kit lacks it (404 rules, `banGate`, CORP). `slog`, `err` key. Eight `BACKEND_*` env vars, that is the surface; probe shape is constants in `config.go`, no env var. SQLite pure-Go `ncruces/go-sqlite3`, `CGO_ENABLED=0`, WAL, STRICT, no dependabot ignore.
+Plumbing is kit; own code only where kit lacks it (404 rules, `banGate`, CORP). The `BACKEND_*` env vars in `config.go` are the whole surface; probe shape stays constants, no env var. No dependabot ignore for the SQLite driver.
 
 Cycle builds the dashboard, never a request: `OnCycle` runs `Server.Warm` (all windows, in place) BEFORE `broker.Publish`. Invalidate-then-notify measured 19 s per request at five concurrent cold misses. Misses single-flighted, one build slot (`cpus: "1.0"`), TTL a two-cycle valve. Never shorten it, never add a slot.
 
-Limiters: request limiter guards `/api/*`. 404 limiter charges ONLY a 404 with a non-image extension (`isUncounted404`): never 4xx at large, 200s, image misses, `/.well-known`, extensionless. `banGate` is not a limiter: exploit path (`exploitpaths.go`) = 48 h in-memory block, matched on `r.URL.Path` before the mux, any depth (safe only while no dynamic path segments). Only a REPEAT exploit path renews (NAT pool + own tab would self-renew forever). New path: check `TestRealTrafficIsNotAnExploitPath`.
+Limiters and `banGate`: rationale in `middleware.go`, `exploitpaths.go`. Exploit paths match at any depth, safe only while no route has a dynamic path segment: adding one breaks the ban far away. New exploit path: check `TestRealTrafficIsNotAnExploitPath`.
 
-Tests: `openTestDB(t)` real file in `t.TempDir()`, never `:memory:`. No real API calls, ever. Gate is ship (`ship.yaml`): `make check` (floors/patch 75), `make hooks` per clone; no `.golangci.yaml`. `make test` / `make run` / `make dev`.
+Tests: `openTestDB(t)` real file in `t.TempDir()`, never `:memory:`. No real API calls, ever. Gate: `make check`.
 
 - Commit subjects + PR titles: Go style `area: what` (`backend: …`, `ui: …`), gated by ship; release notes list them by area.
 - Fresh clone: `ship hooks` before the first push (check, conform and init install it too); without the pre-push hook a push skips the gate.
-- Release by hand: `gh workflow run Release -f bump=auto`. `backend/web/dist` holds only `.gitkeep` in git (vite `emptyOutDir: false`).
+- Release by hand: `gh workflow run Release -f bump=auto`.
 
 ## Deploy & serving
 
-Distroless, no shell: healthcheck is `ismimodown -healthcheck` (probes `/readyz`, the DB ping; `/healthz` is liveness only). Keep every `compose.yaml` hardening line.
-
-SPA (`kit/spa`, `Routes` = `/` only): `/` serves the shell, everything else 404s (`TestUnknownPathsAreNotFound`). No third-party origin in CSP (`TestNoThirdPartyOriginsInThePolicy`).
+Keep every `compose.yaml` hardening line.
 
 ## Naming & copy
 
-"Is Xiaomi MiMo down?" in `<h1>`, `<title>`, static `index.html`, og card: reword together. Stranger-facing always `Xiaomi MiMo`; model IDs verbatim. Code `ismimodown` lowercase; DB file stays `/data/mimostats.db` (`config_test` pins it). Footer denies Xiaomi affiliation (tested). Cadence: "periodically" / "every few minutes", never "every five minutes".
+"Is Xiaomi MiMo down?" in `<h1>`, `<title>`, static `index.html`, og card: reword together. Stranger-facing always `Xiaomi MiMo`; model IDs verbatim. Code `ismimodown` lowercase; DB file stays `/data/mimostats.db`. Footer denies Xiaomi affiliation. Cadence: "periodically" / "every few minutes", never "every five minutes".
 
 English, 24 h, reader's zone: never pin `timeZone` in `format.ts`; ECharts axes/tooltips via `format.ts`.
 
-Preview card carries no measurement. `ui/public/og.png` from `ui/assets/og/card.html` via `ui/scripts/gen-og.sh`: re-run, commit, bump `?v=` together. WhatsApp crops to the middle 630 px. Heading band 527 px real / 481 px fallback, re-measure both before touching; heading `<br>` is load bearing. Host and SEO strings move together: `Host()`, og URLs, canonical, `robots.txt`, `sitemap.xml`, JSON-LD, `.host` in `card.html`.
+Preview card carries no measurement. `ui/public/og.png` from `ui/assets/og/card.html` via `ui/scripts/gen-og.sh`: re-run, commit, bump `?v=` together. Heading band and square crop are guarded in `gen-og.sh`: read it before touching the heading. Host and SEO strings move together: `Host()`, og URLs, canonical, `robots.txt`, `sitemap.xml`, JSON-LD, `.host` in `card.html`.
 
 Comments in `ui/index.html` and `ui/public/` never ship (`ui/build/strip-comments.ts`); a trailing `# why` on a `robots.txt` directive survives, never write one. No path or script name outside a comment there.
 
