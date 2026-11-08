@@ -34,6 +34,8 @@ Cycle builds the dashboard, never a request: `OnCycle` runs `Server.Warm` (all w
 
 Limiters and `banGate`: rationale in `middleware.go`, `exploitpaths.go`. Exploit paths match at any depth, safe only while no route has a dynamic path segment: adding one breaks the ban far away. New exploit path: check `TestRealTrafficIsNotAnExploitPath`.
 
+DB: read `docs/schema.md` first. `TestSchemaDoc` fails until it is regenerated (`SCHEMADOC_UPDATE=1`, in `backend/`).
+
 Tests: `openTestDB(t)` real file in `t.TempDir()`, never `:memory:`. No real API calls, ever. Gate: `make check`.
 
 - Commit subjects + PR titles: Go style `area: what` (`backend: …`, `ui: …`), gated by ship; release notes list them by area.
