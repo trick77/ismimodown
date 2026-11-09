@@ -1,6 +1,10 @@
 package samples
 
-import "time"
+import (
+	"time"
+
+	"github.com/trick77/ismimodown/internal/config"
+)
 
 // ModelSummary is one model's state over a window.
 //
@@ -209,4 +213,105 @@ type Failure struct {
 	HTTPStatus *int64    `json:"http_status"`
 	AnswerOK   *bool     `json:"answer_ok"`
 	Fault      string    `json:"fault"`
+}
+
+// Tokens is a token count broken into the parts that are billed differently.
+//
+// Prompt is the WHOLE input count and Cached is a subset of it, exactly as MiMo
+// reports them: cached_tokens arrives nested under prompt_tokens_details. The
+// uncached remainder is Prompt-Cached, which is what gets the input rate.
+//
+// There is deliberately no reasoning field. reasoning_tokens is nested inside
+// completion_tokens the same way, so it is already inside Output; carrying it
+// here would invite someone to add it, and adding it bills those tokens twice.
+//
+// Table: -
+type Tokens struct {
+	// Prompt is the WHOLE input count, Cached included.
+	Prompt int64 `json:"prompt"`
+	// Cached is a subset of Prompt, never added to it.
+	Cached int64 `json:"cached"`
+	// Output already contains reasoning tokens.
+	Output int64 `json:"output"`
+}
+
+func (t Tokens) add(o Tokens) Tokens {
+	return Tokens{t.Prompt + o.Prompt, t.Cached + o.Cached, t.Output + o.Output}
+}
+
+// Total is every token the run reported. Prompt already contains Cached, so
+// they are not added twice.
+func (t Tokens) Total() int64 { return t.Prompt + t.Output }
+
+// CostBreakdown is the cost panel of the dashboard payload.
+//
+// Table: -
+type CostBreakdown struct {
+	Window   string `json:"window"`
+	Currency string `json:"currency"`
+	// Prices is the table the figures were computed with, published so a total
+	// can be checked rather than trusted. Always config.DefaultPrices.
+	Prices map[string]config.ModelPrice `json:"prices"`
+	// Coefficient is the off-peak multiplier the phases were billed at.
+	Coefficient float64 `json:"offpeak_coefficient"`
+
+	Total  CostGroup   `json:"total"`
+	Phases []PhaseCost `json:"phases"`
+	Series []CostPoint `json:"series"`
+
+	// Probes is a compatibility shim and always empty. DELETE IT ONE RELEASE
+	// AFTER THE ONE THAT INTRODUCED IT.
+	//
+	// It used to carry one group per probe kind. The UI that reads it does
+	// `cost.probes.map(...)` with no guard, and a browser holding that bundle
+	// keeps refetching this payload across a deploy — on the SSE cycle event
+	// and on its own interval. A missing key would throw inside render, and
+	// with no error boundary above it React unmounts the whole tree: a blank
+	// page, on a site whose entire job is to be up, for exactly the people
+	// watching it during a deploy. An empty array maps to nothing and renders
+	// nothing.
+	//
+	// The daemon serves its own UI from the same binary, so this only protects
+	// tabs that were already open. That is the audience that matters here.
+	Probes []struct{} `json:"probes"`
+	// BucketSeconds is the width of a Series bucket, so the client can size a
+	// mark without guessing from the gaps.
+	BucketSeconds int64 `json:"bucket_s"`
+
+	// Unpriced is how many runs in the window carry no usage at all.
+	//
+	// The usage chunk arrives LAST, so a run cut off by the timeout ladder was
+	// billed for whatever prefill and decode happened before the cut and reports
+	// none of it. Those runs are not in any figure above, and the count exists so
+	// the total can say so instead of quietly being too low exactly when the
+	// endpoint is at its worst. Never estimate a cost for them.
+	Unpriced int `json:"unpriced_runs"`
+
+	// OffPeakSpans are the [from,to) instants, in unix seconds, where the
+	// reduced rate applied inside this window — clipped to it, so a span that
+	// opened before the left edge starts at the edge.
+	//
+	// Served rather than derived client-side: the client used to keep its own
+	// copy of the window and the DST rules that turn it into local hours, and two
+	// implementations of one clock is one too many.
+	OffPeakSpans [][2]int64 `json:"offpeak_spans"`
+	// OffPeakUntil is when the CURRENT state ends: the close of the window if it
+	// is open now, otherwise the next open. An instant, never a countdown — the
+	// page re-renders on the 5-minute cycle, so "in 3h" would be wrong for most
+	// of the time it was on screen.
+	OffPeakUntil  int64 `json:"offpeak_until"`
+	OffPeakActive bool  `json:"offpeak_active"`
+
+	GeneratedAt time.Time `json:"generated_at"`
+}
+
+// costRow is one aggregate group as the database returns it.
+//
+// Table: -
+type costRow struct {
+	bucket  int64
+	modelID string
+	offPeak bool
+	runs    int
+	tokens  Tokens
 }

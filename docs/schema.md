@@ -95,6 +95,27 @@ Checks:
 
 ## Types not stored as rows
 
+### samples.CostBreakdown
+
+In `internal/samples`. CostBreakdown is the cost panel of the dashboard payload.
+
+| Field | Type | Doc |
+| --- | --- | --- |
+| `Window` | `string` |  |
+| `Currency` | `string` |  |
+| `Prices` | `map[string]config.ModelPrice` | Prices is the table the figures were computed with, published so a total can be checked rather than trusted. Always config.DefaultPrices. |
+| `Coefficient` | `float64` | Coefficient is the off-peak multiplier the phases were billed at. |
+| `Total` | `CostGroup` |  |
+| `Phases` | `[]PhaseCost` |  |
+| `Series` | `[]CostPoint` |  |
+| `Probes` | `[]struct{}` | Probes is a compatibility shim and always empty. DELETE IT ONE RELEASE AFTER THE ONE THAT INTRODUCED IT. It used to carry one group per probe kind. The UI that reads it does `cost.probes.map(...)` with no guard, and a browser holding that bundle keeps refetching this payload across a deploy — on the SSE cycle event and on its own interval. A missing key would throw inside render, and with no error boundary above it React unmounts the whole tree: a blank page, on a site whose entire job is to be up, for exactly the people watching it during a deploy. An empty array maps to nothing and renders nothing. The daemon serves its own UI from the same binary, so this only protects tabs that were already open. That is the audience that matters here. |
+| `BucketSeconds` | `int64` | BucketSeconds is the width of a Series bucket, so the client can size a mark without guessing from the gaps. |
+| `Unpriced` | `int` | Unpriced is how many runs in the window carry no usage at all. The usage chunk arrives LAST, so a run cut off by the timeout ladder was billed for whatever prefill and decode happened before the cut and reports none of it. Those runs are not in any figure above, and the count exists so the total can say so instead of quietly being too low exactly when the endpoint is at its worst. Never estimate a cost for them. |
+| `OffPeakSpans` | `[][2]int64` | OffPeakSpans are the [from,to) instants, in unix seconds, where the reduced rate applied inside this window — clipped to it, so a span that opened before the left edge starts at the edge. Served rather than derived client-side: the client used to keep its own copy of the window and the DST rules that turn it into local hours, and two implementations of one clock is one too many. |
+| `OffPeakUntil` | `int64` | OffPeakUntil is when the CURRENT state ends: the close of the window if it is open now, otherwise the next open. An instant, never a countdown — the page re-renders on the 5-minute cycle, so "in 3h" would be wrong for most of the time it was on screen. |
+| `OffPeakActive` | `bool` |  |
+| `GeneratedAt` | `time.Time` |  |
+
 ### samples.ModelSummary
 
 In `internal/samples`. ModelSummary is one model's state over a window.
@@ -151,6 +172,28 @@ In `internal/samples`. Summary is the whole dashboard state for one window.
 | `Net` | `[]NetSummary` |  |
 | `Recent` | `[]RecentCycle` | Recent is NOT window-scoped — see RecentCycle for why. It rides along in this response rather than in an endpoint of its own because the client needs it on exactly the requests it already makes. It is also the ONLY fault channel in this response. A `faults` map held the window's per-fault counts beside it, and a `skipped_runs` count rode along with it; both existed for the attribution panel, and both went when it did. The client never read either — it derives what it needs from Recent[].Fault, per cycle (ui/src/verdict.ts) — so serving them meant two SQL round trips per dashboard build for nothing. |
 | `GeneratedAt` | `time.Time` |  |
+
+### samples.Tokens
+
+In `internal/samples`. Tokens is a token count broken into the parts that are billed differently.
+
+| Field | Type | Doc |
+| --- | --- | --- |
+| `Prompt` | `int64` | Prompt is the WHOLE input count, Cached included. |
+| `Cached` | `int64` | Cached is a subset of Prompt, never added to it. |
+| `Output` | `int64` | Output already contains reasoning tokens. |
+
+### samples.costRow
+
+In `internal/samples`. costRow is one aggregate group as the database returns it.
+
+| Field | Type | Doc |
+| --- | --- | --- |
+| `bucket` | `int64` |  |
+| `modelID` | `string` |  |
+| `offPeak` | `bool` |  |
+| `runs` | `int` |  |
+| `tokens` | `Tokens` |  |
 
 ## Diagram
 
