@@ -1,7 +1,5 @@
 # AGENTS.md
 
-Rationale is in code comments; this is the rule list.
-
 ## Secrets
 
 `BACKEND_MIMO_API_KEY` is live, billable, repo public: `.env` only, never `.env.example`, fixtures, commits, logs. `BACKEND_MIMO_BASE_URL` takes no userinfo/query (`config.Load` refuses); same for any new value a public endpoint echoes. `error_detail` is operator-only, never served.
@@ -32,17 +30,15 @@ Plumbing is kit; own code only where kit lacks it (404 rules, `banGate`, CORP). 
 
 Cycle builds the dashboard, never a request: `OnCycle` runs `Server.Warm` (all windows, in place) BEFORE `broker.Publish`. Invalidate-then-notify measured 19 s per request at five concurrent cold misses. Misses single-flighted, one build slot (`cpus: "1.0"`), TTL a two-cycle valve. Never shorten it, never add a slot.
 
-Limiters and `banGate`: rationale in `middleware.go`, `exploitpaths.go`. Exploit paths match at any depth, safe only while no route has a dynamic path segment: adding one breaks the ban far away. New exploit path: check `TestRealTrafficIsNotAnExploitPath`.
+Exploit paths (`exploitpaths.go`) match at any depth, safe only while no route has a dynamic path segment: adding one breaks the ban far away. New exploit path: check `TestRealTrafficIsNotAnExploitPath`.
 
-DB: read `docs/schema.md` first. `TestSchemaDoc` golden fails on drift in migrations, `model.go` type names + first doc paragraph, `Table:` lines, and fields + field docs of `Table: -` types only. Fields of table-bound types are not in the doc, so unchecked; nothing checks a field against a column. Regenerate in `backend/` (doc header has the command).
+DB: read `docs/schema.md` first, regenerate per its header; `model.go` comments feed it too. Fields of table-bound types are not in it: nothing checks a field against a column.
 
-Tests: `openTestDB(t)` real file in `t.TempDir()`, never `:memory:`. No real API calls, ever. Gate: `make check`.
+Tests: `openTestDB(t)` real file in `t.TempDir()`, never `:memory:`. No real API calls, ever.
 
 - Commit subjects + PR titles: Go style `area: what` (`backend: …`, `ui: …`), gated by ship; release notes list them by area.
 - Fresh clone: `ship hooks` before the first push (check, conform and init install it too); without the pre-push hook a push skips the gate.
-- Release by hand: `gh workflow run Release -f bump=auto`.
-
-## Deploy & serving
+- Release: `gh workflow run Release -f bump=auto`.
 
 Keep every `compose.yaml` hardening line.
 
