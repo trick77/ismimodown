@@ -34,7 +34,7 @@ Cycle builds the dashboard, never a request: `OnCycle` runs `Server.Warm` (all w
 
 Limiters and `banGate`: rationale in `middleware.go`, `exploitpaths.go`. Exploit paths match at any depth, safe only while no route has a dynamic path segment: adding one breaks the ban far away. New exploit path: check `TestRealTrafficIsNotAnExploitPath`.
 
-DB: read `docs/schema.md` first. `TestSchemaDoc` fails until it is regenerated (`SCHEMADOC_UPDATE=1`, in `backend/`).
+DB: read `docs/schema.md` first. `TestSchemaDoc` golden fails on drift in migrations, `model.go` type names + first doc paragraph, `Table:` lines, and fields + field docs of `Table: -` types only. Fields of table-bound types are not in the doc, so unchecked; nothing checks a field against a column. Regenerate in `backend/` (doc header has the command).
 
 Tests: `openTestDB(t)` real file in `t.TempDir()`, never `:memory:`. No real API calls, ever. Gate: `make check`.
 
