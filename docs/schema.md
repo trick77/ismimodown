@@ -111,8 +111,8 @@ In `internal/samples`. CostBreakdown is the cost panel of the dashboard payload.
 | `BucketSeconds` | `int64` | BucketSeconds is the width of a Series bucket, so the client can size a mark without guessing from the gaps. |
 | `Unpriced` | `int` | Unpriced is how many runs in the window carry no usage at all.<br>The usage chunk arrives LAST, so a run cut off by the timeout ladder was billed for whatever prefill and decode happened before the cut and reports none of it. Those runs are not in any figure above, and the count exists so the total can say so instead of quietly being too low exactly when the endpoint is at its worst. Never estimate a cost for them. |
 | `OffPeakSpans` | `[][2]int64` | OffPeakSpans are the [from,to) instants, in unix seconds, where the reduced rate applied inside this window — clipped to it, so a span that opened before the left edge starts at the edge.<br>Served rather than derived client-side: the client used to keep its own copy of the window and the DST rules that turn it into local hours, and two implementations of one clock is one too many. |
-| `OffPeakUntil` | `int64` | OffPeakUntil is when the CURRENT state ends: the close of the window if it is open now, otherwise the next open. An instant, never a countdown — the page re-renders on the 5-minute cycle, so "in 3h" would be wrong for most of the time it was on screen. |
-| `OffPeakActive` | `bool` |  |
+| `OffPeakUntil` | `int64` | OffPeakUntil is when the CURRENT state, OffPeakActive, ends: the close of the off-peak window if it is open now, otherwise the next open. An instant, never a countdown — the page re-renders on the 5-minute cycle, so "in 3h" would be wrong for most of the time it was on screen. |
+| `OffPeakActive` | `bool` | OffPeakActive is whether the reduced rate applies now. |
 | `GeneratedAt` | `time.Time` |  |
 
 ### samples.ModelSummary
@@ -125,13 +125,13 @@ In `internal/samples`. ModelSummary is one model's state over a window.
 | `TTFT` | `Stats` |  |
 | `ITL` | `Stats` |  |
 | `TPS` | `Stats` | TPS is the median gross throughput. It leads the throughput reading rather than ITL: MiMo batches tokens into chunks and delivers them in bursts, so the median inter-chunk gap collapses toward zero on a perfectly healthy run (measured 0.0075 ms against 70 tok/s). Both are served; the client is told which is robust. |
-| `Attempts` | `int` | Availability counts attempts on ATTRIBUTABLE cycles, successes and failures alike. Failed runs are excluded from the latency percentiles above and counted here — otherwise an outage reads as catastrophic latency.<br>FAILED runs on unattributable cycles ('uplink', and its historical split 'route') are not counted at all: nothing in Singapore answered, so the failure cannot be shown to be MiMo's. A run that SUCCEEDED on such a cycle still counts — it is positive evidence MiMo answered, and dropping it would also drop its answer grade and its reasoning/cache canaries. Attempts is therefore the denominator the percentage is honest about, not the raw cycle count — a window of nothing but unattributable failures reports 0 attempts, which clients render as no data. |
-| `Succeeded` | `int` |  |
-| `Available` | `float64` |  |
+| `Attempts` | `int` | Attempts, Succeeded and Available are availability. Attempts counts runs, successes and failures alike, on ATTRIBUTABLE cycles plus the successes on the rest (below); Succeeded is the successes among them; Available is Succeeded over Attempts in per cent, 0 when Attempts is 0. Failed runs are excluded from the latency percentiles above and counted here — otherwise an outage reads as catastrophic latency.<br>FAILED runs on unattributable cycles ('uplink', and its historical split 'route') are not counted at all: nothing in Singapore answered, so the failure cannot be shown to be MiMo's. A run that SUCCEEDED on such a cycle still counts — it is positive evidence MiMo answered, and dropping it would also drop its answer grade and its reasoning/cache canaries. Attempts is therefore the denominator Available is honest about, not the raw cycle count — a window of nothing but unattributable failures reports 0 attempts, which clients render as no data. |
+| `Succeeded` | `int` | see `Attempts` |
+| `Available` | `float64` | see `Attempts` |
 | `Censored` | `int` | Censored is how many of those attempts were cut off by our own timeout ladder — see probe.CensoringErrorClasses.<br>It is the caveat the percentiles above cannot carry themselves. Those are computed over successful runs only, so the runs this counts were removed from the TOP of the distribution: the worse the endpoint gets, the more of its slow tail is deleted, and the better P95 looks. A reader who cannot see this number cannot tell a genuinely fast window from one where everything slow was thrown away.<br>Counted per RUN, not per column: one censored run takes that run's TTFT, ITL and throughput with it, so a separate figure per metric would be the same number three times. It shares the attempt denominator, and therefore the same unattributable-cycle exclusion — a run cut off during our own uplink outage is not MiMo's slow tail. |
-| `Answered` | `int` | Correctness is the canary: a silent reroute to a smaller model shows up here before it shows up in any timing. |
-| `Correct` | `int` |  |
-| `CorrectPct` | `*float64` |  |
+| `Answered` | `int` | Answered, Correct and CorrectPct are the correctness canary: a silent reroute to a smaller model shows up here before it shows up in any timing. Answered counts the runs Attempts counts whose answer was graded, Correct the ones graded right. |
+| `Correct` | `int` | see `Answered` |
+| `CorrectPct` | `*float64` | CorrectPct is Correct over Answered in per cent, nil below MinSamplesForPercentile answers: thin data, not missing data. |
 | `MaxReasoningTokens` | `int` | MaxReasoningTokens must stay 0. Non-zero means thinking came back on and every latency figure in this window is measuring something else. |
 | `MaxCachedTokens` | `int` | MaxCachedTokens must stay near 0, or the system prompt went missing and MiMo's own injected one is being served from cache. |
 
@@ -156,8 +156,8 @@ In `internal/samples`. Point is one bucket of a series.
 | `T` | `int64` | T is the bucket's start, as Unix seconds. |
 | `N` | `int` | N is the successful samples the percentiles were computed from. |
 | `Censored` | `int` | Censored is how many samples in this bucket our own timeout ladder cut off — see probe.CensoringErrorClasses.<br>A bucket can be censored and still plot a value: the line is then drawn from the runs that FINISHED, with the slow ones missing, which is a chart that looks better the worse things got. A bucket can also be entirely censored, N = 0 with a nil P50 — indistinguishable, without this field, from a bucket where the probe simply was not running. Both are exactly the moment a reader most needs to know the top of the distribution was cut off, so the client marks these buckets rather than drawing them as ordinary. |
-| `P50` | `*float64` | Values are nil when the bucket produced no percentile at all. A null renders as a gap; a zero would render as a floor, which is a lie.<br>Note that no minimum-sample threshold is applied per bucket: suppression is a headline-figure rule (see MinSamplesForPercentile), deliberately not a chart rule. N is 0 only on a bucket that exists solely because something was censored in it. |
-| `P95` | `*float64` |  |
+| `P50` | `*float64` | P50 and P95 are nil when the bucket produced no percentile at all. A null renders as a gap; a zero would render as a floor, which is a lie.<br>Note that no minimum-sample threshold is applied per bucket: suppression is a headline-figure rule (see MinSamplesForPercentile), deliberately not a chart rule. N is 0 only on a bucket that exists solely because something was censored in it. |
+| `P95` | `*float64` | see `P50` |
 
 ### samples.Summary
 

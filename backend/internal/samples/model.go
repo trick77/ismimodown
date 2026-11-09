@@ -21,17 +21,19 @@ type ModelSummary struct {
 	// served; the client is told which is robust.
 	TPS Stats `json:"tps"`
 
-	// Availability counts attempts on ATTRIBUTABLE cycles, successes and
-	// failures alike. Failed runs are excluded from the latency percentiles
-	// above and counted here — otherwise an outage reads as catastrophic
-	// latency.
+	// Attempts, Succeeded and Available are availability. Attempts counts runs,
+	// successes and failures alike, on ATTRIBUTABLE cycles plus the successes on
+	// the rest (below); Succeeded is the successes among them; Available is
+	// Succeeded over Attempts in per cent, 0 when Attempts is 0. Failed runs are
+	// excluded from the latency percentiles above and counted here — otherwise
+	// an outage reads as catastrophic latency.
 	//
 	// FAILED runs on unattributable cycles ('uplink', and its historical split
 	// 'route') are not counted at all: nothing in Singapore answered, so the
 	// failure cannot be shown to be MiMo's. A run that SUCCEEDED on such a
 	// cycle still counts — it is positive evidence MiMo answered, and dropping
 	// it would also drop its answer grade and its reasoning/cache canaries.
-	// Attempts is therefore the denominator the percentage is honest about, not
+	// Attempts is therefore the denominator Available is honest about, not
 	// the raw cycle count — a window of nothing but unattributable failures
 	// reports 0 attempts, which clients render as no data.
 	Attempts  int     `json:"attempts"`
@@ -55,10 +57,14 @@ type ModelSummary struct {
 	// uplink outage is not MiMo's slow tail.
 	Censored int `json:"censored"`
 
-	// Correctness is the canary: a silent reroute to a smaller model shows up
-	// here before it shows up in any timing.
-	Answered   int      `json:"answered"`
-	Correct    int      `json:"correct"`
+	// Answered, Correct and CorrectPct are the correctness canary: a silent
+	// reroute to a smaller model shows up here before it shows up in any timing.
+	// Answered counts the runs Attempts counts whose answer was graded, Correct
+	// the ones graded right.
+	Answered int `json:"answered"`
+	Correct  int `json:"correct"`
+	// CorrectPct is Correct over Answered in per cent, nil below
+	// MinSamplesForPercentile answers: thin data, not missing data.
 	CorrectPct *float64 `json:"correct_pct"`
 
 	// MaxReasoningTokens must stay 0. Non-zero means thinking came back on and
@@ -121,7 +127,7 @@ type Point struct {
 	// moment a reader most needs to know the top of the distribution was cut off,
 	// so the client marks these buckets rather than drawing them as ordinary.
 	Censored int `json:"censored"`
-	// Values are nil when the bucket produced no percentile at all. A null
+	// P50 and P95 are nil when the bucket produced no percentile at all. A null
 	// renders as a gap; a zero would render as a floor, which is a lie.
 	//
 	// Note that no minimum-sample threshold is applied per bucket: suppression is
@@ -280,12 +286,13 @@ type CostBreakdown struct {
 	// copy of the window and the DST rules that turn it into local hours, and two
 	// implementations of one clock is one too many.
 	OffPeakSpans [][2]int64 `json:"offpeak_spans"`
-	// OffPeakUntil is when the CURRENT state ends: the close of the window if it
-	// is open now, otherwise the next open. An instant, never a countdown — the
-	// page re-renders on the 5-minute cycle, so "in 3h" would be wrong for most
-	// of the time it was on screen.
-	OffPeakUntil  int64 `json:"offpeak_until"`
-	OffPeakActive bool  `json:"offpeak_active"`
+	// OffPeakUntil is when the CURRENT state, OffPeakActive, ends: the close of
+	// the off-peak window if it is open now, otherwise the next open. An
+	// instant, never a countdown — the page re-renders on the 5-minute cycle, so
+	// "in 3h" would be wrong for most of the time it was on screen.
+	OffPeakUntil int64 `json:"offpeak_until"`
+	// OffPeakActive is whether the reduced rate applies now.
+	OffPeakActive bool `json:"offpeak_active"`
 
 	GeneratedAt time.Time `json:"generated_at"`
 }
