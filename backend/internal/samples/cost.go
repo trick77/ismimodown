@@ -261,9 +261,6 @@ func (s *Store) Cost(ctx context.Context, w Window, prices map[string]config.Mod
 	// Allocated, so they marshal as [] and not null. The client maps over both,
 	// and a null there is one missing guard away from a blank page.
 	out.Phases = make([]PhaseCost, 0, 2)
-	// Allocated so it marshals as [] and not null — see Probes. A null would
-	// throw in the old bundle exactly as a missing key does.
-	out.Probes = []struct{}{}
 	for _, phase := range []string{PhaseFull, PhaseOffPeak} {
 		if g, ok := byPhase[phase]; ok {
 			out.Phases = append(out.Phases, PhaseCost{Phase: phase, CostGroup: *g})
