@@ -40,7 +40,7 @@ services:
       # MiMo's own ping targets are both constants and follow nothing here —
       # not even BACKEND_MIMO_BASE_URL above.
       BACKEND_PING_REF_SGP_HOST: "${BACKEND_PING_REF_SGP_HOST:-sgp.proof.ovh.net}"
-      BACKEND_PING_REF_AMS_HOST: "${BACKEND_PING_REF_AMS_HOST:-speedtest.amsterdam.linode.com}"
+      BACKEND_PING_REF_AMS_HOST: "${BACKEND_PING_REF_AMS_HOST:-ams.speedtest.clouvider.net}"
 
       # Must stay inside the mounted volume below, or the history is written to
       # the read-only rootfs and lost on every restart. Empty fallback rather

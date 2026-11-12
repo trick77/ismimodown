@@ -78,17 +78,18 @@ const (
 	// DefaultRefAMSHost answers "is *any* Europe->Amsterdam path healthy", the
 	// Amsterdam counterpart to DefaultRefSGPHost.
 	//
-	// Akamai/Linode's Amsterdam speedtest node, a CNAME to
-	// speedtest-1.ams2.nl.prod.linode.com. Not OVH this time: OVH publishes no
-	// proof.ovh.net node in Amsterdam (`nl.proof.ovh.net` does not resolve), so
-	// the same-carrier argument that picked the Singapore reference has nothing
-	// to select here, and a different carrier is the honest second choice.
+	// Clouvider's Amsterdam speedtest node, 194.127.172.176. Not OVH this time:
+	// OVH publishes no proof.ovh.net node in Amsterdam (`nl.proof.ovh.net` does
+	// not resolve), so the same-carrier argument that picked the Singapore
+	// reference has nothing to select here, and a different carrier is the
+	// honest second choice.
 	//
 	// Its one weakness, and the reason it stays configurable: a SINGLE A record,
 	// against the Singapore reference's rotation. One host down reads as an
-	// Amsterdam route problem. `ams.speedtest.clouvider.net` (194.127.172.176)
-	// is the documented fallback; DEPLOY.md tells an operator how to switch.
-	DefaultRefAMSHost = "speedtest.amsterdam.linode.com"
+	// Amsterdam route problem. `speedtest.amsterdam.linode.com` (172.233.33.22)
+	// was the default until 2026-11, when it stopped answering on 80 and 443
+	// and the series went empty: do not re-test it.
+	DefaultRefAMSHost = "ams.speedtest.clouvider.net"
 )
 
 // DefaultUserAgent impersonates opencode, because MiMo's token-plan endpoint is

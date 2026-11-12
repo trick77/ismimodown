@@ -277,7 +277,7 @@ The script forces `AF_INET` because the probe itself is IPv4-only.
 python3 - <<'PY'
 import socket, statistics, time
 for h in ["token-plan-sgp.xiaomimimo.com", "sgp.proof.ovh.net",
-          "token-plan-ams.xiaomimimo.com", "speedtest.amsterdam.linode.com"]:
+          "token-plan-ams.xiaomimimo.com", "ams.speedtest.clouvider.net"]:
     try:
         ip = socket.getaddrinfo(h, 443, socket.AF_INET, socket.SOCK_STREAM)[0][4][0]
     except Exception as e:
@@ -311,14 +311,12 @@ echo 'BACKEND_PING_REF_SGP_HOST=<a real Singapore host>' >> .env && docker compo
 **Amsterdam** feeds no verdict at all. It is charted in "The wire itself" and
 never summarised, never attributed — so a dead Amsterdam reference costs a chart
 line and nothing else. It is still the likelier of the two to need overriding,
-because `speedtest.amsterdam.linode.com` resolves to a SINGLE address rather
+because `ams.speedtest.clouvider.net` resolves to a SINGLE address rather
 than a rotation, so one host down takes the whole series with it:
 
 ```sh
-echo 'BACKEND_PING_REF_AMS_HOST=ams.speedtest.clouvider.net' >> .env && docker compose up -d
+echo 'BACKEND_PING_REF_AMS_HOST=<a real Amsterdam host>' >> .env && docker compose up -d
 ```
-
-That fallback is tested: `194.127.172.176`, answering on 443 from Amsterdam.
 
 These two are the only probe targets with a setting. Both of MiMo's own ping
 hosts are constants — `token-plan-sgp.xiaomimimo.com` and
