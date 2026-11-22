@@ -45,12 +45,12 @@ COPY --from=build /out/ismimodown /usr/local/bin/ismimodown
 #
 # A BIND mount still takes its ownership from the host directory, which is why
 # DEPLOY.md has the operator create and chown ./data before the first start.
-COPY --from=build --chown=1000:1000 /out/data /data
+COPY --from=build --chown=65532:65532 /out/data /data
 
 # Matches `user:` in compose.yaml and the /data ownership above, so the image is
-# self-consistent even when run without compose. The base image's own nonroot
-# user is 65532; this deliberately overrides it to the 1000 convention shared
-# across these deployments.
-USER 1000:1000
+# self-consistent even when run without compose. 65532 is the base image's own
+# nonroot user, never 1000: that is a Debian host's first real account, and a
+# chown for the container would hand ./data to it.
+USER 65532:65532
 EXPOSE 8080
 ENTRYPOINT ["/usr/local/bin/ismimodown"]
