@@ -2,9 +2,11 @@
 package web
 
 import (
+	"bytes"
 	"embed"
 	"io/fs"
 	"net/http"
+	"sync"
 
 	"github.com/trick77/ship/kit/spa"
 )
@@ -18,18 +20,55 @@ var dist embed.FS
 
 // Handler serves the embedded SPA. Unknown paths 404; there is nothing to fall
 // back to, because this site has exactly one URL — see isShellRoute.
-func Handler() (http.Handler, error) {
+//
+// nuiOrigin, when set (config.NuiOrigin), puts the nui collector's browser
+// script into the shell.
+func Handler(nuiOrigin string) (http.Handler, error) {
 	sub, err := fs.Sub(dist, "dist")
 	if err != nil {
 		return nil, err
 	}
-	return handler(sub), nil
+	return handler(sub, nuiOrigin), nil
 }
 
 // handler is kit's SPA handler over dist: real files from the bundle (hashed
 // assets/ cached a year, immutable), the shell for "/" alone, 404 for the rest.
-func handler(dist fs.FS) http.Handler {
-	return spa.Handler(dist, spa.Options{Routes: isShellRoute})
+func handler(dist fs.FS, nuiOrigin string) http.Handler {
+	o := spa.Options{Routes: isShellRoute}
+	if nuiOrigin != "" {
+		o.Index = nuiScript(nuiOrigin)
+	}
+	return spa.Handler(dist, o)
+}
+
+// nuiScript adds the nui browser script to the shell, right before </head>.
+//
+// Injected by the server, not written into ui/index.html: the collector's host
+// is a deployment setting kept out of this public repo, and the script finds
+// its collector by its own src, so it has to load from there. defer, so it
+// never holds up the page. The tag is built once; the shell is the same bytes
+// for every request.
+//
+// A shell without </head> is served as it is: no tag beats a tag in the wrong
+// place.
+func nuiScript(origin string) func([]byte, *http.Request) []byte {
+	tag := []byte(`<script src="` + origin + `/nui.js" defer></script>`)
+	var once sync.Once
+	var out []byte
+	return func(index []byte, _ *http.Request) []byte {
+		once.Do(func() {
+			i := bytes.LastIndex(index, []byte("</head>"))
+			if i < 0 {
+				out = index
+				return
+			}
+			out = make([]byte, 0, len(index)+len(tag))
+			out = append(out, index[:i]...)
+			out = append(out, tag...)
+			out = append(out, index[i:]...)
+		})
+		return out
+	}
 }
 
 // isShellRoute says which unknown paths get the shell: "/" and nothing else.

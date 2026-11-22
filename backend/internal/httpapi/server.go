@@ -88,6 +88,14 @@ type Deps struct {
 	// no public endpoint ever echoes it.
 	ProbeUserAgent string
 
+	// NuiOrigin is the nui collector the page loads its browser script from
+	// (config.NuiOrigin); the CSP names it on script-src and connect-src.
+	// Empty: the policy names no other origin.
+	NuiOrigin string
+	// Feed reports every request to nui's server feed (nuifeed.Feeder's
+	// Middleware). Optional: nil feeds nothing.
+	Feed func(http.Handler) http.Handler
+
 	// Now is a seam for tests.
 	Now func() time.Time
 }
@@ -141,11 +149,18 @@ func NewServer(deps Deps) *Server {
 	// notFoundPenalty, so a banned caller neither spends the 404 budget nor
 	// reaches the mux — including on /api/events, which is registered on the
 	// outer mux and so bypasses the request limiter entirely.
+	//
+	// The nui feed right inside Recover, around banGate: it must see the 403s
+	// and 429s the gates write, and the request the mux writes its route onto
+	// (AccessLog and Recover both hand on a clone).
+	gated := banGate(s.deps.Ban, notFoundPenalty(s.deps.NotFoundLimiter, s.mux))
+	if s.deps.Feed != nil {
+		gated = s.deps.Feed(gated)
+	}
 	return &Server{
-		Handler: httpx.Chain(banGate(s.deps.Ban, notFoundPenalty(s.deps.NotFoundLimiter, s.mux)),
-			accessLog(), securityHeaders, httpx.Recover(nil)),
-		cache: s.cache,
-		inner: s,
+		Handler: httpx.Chain(gated, accessLog(), securityHeaders(s.deps.NuiOrigin), httpx.Recover(nil)),
+		cache:   s.cache,
+		inner:   s,
 	}
 }
 

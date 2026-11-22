@@ -84,7 +84,7 @@ func TestBanDoesNotAffectOtherCallers(t *testing.T) {
 // scanner walk four more before the budget catches up. Run against the real
 // handler, because the ordering is the point.
 func TestExtensionlessExploitPathIsBannedBeforeTheMux(t *testing.T) {
-	static, err := web.Handler()
+	static, err := web.Handler("")
 	if err != nil {
 		t.Fatalf("web.Handler: %v", err)
 	}
@@ -112,7 +112,7 @@ func TestExtensionlessExploitPathIsBannedBeforeTheMux(t *testing.T) {
 // The expensive half of a false positive: a banned visitor sees nothing for two
 // days. Every one of these is served by this binary on an ordinary page load.
 func TestNormalTrafficIsNeverBanned(t *testing.T) {
-	static, err := web.Handler()
+	static, err := web.Handler("")
 	if err != nil {
 		t.Fatalf("web.Handler: %v", err)
 	}

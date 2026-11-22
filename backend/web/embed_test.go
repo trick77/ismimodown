@@ -3,6 +3,7 @@ package web
 import (
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -24,7 +25,7 @@ func testDist() fstest.MapFS {
 func serve(t *testing.T, path string) *httptest.ResponseRecorder {
 	t.Helper()
 	rec := httptest.NewRecorder()
-	handler(testDist()).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+	handler(testDist(), "").ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
 	return rec
 }
 
@@ -112,7 +113,7 @@ func TestShellRevalidatesWithAnETag(t *testing.T) {
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.Header.Set("If-None-Match", tag)
-	handler(testDist()).ServeHTTP(rec, req)
+	handler(testDist(), "").ServeHTTP(rec, req)
 	if rec.Code != http.StatusNotModified {
 		t.Errorf("status = %d, want 304", rec.Code)
 	}
@@ -136,7 +137,7 @@ func TestManifestIsServedWithItsOwnType(t *testing.T) {
 // with kit's placeholder rather than a blank page whose bundle 404s.
 func TestUnbuiltDistServesThePlaceholder(t *testing.T) {
 	rec := httptest.NewRecorder()
-	handler(fstest.MapFS{".gitkeep": {}}).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+	handler(fstest.MapFS{".gitkeep": {}}, "").ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
 
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Errorf("status = %d, want 503", rec.Code)
@@ -145,7 +146,7 @@ func TestUnbuiltDistServesThePlaceholder(t *testing.T) {
 
 // Handler wires the embedded dist, whatever is in it.
 func TestHandlerEmbedsDist(t *testing.T) {
-	h, err := Handler()
+	h, err := Handler("")
 	if err != nil {
 		t.Fatalf("Handler: %v", err)
 	}
@@ -153,5 +154,45 @@ func TestHandlerEmbedsDist(t *testing.T) {
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/nope.js", nil))
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("status = %d, want 404", rec.Code)
+	}
+}
+
+func headDist() fstest.MapFS {
+	return fstest.MapFS{"index.html": {Data: []byte(`<!doctype html><head><title>x</title></head><div id="root"></div>`)}}
+}
+
+// Configured, the collector's script goes into the head, deferred, loaded from
+// the collector itself: nui.js finds where to post by its own src.
+func TestShellCarriesTheNuiScriptWhenConfigured(t *testing.T) {
+	rec := httptest.NewRecorder()
+	handler(headDist(), "https://nui.example.com").ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+
+	want := `<script src="https://nui.example.com/nui.js" defer></script></head>`
+	if body := rec.Body.String(); !strings.Contains(body, want) {
+		t.Errorf("shell = %s, want it to carry %s", body, want)
+	}
+	if got, want := rec.Header().Get("Content-Length"), strconv.Itoa(rec.Body.Len()); got != want {
+		t.Errorf("Content-Length = %s, want %s (the rewritten length)", got, want)
+	}
+}
+
+// Unconfigured, the shell is the bundle's bytes untouched.
+func TestShellHasNoNuiScriptByDefault(t *testing.T) {
+	rec := httptest.NewRecorder()
+	handler(headDist(), "").ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+
+	if body := rec.Body.String(); body != string(headDist()["index.html"].Data) {
+		t.Errorf("shell = %s, want the bundle's own bytes", body)
+	}
+}
+
+// The script goes into the shell only; every other file is served as built.
+func TestNuiScriptTouchesOnlyTheShell(t *testing.T) {
+	rec := httptest.NewRecorder()
+	handler(testDist(), "https://nui.example.com").ServeHTTP(rec,
+		httptest.NewRequest(http.MethodGet, "/assets/index-C7Xl7PkL.js", nil))
+
+	if body := rec.Body.String(); body != "console.log(1)" {
+		t.Errorf("asset = %q, want it as built", body)
 	}
 }
