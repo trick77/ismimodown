@@ -113,7 +113,8 @@ curl -sSI https://ismimodown.com/og.png | grep -i cross-origin-resource
 ```
 
 CSP, `nosniff`, `X-Frame-Options` and `Referrer-Policy` come from the binary and
-are present with or without Traefik. `Strict-Transport-Security` comes from the
+are present with or without Traefik. The CSP names no other origin unless
+`BACKEND_NUI_URL` is set (see "nui analytics"). `Strict-Transport-Security` comes from the
 `ismimodown-hsts` middleware in `compose.yaml` and is the one that disappears if
 those labels are dropped. Each header must appear exactly ONCE: a duplicate
 means Traefik is setting its own copy too, and two conflicting CSPs are enforced
@@ -408,6 +409,32 @@ cd ismimodown && docker compose up -d
 history carries over untouched. Renaming the compose service from `mimostats`
 to `ismimodown` also recreates the container — expected, and harmless for the
 same reason.
+
+## nui analytics
+
+Optional, off unless `.env` sets it. On the nui host, add `ismimodown.com` to
+its `data/sites.json` (path rules for `/`, `/assets/{any}`, `/api/dashboard`,
+`/api/events`, the icons, `/robots.txt`, `/sitemap.xml`, `/og.png`), create a
+feed key with `docker compose run --rm nui -new-feed-key`, put the printed hash
+into that entry's `feed_key_sha256` and restart nui. Here, in `.env`:
+
+```sh
+BACKEND_NUI_URL=https://<nui host>
+BACKEND_NUI_FEED_KEY=<the printed key>
+```
+
+then `docker compose up -d`. The start log's `nui` line shows `script` and
+`feed` both true. The URL alone loads the browser script; the key adds the server
+feed, which reports every request, 403s and 429s included.
+
+```sh
+curl -sS https://ismimodown.com/ | grep -o '<script src="[^"]*/nui.js"[^>]*>'
+curl -sSI https://ismimodown.com/ | grep -i content-security-policy   # names the nui origin twice
+```
+
+A feed that cannot reach nui logs `nui feed deferred` and retries; a refused
+batch (`nui feed batch refused`, status 401) means the key and the hash do not
+match. Neither ever slows down or fails a request here.
 
 ## Backup
 

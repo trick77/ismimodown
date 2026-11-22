@@ -53,6 +53,13 @@ services:
       # not measure what production traffic experiences.
       BACKEND_PROBE_USER_AGENT: "${BACKEND_PROBE_USER_AGENT:-}"
 
+      # nui usage analytics, both optional, off when empty. The URL is the
+      # collector's origin (the page loads its script from there, the CSP names
+      # it); the key turns on the server feed and is a credential like the
+      # MiMo key: .env only.
+      BACKEND_NUI_URL: "${BACKEND_NUI_URL:-}"
+      BACKEND_NUI_FEED_KEY: "${BACKEND_NUI_FEED_KEY:-}"
+
       # That is the whole list. The model pair, the price table, the system
       # prompt, the retention window and the six-layer timeout ladder are
       # constants in config.go rather than settings: they describe what this

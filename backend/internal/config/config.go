@@ -303,12 +303,27 @@ type Config struct {
 	TTFTTimeout   time.Duration // no first token at all
 	IdleTimeout   time.Duration // silence between chunks mid-stream
 	ProbeTimeout  time.Duration // overall deadline
+
+	// NuiOrigin is the nui analytics collector, scheme://host[:port] with
+	// nothing after it, or empty: no nui at all. Set, the shell loads its
+	// browser script and the CSP names this origin on script-src and
+	// connect-src. Configured rather than a constant so the host stays out of
+	// this public repo.
+	NuiOrigin string
+	// NuiFeedKey is this site's server-feed key on that collector, or empty:
+	// no server feed. A credential: never logged, never served.
+	NuiFeedKey string
 }
+
+// NuiSite is this site's domain in the nui collector's sites.json. The feed
+// names it on every batch, and the collector refuses a batch whose site is not
+// the key's. One of the host strings that move together (AGENTS.md).
+const NuiSite = "ismimodown.com"
 
 // Load reads configuration from the environment, applying defaults. Every fault
 // is reported at once (kit's env.Reader), not one per restart.
 //
-// Eight variables reach this function. Everything else about how ismimodown probes
+// Ten variables reach this function. Everything else about how ismimodown probes
 // — the model pair, the price table, the system prompt, the retention window,
 // the whole timeout ladder — is a constant above, because it describes what the
 // dashboard measures rather than where it runs. A deployment that could change
@@ -341,6 +356,17 @@ func Load() (Config, error) {
 		TTFTTimeout:       TTFTTimeout,
 		IdleTimeout:       IdleTimeout,
 		ProbeTimeout:      ProbeTimeout,
+		NuiFeedKey:        r.String("BACKEND_NUI_FEED_KEY", ""),
+	}
+
+	nuiOrigin, err := validateNuiURL(r.String("BACKEND_NUI_URL", ""))
+	if err != nil {
+		r.Fail("%w", err)
+	}
+	cfg.NuiOrigin = nuiOrigin
+	// A key with nowhere to send it is a half-done setup, not an opt-out.
+	if cfg.NuiFeedKey != "" && cfg.NuiOrigin == "" {
+		r.Fail("BACKEND_NUI_FEED_KEY is set but BACKEND_NUI_URL is not")
 	}
 
 	// A typo'd level fails the boot rather than logging at info: a debug
@@ -400,6 +426,58 @@ func validateRefHost(host, envName string) error {
 			envName)
 	}
 	return nil
+}
+
+// validateNuiURL checks BACKEND_NUI_URL and returns its origin, or "" when
+// unset.
+//
+// The value lands in the CSP and in a script tag on every page, so it must be
+// an origin and nothing more: a path, query or fragment would be published to
+// every visitor, userinfo would publish a credential, and a CSP source with a
+// path matches less than it looks like.
+func validateNuiURL(raw string) (string, error) {
+	if raw == "" {
+		return "", nil
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return "", fmt.Errorf("BACKEND_NUI_URL is not a valid URL: %w", err)
+	}
+	if u.Scheme != "https" && u.Scheme != "http" {
+		return "", fmt.Errorf("BACKEND_NUI_URL must be an http or https URL")
+	}
+	if u.Host == "" || u.Hostname() == "" {
+		return "", fmt.Errorf("BACKEND_NUI_URL must include a host")
+	}
+	// url.Parse takes "host:" with an empty port; as a CSP source that is
+	// invalid, ignored, and the script is blocked while the tag still loads.
+	if strings.HasSuffix(u.Host, ":") {
+		return "", fmt.Errorf("BACKEND_NUI_URL has an empty port")
+	}
+	if u.User != nil {
+		return "", fmt.Errorf("BACKEND_NUI_URL must not embed credentials; the feed key goes in BACKEND_NUI_FEED_KEY")
+	}
+	if u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || (u.Path != "" && u.Path != "/") {
+		return "", fmt.Errorf("BACKEND_NUI_URL must be an origin only (scheme://host[:port]), no path, query or fragment")
+	}
+	// url.Parse lets RFC 3986 sub-delims through in a host; a ';' would end
+	// the CSP directive it is written into and a quote the script attribute.
+	for _, c := range u.Host {
+		if !hostRune(c) {
+			return "", fmt.Errorf("BACKEND_NUI_URL host may hold only letters, digits, '.', '-', and a port")
+		}
+	}
+	return u.Scheme + "://" + strings.ToLower(u.Host), nil
+}
+
+// hostRune reports whether c may appear in a host[:port] written into the CSP:
+// a name, an IPv4 or bracketed IPv6 literal, and a port.
+func hostRune(c rune) bool {
+	switch {
+	case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9':
+		return true
+	}
+	return strings.ContainsRune(".-:[]", c)
 }
 
 // defaultPrices copies DefaultPrices, so a caller holding a Config cannot reach

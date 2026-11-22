@@ -7,14 +7,17 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"time"
 
 	"github.com/trick77/ismimodown/internal/ban"
 	"github.com/trick77/ismimodown/internal/config"
 	"github.com/trick77/ismimodown/internal/httpapi"
+	"github.com/trick77/ismimodown/internal/nuifeed"
 	"github.com/trick77/ismimodown/internal/probe"
 	"github.com/trick77/ismimodown/internal/retention"
 	"github.com/trick77/ismimodown/internal/samples"
@@ -96,10 +99,29 @@ func daemon() error {
 		return err
 	}
 
-	static, err := web.Handler()
+	static, err := web.Handler(cfg.NuiOrigin)
 	if err != nil {
 		return err
 	}
+
+	// nui usage analytics: the browser script whenever the collector is
+	// configured, the server feed when its key is too. The key is never
+	// logged; the origin is no secret on the server side.
+	var feeder *nuifeed.Feeder
+	if cfg.NuiFeedKey != "" {
+		probes := httpx.DefaultProbePaths()
+		feeder = nuifeed.New(nuifeed.Options{
+			Endpoint: cfg.NuiOrigin + "/api/feed",
+			Key:      cfg.NuiFeedKey,
+			Site:     config.NuiSite,
+			// The real address, one hop behind Traefik as clientKey reads it,
+			// but not collapsed to a /64: the collector keys addresses itself.
+			ClientIP: func(r *http.Request) string { return httpx.ClientIP(r, 1) },
+			// The container healthcheck is not traffic.
+			Skip: func(r *http.Request) bool { return slices.Contains(probes, r.URL.Path) },
+		})
+	}
+	slog.Info("nui", "origin", cfg.NuiOrigin, "script", cfg.NuiOrigin != "", "feed", feeder != nil)
 
 	sampleStore := samples.New(db)
 	broker := sse.NewHub[[]byte](httpapi.HubOptions())
@@ -141,6 +163,8 @@ func daemon() error {
 		Models:          cfg.Models,
 		Prices:          cfg.Prices,
 		ProbeUserAgent:  cfg.ProbeUserAgent,
+		NuiOrigin:       cfg.NuiOrigin,
+		Feed:            feedMiddleware(feeder),
 	})
 
 	sched := scheduler.New(scheduler.Deps{
@@ -205,6 +229,15 @@ func daemon() error {
 	// cleanly, never be killed between the INSERT and the COMMIT.
 	var wg sync.WaitGroup
 	wg.Add(3)
+	// The feeder outlives the signal: requests still draining after SIGTERM
+	// (every open event stream ends there) are fed too, so it stops only once
+	// Serve has returned. Its sends after that are bounded by its own grace.
+	feedCtx, stopFeed := context.WithCancel(context.Background())
+	defer stopFeed()
+	if feeder != nil {
+		wg.Add(1)
+		go func() { defer wg.Done(); feeder.Run(feedCtx) }()
+	}
 	go func() { defer wg.Done(); sched.Run(ctx) }()
 	go func() { defer wg.Done(); sweeper.Run(ctx) }()
 	// The limiters bound and prune their own maps (kit keeps a bucket in debt,
@@ -222,6 +255,7 @@ func daemon() error {
 	// A failed listen returns with the signal context still live: stop the
 	// loops too, or wg.Wait never returns.
 	stop()
+	stopFeed()
 	wg.Wait()
 	// Past the drain deadline Shutdown has cut the remaining connections; the
 	// process still exits as asked, so that is a note rather than a failure.
@@ -230,6 +264,15 @@ func daemon() error {
 		return nil
 	}
 	return err
+}
+
+// feedMiddleware is the feeder's middleware, or nil without a feeder: a nil
+// *Feeder's method value would panic on the first request.
+func feedMiddleware(f *nuifeed.Feeder) func(http.Handler) http.Handler {
+	if f == nil {
+		return nil
+	}
+	return f.Middleware
 }
 
 // warmCache rebuilds every dashboard window into the response cache and logs

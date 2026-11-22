@@ -105,8 +105,8 @@ func TestSecurityHeadersAreOnEveryResponse(t *testing.T) {
 	}
 }
 
-// The policy names no host at all. Microsoft Clarity was the single
-// exception it ever carried — www.clarity.ms for the tag, *.clarity.ms and
+// Without nui configured the policy names no host at all. Microsoft Clarity
+// was the exception it carried before nui — www.clarity.ms for the tag, *.clarity.ms and
 // c.bing.com for the beacons — and this asserts it did not come back, in the
 // only form that catches the next one too: no scheme-qualified origin anywhere
 // in the policy.
@@ -135,6 +135,28 @@ func TestNoThirdPartyOriginsInThePolicy(t *testing.T) {
 	// so a wildcard there would only loosen the ones nobody listed.
 	if !strings.Contains(csp, "default-src 'self';") {
 		t.Errorf("CSP = %q, want default-src left at 'self'", csp)
+	}
+}
+
+// With nui configured, its origin is admitted exactly where its script needs
+// it — loading (script-src) and posting back (connect-src) — and nowhere else.
+func TestNuiOriginIsNamedOnScriptAndConnectOnly(t *testing.T) {
+	db := openTestDB(t)
+	const nui = "https://nui.example.com"
+	h := NewServer(Deps{DB: db, Samples: samples.New(db), NuiOrigin: nui})
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, localRequest(http.MethodGet, "/healthz"))
+	csp := rec.Header().Get("Content-Security-Policy")
+
+	for _, want := range []string{"script-src 'self' " + nui + ";", "connect-src 'self' " + nui + ";",
+		"default-src 'self';"} {
+		if !strings.Contains(csp, want) {
+			t.Errorf("CSP = %q, want %q", csp, want)
+		}
+	}
+	if n := strings.Count(csp, nui); n != 2 {
+		t.Errorf("CSP names the nui origin %d times, want 2: %q", n, csp)
 	}
 }
 
@@ -381,7 +403,7 @@ func TestWellKnownMissesAreNotCharged(t *testing.T) {
 //
 // Run against the real SPA handler, because the 404 has to be the real one.
 func TestARecrawlOfOldSoftFourOhFourURLsIsNotLockedOut(t *testing.T) {
-	static, err := web.Handler()
+	static, err := web.Handler("")
 	if err != nil {
 		t.Fatalf("web.Handler: %v", err)
 	}
@@ -594,7 +616,7 @@ func TestRetryAfterIsNeverZero(t *testing.T) {
 // So the split under test is the same one that has always been here. What is
 // metered is a non-image extension.
 func TestChargingFollowsTheRealSPAHandler(t *testing.T) {
-	static, err := web.Handler()
+	static, err := web.Handler("")
 	if err != nil {
 		t.Fatalf("web.Handler: %v", err)
 	}
@@ -628,7 +650,7 @@ func TestChargingFollowsTheRealSPAHandler(t *testing.T) {
 // embedded dist is .gitkeep alone and / is kit's 503 placeholder: either way
 // the shell route answered, never the 404.
 func TestRootStillServesTheShell(t *testing.T) {
-	static, err := web.Handler()
+	static, err := web.Handler("")
 	if err != nil {
 		t.Fatalf("web.Handler: %v", err)
 	}
