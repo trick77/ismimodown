@@ -13,7 +13,7 @@ services:
     # Non-root, no capabilities, no writable rootfs. The process opens TCP
     # sockets, talks HTTPS and writes one SQLite file — it needs nothing else,
     # so nothing else is granted.
-    user: "1000:1000"
+    user: "65532:65532"
     cap_drop:
       - ALL
     security_opt:
@@ -94,7 +94,7 @@ services:
       # start. It is gitignored, so a fresh clone does not have it, and Docker
       # creates a missing bind-mount source owned by root — which this non-root
       # container cannot write, so SQLite fails and the container crash-loops.
-      # See DEPLOY.md; `mkdir -p data && sudo chown 1000:1000 data`.
+      # See DEPLOY.md; `mkdir -p data && sudo chown -R 65532:65532 data`.
       - ./data:/data
 
     networks:

@@ -53,7 +53,7 @@ $EDITOR .env                      # BACKEND_MIMO_API_KEY is the only required va
 # container then cannot write. SQLite fails to create the database and the
 # container crash-loops with "unable to open database file".
 mkdir -p data
-sudo chown 1000:1000 data         # matches `user:` in compose.yaml
+sudo chown -R 65532:65532 data    # matches `user:` in compose.yaml
 
 docker compose up -d
 ```
@@ -212,10 +212,14 @@ came back on and every latency figure is measuring something else:
 
 ```sh
 docker compose exec ismimodown /usr/local/bin/ismimodown -healthcheck && echo healthy
-sqlite3 data/mimostats.db \
+sudo setpriv --reuid=65532 --regid=65532 --clear-groups sqlite3 data/mimostats.db \
   'SELECT model_id, ttft_ms, reasoning_tokens, cached_tokens, answer_ok
    FROM infer_probes ORDER BY id DESC LIMIT 8'
 ```
+
+As the container's user: WAL mode makes even a read touch the `-shm` file in
+the 65532-owned `data/`. `setpriv`, not `sudo -u '#65532'`: no host account has
+that uid, and sudo refuses an unknown one by default.
 
 `cached_tokens` should also be at or near 0. A rise means the system message
 went missing and MiMo is serving its own injected prompt from cache.
@@ -239,7 +243,8 @@ a 0007-migrated database boots clean, writes clean and logs nothing — 0007
 changes no column, so there is no INSERT to break. It simply finds the deleted
 history gone. There is no `persist cycle failed` line to grep for and no error
 anywhere: the only symptom is a dashboard whose charts start at the redeploy.
-Restore the backup; rolling the binary back does not bring the rows with it.
+Restore the backup (see "Backup"); rolling the binary back does not bring the
+rows with it.
 
 An older binary on a migrated database boots clean — the migration is already
 recorded — and then stores nothing at all, because its INSERT names a column
@@ -259,7 +264,7 @@ docker compose logs ismimodown | grep 'persist cycle failed'
 docker compose logs ismimodown | tail -20
 ```
 
-`unable to open database file` means `./data` is not writable by UID 1000 — see
+`unable to open database file` means `./data` is not writable by UID 65532 — see
 the `chown` in the install steps above. `BACKEND_MIMO_API_KEY is required`
 means `.env` was not filled in; compose fails before the container starts, by
 design, because a container running without a key would record an unbroken wall
@@ -359,9 +364,25 @@ their port 443 is filtered on many networks.
 docker compose pull && docker compose up -d
 ```
 
+Coming from a container that ran as 1000:1000? Do the one-time chown below
+first, or the new one crash-loops.
+
 Migrations are embedded and run at boot, each in its own transaction. A
 migration that fails rolls back and is not recorded, so a failed upgrade leaves
 the database untouched rather than half-applied.
+
+### One-time: hand ./data to UID 65532
+
+The container ran as 1000:1000 before; it runs as 65532:65532 now (1000 is a
+Debian host's first real account, so the old chown gave the data to a person).
+With the new `compose.yaml` in place, before the first start of the new image:
+
+```sh
+docker compose down && sudo chown -R 65532:65532 data && docker compose pull && docker compose up -d
+```
+
+Skipped, the container cannot write `mimostats.db` and crash-loops with
+`unable to open database file`.
 
 ### One-time: check your reference hosts before upgrading to the Amsterdam build
 
@@ -441,11 +462,16 @@ match. Neither ever slows down or fails a request here.
 The SQLite file is the only state:
 
 ```sh
-sqlite3 data/mimostats.db ".backup '/tmp/mimostats-$(date +%F).db'"
+sudo setpriv --reuid=65532 --regid=65532 --clear-groups sqlite3 data/mimostats.db ".backup '/tmp/mimostats-$(date +%F).db'"
 ```
 
-Run this as a user that can write to `data/` — the database is in WAL mode, and
-even a read needs to touch the `-shm` file. `sudo -u '#1000'` if in doubt.
+As the container's user, for the reason under "The one check worth doing by
+hand". To restore, stop the container, copy the file back and give it to 65532,
+or the container opens it read-only and stores nothing:
+
+```sh
+docker compose down && sudo cp /tmp/mimostats-<date>.db data/mimostats.db && sudo chown 65532:65532 data/mimostats.db && docker compose up -d
+```
 
 Retention deletes cycles older than three months, so the history is bounded at
 roughly 110k rows regardless of uptime.
