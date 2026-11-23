@@ -2,7 +2,7 @@
 
 ## Secrets
 
-`BACKEND_MIMO_API_KEY` is live, billable, repo public: `.env` only, never `.env.example`, fixtures, commits, logs. `BACKEND_MIMO_BASE_URL` takes no userinfo/query (`config.Load` refuses); same for any new value a public endpoint echoes. `error_detail` is operator-only, never served. `BACKEND_NUI_FEED_KEY` likewise; nui host only in `.env`.
+`BACKEND_MIMO_API_KEY` is live, billable, repo public: `.env` only, never `.env.example`, fixtures, commits, logs. `BACKEND_MIMO_BASE_URL` takes no userinfo/query (`config.Load` refuses); same for any new value a public endpoint echoes. `error_detail` is operator-only, never served. `STAKEOUT_FEED_KEY` likewise; Stakeout host only in `.env`.
 
 ## Measurement invariants
 
@@ -26,7 +26,7 @@
 
 ## Backend
 
-Plumbing is kit; own code only where kit lacks it (404 rules, `banGate`, CORP). The `BACKEND_*` env vars in `config.go` are the whole surface; probe shape stays constants, no env var. No dependabot ignore for the SQLite driver.
+Plumbing is kit; own code only where kit lacks it (404 rules, `banGate`, CORP). The `BACKEND_*` and `STAKEOUT_*` env vars in `config.go` are the whole surface (Stakeout's named for the service, never `BACKEND_`: user); probe shape stays constants, no env var. No dependabot ignore for the SQLite driver.
 
 Cycle builds the dashboard, never a request: `OnCycle` runs `Server.Warm` (all windows, in place) BEFORE `broker.Publish`. Invalidate-then-notify measured 19 s per request at five concurrent cold misses. Misses single-flighted, one build slot (`cpus: "1.0"`), TTL a two-cycle valve. Never shorten it, never add a slot.
 
@@ -48,7 +48,7 @@ Keep every `compose.yaml` hardening line.
 
 English, 24 h, reader's zone: never pin `timeZone` in `format.ts`; ECharts axes/tooltips via `format.ts`.
 
-Preview card carries no measurement. `ui/public/og.png` from `ui/assets/og/card.html` via `ui/scripts/gen-og.sh`: re-run, commit, bump `?v=` together. Heading band and square crop are guarded in `gen-og.sh`: read it before touching the heading. Host and SEO strings move together: `Host()`, `config.NuiSite`, og URLs, canonical, `robots.txt`, `sitemap.xml`, JSON-LD, `.host` in `card.html`.
+Preview card carries no measurement. `ui/public/og.png` from `ui/assets/og/card.html` via `ui/scripts/gen-og.sh`: re-run, commit, bump `?v=` together. Heading band and square crop are guarded in `gen-og.sh`: read it before touching the heading. Host and SEO strings move together: `Host()`, `config.StakeoutSite`, og URLs, canonical, `robots.txt`, `sitemap.xml`, JSON-LD, `.host` in `card.html`.
 
 Comments in `ui/index.html` and `ui/public/` never ship (`ui/build/strip-comments.ts`); a trailing `# why` on a `robots.txt` directive survives, never write one. No path or script name outside a comment there.
 
