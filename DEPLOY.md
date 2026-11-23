@@ -114,7 +114,7 @@ curl -sSI https://ismimodown.com/og.png | grep -i cross-origin-resource
 
 CSP, `nosniff`, `X-Frame-Options` and `Referrer-Policy` come from the binary and
 are present with or without Traefik. The CSP names no other origin unless
-`STAKEOUT_URL` is set (see "Stakeout analytics"). `Strict-Transport-Security` comes from the
+`ANALYTICS_URL` is set (see "Stakeout analytics"). `Strict-Transport-Security` comes from the
 `ismimodown-hsts` middleware in `compose.yaml` and is the one that disappears if
 those labels are dropped. Each header must appear exactly ONCE: a duplicate
 means Traefik is setting its own copy too, and two conflicting CSPs are enforced
@@ -440,8 +440,9 @@ feed key with `docker compose run --rm stakeout -new-feed-key`, put the printed 
 into that entry's `feed_key_sha256` and restart Stakeout. Here, in `.env`:
 
 ```sh
-STAKEOUT_URL=https://<Stakeout host>
-STAKEOUT_FEED_KEY=<the printed key>
+ANALYTICS_URL=https://<Stakeout host>
+ANALYTICS_FEED_KEY=<the printed key>
+ANALYTICS_SITE=ismimodown.com
 ```
 
 then `docker compose up -d`. The start log's `stakeout` line shows `script` and

@@ -53,12 +53,13 @@ services:
       # not measure what production traffic experiences.
       BACKEND_PROBE_USER_AGENT: "${BACKEND_PROBE_USER_AGENT:-}"
 
-      # Stakeout usage analytics, both optional, off when empty. The URL is the
+      # Stakeout usage analytics, optional, off when empty. The URL is the
       # collector's origin (the page loads its script from there, the CSP names
       # it); the key turns on the server feed and is a credential like the
-      # MiMo key: .env only.
-      STAKEOUT_URL: "${STAKEOUT_URL:-}"
-      STAKEOUT_FEED_KEY: "${STAKEOUT_FEED_KEY:-}"
+      # MiMo key: .env only. The site is the one the key was issued for.
+      ANALYTICS_URL: "${ANALYTICS_URL:-}"
+      ANALYTICS_FEED_KEY: "${ANALYTICS_FEED_KEY:-}"
+      ANALYTICS_SITE: "${ANALYTICS_SITE:-}"
 
       # That is the whole list. The model pair, the price table, the system
       # prompt, the retention window and the six-layer timeout ladder are

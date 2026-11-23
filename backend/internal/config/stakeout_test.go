@@ -51,21 +51,33 @@ func TestStakeoutURLMustBeAnOrigin(t *testing.T) {
 // A feed key with no collector is a half-done setup and fails the boot.
 func TestStakeoutFeedKeyNeedsTheURL(t *testing.T) {
 	setMinimalEnv(t)
-	t.Setenv("STAKEOUT_FEED_KEY", "feed-key")
-	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "STAKEOUT_URL") {
-		t.Errorf("Load = %v, want a STAKEOUT_URL error", err)
+	t.Setenv("ANALYTICS_FEED_KEY", "feed-key")
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "ANALYTICS_URL") {
+		t.Errorf("Load = %v, want a ANALYTICS_URL error", err)
+	}
+}
+
+// A feed key without the site it was issued for would have every batch refused: it fails the boot too.
+func TestStakeoutFeedKeyNeedsTheSite(t *testing.T) {
+	setMinimalEnv(t)
+	t.Setenv("ANALYTICS_URL", "https://stakeout.example.com")
+	t.Setenv("ANALYTICS_FEED_KEY", "feed-key")
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "ANALYTICS_SITE") {
+		t.Errorf("Load = %v, want a ANALYTICS_SITE error", err)
 	}
 }
 
 func TestStakeoutLoads(t *testing.T) {
 	setMinimalEnv(t)
-	t.Setenv("STAKEOUT_URL", "https://stakeout.example.com/")
-	t.Setenv("STAKEOUT_FEED_KEY", "feed-key")
+	t.Setenv("ANALYTICS_URL", "https://stakeout.example.com/")
+	t.Setenv("ANALYTICS_FEED_KEY", "feed-key")
+	t.Setenv("ANALYTICS_SITE", "ismimodown.com")
 	cfg, err := Load()
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if cfg.StakeoutOrigin != "https://stakeout.example.com" || cfg.StakeoutFeedKey != "feed-key" {
-		t.Errorf("Stakeout = %q, key %q", cfg.StakeoutOrigin, cfg.StakeoutFeedKey)
+	if cfg.StakeoutOrigin != "https://stakeout.example.com" || cfg.StakeoutFeedKey != "feed-key" ||
+		cfg.StakeoutSite != "ismimodown.com" {
+		t.Errorf("Stakeout = %q, key %q, site %q", cfg.StakeoutOrigin, cfg.StakeoutFeedKey, cfg.StakeoutSite)
 	}
 }
