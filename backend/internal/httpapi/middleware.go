@@ -19,7 +19,7 @@ import (
 // icons are all embedded in the binary and served same-origin, and every fetch
 // goes to this origin's /api. So the policy is 'self' throughout.
 //
-// The one exception is the Stakeout collector (STAKEOUT_URL), and only when it
+// The one exception is the Stakeout collector (ANALYTICS_URL), and only when it
 // is configured: its browser script comes from there and posts back there, so
 // its origin is named on script-src and connect-src and nowhere else. Never by
 // widening default-src: every other directive below is set explicitly, so a

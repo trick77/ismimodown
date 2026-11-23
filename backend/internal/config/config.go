@@ -313,18 +313,17 @@ type Config struct {
 	// StakeoutFeedKey is this site's server-feed key on that collector, or
 	// empty: no server feed. A credential: never logged, never served.
 	StakeoutFeedKey string
+	// StakeoutSite is this site's domain in the collector's sites.json, the
+	// one the feed key was issued for: the feed names it on every batch, and
+	// the collector refuses a batch whose site is not the key's. Required with
+	// a key. Configured like the URL, the same in every app reporting there.
+	StakeoutSite string
 }
-
-// StakeoutSite is this site's domain in the Stakeout collector's sites.json.
-// The feed names it on every batch, and the collector refuses a batch whose
-// site is not the key's. One of the host strings that move together
-// (AGENTS.md).
-const StakeoutSite = "ismimodown.com"
 
 // Load reads configuration from the environment, applying defaults. Every fault
 // is reported at once (kit's env.Reader), not one per restart.
 //
-// Ten variables reach this function. Everything else about how ismimodown probes
+// Eleven variables reach this function. Everything else about how ismimodown probes
 // — the model pair, the price table, the system prompt, the retention window,
 // the whole timeout ladder — is a constant above, because it describes what the
 // dashboard measures rather than where it runs. A deployment that could change
@@ -357,17 +356,22 @@ func Load() (Config, error) {
 		TTFTTimeout:       TTFTTimeout,
 		IdleTimeout:       IdleTimeout,
 		ProbeTimeout:      ProbeTimeout,
-		StakeoutFeedKey:   r.String("STAKEOUT_FEED_KEY", ""),
+		StakeoutFeedKey:   r.String("ANALYTICS_FEED_KEY", ""),
+		StakeoutSite:      r.String("ANALYTICS_SITE", ""),
 	}
 
-	stakeoutOrigin, err := validateStakeoutURL(r.String("STAKEOUT_URL", ""))
+	stakeoutOrigin, err := validateStakeoutURL(r.String("ANALYTICS_URL", ""))
 	if err != nil {
 		r.Fail("%w", err)
 	}
 	cfg.StakeoutOrigin = stakeoutOrigin
 	// A key with nowhere to send it is a half-done setup, not an opt-out.
 	if cfg.StakeoutFeedKey != "" && cfg.StakeoutOrigin == "" {
-		r.Fail("STAKEOUT_FEED_KEY is set but STAKEOUT_URL is not")
+		r.Fail("ANALYTICS_FEED_KEY is set but ANALYTICS_URL is not")
+	}
+	// Without the key's site every batch is refused: as half-done as the above.
+	if cfg.StakeoutFeedKey != "" && cfg.StakeoutSite == "" {
+		r.Fail("ANALYTICS_FEED_KEY is set but ANALYTICS_SITE is not")
 	}
 
 	// A typo'd level fails the boot rather than logging at info: a debug
@@ -429,7 +433,7 @@ func validateRefHost(host, envName string) error {
 	return nil
 }
 
-// validateStakeoutURL checks STAKEOUT_URL and returns its origin, or "" when
+// validateStakeoutURL checks ANALYTICS_URL and returns its origin, or "" when
 // unset.
 //
 // The value lands in the CSP and in a script tag on every page, so it must be
@@ -442,30 +446,30 @@ func validateStakeoutURL(raw string) (string, error) {
 	}
 	u, err := url.Parse(raw)
 	if err != nil {
-		return "", fmt.Errorf("STAKEOUT_URL is not a valid URL: %w", err)
+		return "", fmt.Errorf("ANALYTICS_URL is not a valid URL: %w", err)
 	}
 	if u.Scheme != "https" && u.Scheme != "http" {
-		return "", fmt.Errorf("STAKEOUT_URL must be an http or https URL")
+		return "", fmt.Errorf("ANALYTICS_URL must be an http or https URL")
 	}
 	if u.Host == "" || u.Hostname() == "" {
-		return "", fmt.Errorf("STAKEOUT_URL must include a host")
+		return "", fmt.Errorf("ANALYTICS_URL must include a host")
 	}
 	// url.Parse takes "host:" with an empty port; as a CSP source that is
 	// invalid, ignored, and the script is blocked while the tag still loads.
 	if strings.HasSuffix(u.Host, ":") {
-		return "", fmt.Errorf("STAKEOUT_URL has an empty port")
+		return "", fmt.Errorf("ANALYTICS_URL has an empty port")
 	}
 	if u.User != nil {
-		return "", fmt.Errorf("STAKEOUT_URL must not embed credentials; the feed key goes in STAKEOUT_FEED_KEY")
+		return "", fmt.Errorf("ANALYTICS_URL must not embed credentials; the feed key goes in ANALYTICS_FEED_KEY")
 	}
 	if u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || (u.Path != "" && u.Path != "/") {
-		return "", fmt.Errorf("STAKEOUT_URL must be an origin only (scheme://host[:port]), no path, query or fragment")
+		return "", fmt.Errorf("ANALYTICS_URL must be an origin only (scheme://host[:port]), no path, query or fragment")
 	}
 	// url.Parse lets RFC 3986 sub-delims through in a host; a ';' would end
 	// the CSP directive it is written into and a quote the script attribute.
 	for _, c := range u.Host {
 		if !hostRune(c) {
-			return "", fmt.Errorf("STAKEOUT_URL host may hold only letters, digits, '.', '-', and a port")
+			return "", fmt.Errorf("ANALYTICS_URL host may hold only letters, digits, '.', '-', and a port")
 		}
 	}
 	return u.Scheme + "://" + strings.ToLower(u.Host), nil

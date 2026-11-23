@@ -113,7 +113,7 @@ func daemon() error {
 		feeder = stakeoutfeed.New(stakeoutfeed.Options{
 			Endpoint: cfg.StakeoutOrigin + "/api/feed",
 			Key:      cfg.StakeoutFeedKey,
-			Site:     config.StakeoutSite,
+			Site:     cfg.StakeoutSite,
 			// The real address, one hop behind Traefik as clientKey reads it,
 			// but not collapsed to a /64: the collector keys addresses itself.
 			ClientIP: func(r *http.Request) string { return httpx.ClientIP(r, 1) },
