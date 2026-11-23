@@ -105,11 +105,11 @@ func TestSecurityHeadersAreOnEveryResponse(t *testing.T) {
 	}
 }
 
-// Without nui configured the policy names no host at all. Microsoft Clarity
-// was the exception it carried before nui — www.clarity.ms for the tag, *.clarity.ms and
-// c.bing.com for the beacons — and this asserts it did not come back, in the
-// only form that catches the next one too: no scheme-qualified origin anywhere
-// in the policy.
+// Without Stakeout configured the policy names no host at all. Microsoft
+// Clarity was the exception it carried before Stakeout — www.clarity.ms for the
+// tag, *.clarity.ms and c.bing.com for the beacons — and this asserts it did
+// not come back, in the only form that catches the next one too: no
+// scheme-qualified origin anywhere in the policy.
 func TestNoThirdPartyOriginsInThePolicy(t *testing.T) {
 	db := openTestDB(t)
 	h := NewServer(Deps{DB: db, Samples: samples.New(db)})
@@ -138,25 +138,26 @@ func TestNoThirdPartyOriginsInThePolicy(t *testing.T) {
 	}
 }
 
-// With nui configured, its origin is admitted exactly where its script needs
-// it — loading (script-src) and posting back (connect-src) — and nowhere else.
-func TestNuiOriginIsNamedOnScriptAndConnectOnly(t *testing.T) {
+// With Stakeout configured, its origin is admitted exactly where its script
+// needs it — loading (script-src) and posting back (connect-src) — and nowhere
+// else.
+func TestStakeoutOriginIsNamedOnScriptAndConnectOnly(t *testing.T) {
 	db := openTestDB(t)
-	const nui = "https://nui.example.com"
-	h := NewServer(Deps{DB: db, Samples: samples.New(db), NuiOrigin: nui})
+	const stakeout = "https://stakeout.example.com"
+	h := NewServer(Deps{DB: db, Samples: samples.New(db), StakeoutOrigin: stakeout})
 
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, localRequest(http.MethodGet, "/healthz"))
 	csp := rec.Header().Get("Content-Security-Policy")
 
-	for _, want := range []string{"script-src 'self' " + nui + ";", "connect-src 'self' " + nui + ";",
+	for _, want := range []string{"script-src 'self' " + stakeout + ";", "connect-src 'self' " + stakeout + ";",
 		"default-src 'self';"} {
 		if !strings.Contains(csp, want) {
 			t.Errorf("CSP = %q, want %q", csp, want)
 		}
 	}
-	if n := strings.Count(csp, nui); n != 2 {
-		t.Errorf("CSP names the nui origin %d times, want 2: %q", n, csp)
+	if n := strings.Count(csp, stakeout); n != 2 {
+		t.Errorf("CSP names the Stakeout origin %d times, want 2: %q", n, csp)
 	}
 }
 

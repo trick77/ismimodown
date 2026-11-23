@@ -21,27 +21,28 @@ var dist embed.FS
 // Handler serves the embedded SPA. Unknown paths 404; there is nothing to fall
 // back to, because this site has exactly one URL — see isShellRoute.
 //
-// nuiOrigin, when set (config.NuiOrigin), puts the nui collector's browser
-// script into the shell.
-func Handler(nuiOrigin string) (http.Handler, error) {
+// stakeoutOrigin, when set (config.StakeoutOrigin), puts the Stakeout
+// collector's browser script into the shell.
+func Handler(stakeoutOrigin string) (http.Handler, error) {
 	sub, err := fs.Sub(dist, "dist")
 	if err != nil {
 		return nil, err
 	}
-	return handler(sub, nuiOrigin), nil
+	return handler(sub, stakeoutOrigin), nil
 }
 
 // handler is kit's SPA handler over dist: real files from the bundle (hashed
 // assets/ cached a year, immutable), the shell for "/" alone, 404 for the rest.
-func handler(dist fs.FS, nuiOrigin string) http.Handler {
+func handler(dist fs.FS, stakeoutOrigin string) http.Handler {
 	o := spa.Options{Routes: isShellRoute}
-	if nuiOrigin != "" {
-		o.Index = nuiScript(nuiOrigin)
+	if stakeoutOrigin != "" {
+		o.Index = stakeoutScript(stakeoutOrigin)
 	}
 	return spa.Handler(dist, o)
 }
 
-// nuiScript adds the nui browser script to the shell, right before </head>.
+// stakeoutScript adds the Stakeout browser script to the shell, right before
+// </head>.
 //
 // Injected by the server, not written into ui/index.html: the collector's host
 // is a deployment setting kept out of this public repo, and the script finds
@@ -51,8 +52,8 @@ func handler(dist fs.FS, nuiOrigin string) http.Handler {
 //
 // A shell without </head> is served as it is: no tag beats a tag in the wrong
 // place.
-func nuiScript(origin string) func([]byte, *http.Request) []byte {
-	tag := []byte(`<script src="` + origin + `/nui.js" defer></script>`)
+func stakeoutScript(origin string) func([]byte, *http.Request) []byte {
+	tag := []byte(`<script src="` + origin + `/stakeout.js" defer></script>`)
 	var once sync.Once
 	var out []byte
 	return func(index []byte, _ *http.Request) []byte {

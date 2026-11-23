@@ -1,4 +1,4 @@
-package nuifeed
+package stakeoutfeed
 
 import (
 	"context"
@@ -12,8 +12,8 @@ import (
 	"time"
 )
 
-// collector is a fake nui /api/feed: it records each batch and answers with
-// the next status in line (204 once the line is empty).
+// collector is a fake Stakeout /api/feed: it records each batch and answers
+// with the next status in line (204 once the line is empty).
 type collector struct {
 	mu       sync.Mutex
 	batches  []batch
@@ -312,7 +312,7 @@ func TestPanicIsFedAs500(t *testing.T) {
 }
 
 // Only a method-qualified pattern is a route; a prefix or catch-all goes empty
-// so nui names the path by the site's rules.
+// so Stakeout names the path by the site's rules.
 func TestRouteNeedsAMethod(t *testing.T) {
 	for in, want := range map[string]string{"GET /api/dashboard": "GET /api/dashboard", "/api/": "", "/": "", "": ""} {
 		if got := route(in); got != want {
@@ -322,7 +322,7 @@ func TestRouteNeedsAMethod(t *testing.T) {
 }
 
 // A malformed forwarded address falls back to the peer; neither parsing drops
-// the event rather than sending one nui would drop.
+// the event rather than sending one Stakeout would drop.
 func TestClientAddrFallsBackToThePeer(t *testing.T) {
 	f := newFeeder("http://127.0.0.1:1", Options{ClientIP: func(*http.Request) string { return strings.Repeat("x", 1000) }})
 	r := httptest.NewRequest(http.MethodGet, "/", nil)

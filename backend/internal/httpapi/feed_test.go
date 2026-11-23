@@ -15,7 +15,7 @@ type fed struct {
 	status      int
 }
 
-// feedRecorder stands in for nuifeed's middleware: it notes what that one
+// feedRecorder stands in for stakeoutfeed's middleware: it notes what that one
 // reads after the handler ran.
 func feedRecorder(out *[]fed) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {

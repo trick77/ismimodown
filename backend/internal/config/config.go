@@ -304,21 +304,22 @@ type Config struct {
 	IdleTimeout   time.Duration // silence between chunks mid-stream
 	ProbeTimeout  time.Duration // overall deadline
 
-	// NuiOrigin is the nui analytics collector, scheme://host[:port] with
-	// nothing after it, or empty: no nui at all. Set, the shell loads its
-	// browser script and the CSP names this origin on script-src and
+	// StakeoutOrigin is the Stakeout analytics collector, scheme://host[:port]
+	// with nothing after it, or empty: no Stakeout at all. Set, the shell loads
+	// its browser script and the CSP names this origin on script-src and
 	// connect-src. Configured rather than a constant so the host stays out of
 	// this public repo.
-	NuiOrigin string
-	// NuiFeedKey is this site's server-feed key on that collector, or empty:
-	// no server feed. A credential: never logged, never served.
-	NuiFeedKey string
+	StakeoutOrigin string
+	// StakeoutFeedKey is this site's server-feed key on that collector, or
+	// empty: no server feed. A credential: never logged, never served.
+	StakeoutFeedKey string
 }
 
-// NuiSite is this site's domain in the nui collector's sites.json. The feed
-// names it on every batch, and the collector refuses a batch whose site is not
-// the key's. One of the host strings that move together (AGENTS.md).
-const NuiSite = "ismimodown.com"
+// StakeoutSite is this site's domain in the Stakeout collector's sites.json.
+// The feed names it on every batch, and the collector refuses a batch whose
+// site is not the key's. One of the host strings that move together
+// (AGENTS.md).
+const StakeoutSite = "ismimodown.com"
 
 // Load reads configuration from the environment, applying defaults. Every fault
 // is reported at once (kit's env.Reader), not one per restart.
@@ -356,17 +357,17 @@ func Load() (Config, error) {
 		TTFTTimeout:       TTFTTimeout,
 		IdleTimeout:       IdleTimeout,
 		ProbeTimeout:      ProbeTimeout,
-		NuiFeedKey:        r.String("BACKEND_NUI_FEED_KEY", ""),
+		StakeoutFeedKey:   r.String("STAKEOUT_FEED_KEY", ""),
 	}
 
-	nuiOrigin, err := validateNuiURL(r.String("BACKEND_NUI_URL", ""))
+	stakeoutOrigin, err := validateStakeoutURL(r.String("STAKEOUT_URL", ""))
 	if err != nil {
 		r.Fail("%w", err)
 	}
-	cfg.NuiOrigin = nuiOrigin
+	cfg.StakeoutOrigin = stakeoutOrigin
 	// A key with nowhere to send it is a half-done setup, not an opt-out.
-	if cfg.NuiFeedKey != "" && cfg.NuiOrigin == "" {
-		r.Fail("BACKEND_NUI_FEED_KEY is set but BACKEND_NUI_URL is not")
+	if cfg.StakeoutFeedKey != "" && cfg.StakeoutOrigin == "" {
+		r.Fail("STAKEOUT_FEED_KEY is set but STAKEOUT_URL is not")
 	}
 
 	// A typo'd level fails the boot rather than logging at info: a debug
@@ -428,43 +429,43 @@ func validateRefHost(host, envName string) error {
 	return nil
 }
 
-// validateNuiURL checks BACKEND_NUI_URL and returns its origin, or "" when
+// validateStakeoutURL checks STAKEOUT_URL and returns its origin, or "" when
 // unset.
 //
 // The value lands in the CSP and in a script tag on every page, so it must be
 // an origin and nothing more: a path, query or fragment would be published to
 // every visitor, userinfo would publish a credential, and a CSP source with a
 // path matches less than it looks like.
-func validateNuiURL(raw string) (string, error) {
+func validateStakeoutURL(raw string) (string, error) {
 	if raw == "" {
 		return "", nil
 	}
 	u, err := url.Parse(raw)
 	if err != nil {
-		return "", fmt.Errorf("BACKEND_NUI_URL is not a valid URL: %w", err)
+		return "", fmt.Errorf("STAKEOUT_URL is not a valid URL: %w", err)
 	}
 	if u.Scheme != "https" && u.Scheme != "http" {
-		return "", fmt.Errorf("BACKEND_NUI_URL must be an http or https URL")
+		return "", fmt.Errorf("STAKEOUT_URL must be an http or https URL")
 	}
 	if u.Host == "" || u.Hostname() == "" {
-		return "", fmt.Errorf("BACKEND_NUI_URL must include a host")
+		return "", fmt.Errorf("STAKEOUT_URL must include a host")
 	}
 	// url.Parse takes "host:" with an empty port; as a CSP source that is
 	// invalid, ignored, and the script is blocked while the tag still loads.
 	if strings.HasSuffix(u.Host, ":") {
-		return "", fmt.Errorf("BACKEND_NUI_URL has an empty port")
+		return "", fmt.Errorf("STAKEOUT_URL has an empty port")
 	}
 	if u.User != nil {
-		return "", fmt.Errorf("BACKEND_NUI_URL must not embed credentials; the feed key goes in BACKEND_NUI_FEED_KEY")
+		return "", fmt.Errorf("STAKEOUT_URL must not embed credentials; the feed key goes in STAKEOUT_FEED_KEY")
 	}
 	if u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || (u.Path != "" && u.Path != "/") {
-		return "", fmt.Errorf("BACKEND_NUI_URL must be an origin only (scheme://host[:port]), no path, query or fragment")
+		return "", fmt.Errorf("STAKEOUT_URL must be an origin only (scheme://host[:port]), no path, query or fragment")
 	}
 	// url.Parse lets RFC 3986 sub-delims through in a host; a ';' would end
 	// the CSP directive it is written into and a quote the script attribute.
 	for _, c := range u.Host {
 		if !hostRune(c) {
-			return "", fmt.Errorf("BACKEND_NUI_URL host may hold only letters, digits, '.', '-', and a port")
+			return "", fmt.Errorf("STAKEOUT_URL host may hold only letters, digits, '.', '-', and a port")
 		}
 	}
 	return u.Scheme + "://" + strings.ToLower(u.Host), nil

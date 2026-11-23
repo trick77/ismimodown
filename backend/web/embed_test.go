@@ -162,12 +162,12 @@ func headDist() fstest.MapFS {
 }
 
 // Configured, the collector's script goes into the head, deferred, loaded from
-// the collector itself: nui.js finds where to post by its own src.
-func TestShellCarriesTheNuiScriptWhenConfigured(t *testing.T) {
+// the collector itself: stakeout.js finds where to post by its own src.
+func TestShellCarriesTheStakeoutScriptWhenConfigured(t *testing.T) {
 	rec := httptest.NewRecorder()
-	handler(headDist(), "https://nui.example.com").ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+	handler(headDist(), "https://stakeout.example.com").ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
 
-	want := `<script src="https://nui.example.com/nui.js" defer></script></head>`
+	want := `<script src="https://stakeout.example.com/stakeout.js" defer></script></head>`
 	if body := rec.Body.String(); !strings.Contains(body, want) {
 		t.Errorf("shell = %s, want it to carry %s", body, want)
 	}
@@ -177,7 +177,7 @@ func TestShellCarriesTheNuiScriptWhenConfigured(t *testing.T) {
 }
 
 // Unconfigured, the shell is the bundle's bytes untouched.
-func TestShellHasNoNuiScriptByDefault(t *testing.T) {
+func TestShellHasNoStakeoutScriptByDefault(t *testing.T) {
 	rec := httptest.NewRecorder()
 	handler(headDist(), "").ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
 
@@ -187,9 +187,9 @@ func TestShellHasNoNuiScriptByDefault(t *testing.T) {
 }
 
 // The script goes into the shell only; every other file is served as built.
-func TestNuiScriptTouchesOnlyTheShell(t *testing.T) {
+func TestStakeoutScriptTouchesOnlyTheShell(t *testing.T) {
 	rec := httptest.NewRecorder()
-	handler(testDist(), "https://nui.example.com").ServeHTTP(rec,
+	handler(testDist(), "https://stakeout.example.com").ServeHTTP(rec,
 		httptest.NewRequest(http.MethodGet, "/assets/index-C7Xl7PkL.js", nil))
 
 	if body := rec.Body.String(); body != "console.log(1)" {

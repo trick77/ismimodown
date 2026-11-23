@@ -88,12 +88,12 @@ type Deps struct {
 	// no public endpoint ever echoes it.
 	ProbeUserAgent string
 
-	// NuiOrigin is the nui collector the page loads its browser script from
-	// (config.NuiOrigin); the CSP names it on script-src and connect-src.
-	// Empty: the policy names no other origin.
-	NuiOrigin string
-	// Feed reports every request to nui's server feed (nuifeed.Feeder's
-	// Middleware). Optional: nil feeds nothing.
+	// StakeoutOrigin is the Stakeout collector the page loads its browser
+	// script from (config.StakeoutOrigin); the CSP names it on script-src and
+	// connect-src. Empty: the policy names no other origin.
+	StakeoutOrigin string
+	// Feed reports every request to Stakeout's server feed
+	// (stakeoutfeed.Feeder's Middleware). Optional: nil feeds nothing.
 	Feed func(http.Handler) http.Handler
 
 	// Now is a seam for tests.
@@ -150,15 +150,15 @@ func NewServer(deps Deps) *Server {
 	// reaches the mux — including on /api/events, which is registered on the
 	// outer mux and so bypasses the request limiter entirely.
 	//
-	// The nui feed right inside Recover, around banGate: it must see the 403s
-	// and 429s the gates write, and the request the mux writes its route onto
-	// (AccessLog and Recover both hand on a clone).
+	// The Stakeout feed right inside Recover, around banGate: it must see the
+	// 403s and 429s the gates write, and the request the mux writes its route
+	// onto (AccessLog and Recover both hand on a clone).
 	gated := banGate(s.deps.Ban, notFoundPenalty(s.deps.NotFoundLimiter, s.mux))
 	if s.deps.Feed != nil {
 		gated = s.deps.Feed(gated)
 	}
 	return &Server{
-		Handler: httpx.Chain(gated, accessLog(), securityHeaders(s.deps.NuiOrigin), httpx.Recover(nil)),
+		Handler: httpx.Chain(gated, accessLog(), securityHeaders(s.deps.StakeoutOrigin), httpx.Recover(nil)),
 		cache:   s.cache,
 		inner:   s,
 	}

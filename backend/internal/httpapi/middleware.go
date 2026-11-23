@@ -19,7 +19,7 @@ import (
 // icons are all embedded in the binary and served same-origin, and every fetch
 // goes to this origin's /api. So the policy is 'self' throughout.
 //
-// The one exception is the nui collector (BACKEND_NUI_URL), and only when it
+// The one exception is the Stakeout collector (STAKEOUT_URL), and only when it
 // is configured: its browser script comes from there and posts back there, so
 // its origin is named on script-src and connect-src and nowhere else. Never by
 // widening default-src: every other directive below is set explicitly, so a
@@ -38,12 +38,12 @@ import (
 // form-action and base-uri are 'none' because this page has no form and no
 // <base> — declaring that costs nothing and closes two redirection tricks.
 //
-// nuiOrigin is config.NuiOrigin: validated there to be a bare origin, so it
-// cannot end a directive.
-func contentSecurityPolicy(nuiOrigin string) string {
+// stakeoutOrigin is config.StakeoutOrigin: validated there to be a bare origin,
+// so it cannot end a directive.
+func contentSecurityPolicy(stakeoutOrigin string) string {
 	self := "'self'"
-	if nuiOrigin != "" {
-		self += " " + nuiOrigin
+	if stakeoutOrigin != "" {
+		self += " " + stakeoutOrigin
 	}
 	return "default-src 'self'; " +
 		"script-src " + self + "; " +
@@ -73,13 +73,13 @@ func contentSecurityPolicy(nuiOrigin string) string {
 //
 // Set before the handler runs, not after: headers must be in the map before
 // anything writes a status, and the SSE stream writes its own immediately.
-func securityHeaders(nuiOrigin string) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler { return securityHeadersFor(nuiOrigin, next) }
+func securityHeaders(stakeoutOrigin string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler { return securityHeadersFor(stakeoutOrigin, next) }
 }
 
-func securityHeadersFor(nuiOrigin string, next http.Handler) http.Handler {
+func securityHeadersFor(stakeoutOrigin string, next http.Handler) http.Handler {
 	kit := httpx.SecurityHeadersWith(httpx.SecurityOptions{
-		CSP:  contentSecurityPolicy(nuiOrigin),
+		CSP:  contentSecurityPolicy(stakeoutOrigin),
 		COOP: "same-origin",
 		// Nothing here needs a camera, a microphone or a location, and saying
 		// so stops any future embedded content from asking on the site's behalf.
