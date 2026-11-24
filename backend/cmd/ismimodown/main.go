@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/trick77/ismimodown/internal/analyticsfeed"
 	"github.com/trick77/ismimodown/internal/ban"
 	"github.com/trick77/ismimodown/internal/config"
 	"github.com/trick77/ismimodown/internal/httpapi"
@@ -21,7 +22,6 @@ import (
 	"github.com/trick77/ismimodown/internal/retention"
 	"github.com/trick77/ismimodown/internal/samples"
 	"github.com/trick77/ismimodown/internal/scheduler"
-	"github.com/trick77/ismimodown/internal/stakeoutfeed"
 	"github.com/trick77/ismimodown/internal/store"
 	"github.com/trick77/ismimodown/web"
 	"github.com/trick77/ship/kit/env"
@@ -99,21 +99,21 @@ func daemon() error {
 		return err
 	}
 
-	static, err := web.Handler(cfg.StakeoutOrigin)
+	static, err := web.Handler(cfg.AnalyticsOrigin)
 	if err != nil {
 		return err
 	}
 
-	// Stakeout usage analytics: the browser script whenever the collector is
+	// Trakk, web traffic observability: the browser script whenever the collector is
 	// configured, the server feed when its key is too. The key is never
 	// logged; the origin is no secret on the server side.
-	var feeder *stakeoutfeed.Feeder
-	if cfg.StakeoutFeedKey != "" {
+	var feeder *analyticsfeed.Feeder
+	if cfg.AnalyticsFeedKey != "" {
 		probes := httpx.DefaultProbePaths()
-		feeder = stakeoutfeed.New(stakeoutfeed.Options{
-			Endpoint: cfg.StakeoutOrigin + "/api/feed",
-			Key:      cfg.StakeoutFeedKey,
-			Site:     cfg.StakeoutSite,
+		feeder = analyticsfeed.New(analyticsfeed.Options{
+			Endpoint: cfg.AnalyticsOrigin + "/api/feed",
+			Key:      cfg.AnalyticsFeedKey,
+			Site:     cfg.AnalyticsSite,
 			// The real address, one hop behind Traefik as clientKey reads it,
 			// but not collapsed to a /64: the collector keys addresses itself.
 			ClientIP: func(r *http.Request) string { return httpx.ClientIP(r, 1) },
@@ -121,7 +121,7 @@ func daemon() error {
 			Skip: func(r *http.Request) bool { return slices.Contains(probes, r.URL.Path) },
 		})
 	}
-	slog.Info("stakeout", "origin", cfg.StakeoutOrigin, "script", cfg.StakeoutOrigin != "", "feed", feeder != nil)
+	slog.Info("analytics", "origin", cfg.AnalyticsOrigin, "script", cfg.AnalyticsOrigin != "", "feed", feeder != nil)
 
 	sampleStore := samples.New(db)
 	broker := sse.NewHub[[]byte](httpapi.HubOptions())
@@ -163,7 +163,7 @@ func daemon() error {
 		Models:          cfg.Models,
 		Prices:          cfg.Prices,
 		ProbeUserAgent:  cfg.ProbeUserAgent,
-		StakeoutOrigin:  cfg.StakeoutOrigin,
+		AnalyticsOrigin: cfg.AnalyticsOrigin,
 		Feed:            feedMiddleware(feeder),
 	})
 
@@ -268,7 +268,7 @@ func daemon() error {
 
 // feedMiddleware is the feeder's middleware, or nil without a feeder: a nil
 // *Feeder's method value would panic on the first request.
-func feedMiddleware(f *stakeoutfeed.Feeder) func(http.Handler) http.Handler {
+func feedMiddleware(f *analyticsfeed.Feeder) func(http.Handler) http.Handler {
 	if f == nil {
 		return nil
 	}

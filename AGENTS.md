@@ -2,7 +2,7 @@
 
 ## Secrets
 
-`BACKEND_MIMO_API_KEY` is live, billable, repo public: `.env` only, never `.env.example`, fixtures, commits, logs. `BACKEND_MIMO_BASE_URL` takes no userinfo/query (`config.Load` refuses); same for any new value a public endpoint echoes. `error_detail` is operator-only, never served. `ANALYTICS_FEED_KEY` likewise; Stakeout host only in `.env`.
+`BACKEND_MIMO_API_KEY` is live, billable, repo public: `.env` only, never `.env.example`, fixtures, commits, logs. `BACKEND_MIMO_BASE_URL` takes no userinfo/query (`config.Load` refuses); same for any new value a public endpoint echoes. `error_detail` is operator-only, never served. `ANALYTICS_FEED_KEY` likewise; Trakk host only in `.env`.
 
 ## Measurement invariants
 
@@ -26,7 +26,7 @@
 
 ## Backend
 
-Plumbing is kit; own code only where kit lacks it (404 rules, `banGate`, CORP). The `BACKEND_*` and `ANALYTICS_*` env vars in `config.go` are the whole surface (Stakeout's are `ANALYTICS_*` in every app, never `BACKEND_` or `ANALYTICS_`: user); probe shape stays constants, no env var. No dependabot ignore for the SQLite driver.
+Plumbing is kit; own code only where kit lacks it (404 rules, `banGate`, CORP). The `BACKEND_*` and `ANALYTICS_*` env vars in `config.go` are the whole surface (Trakk's are `ANALYTICS_*` in every app, never `BACKEND_` or a product's name: user); probe shape stays constants, no env var. No dependabot ignore for the SQLite driver.
 
 Cycle builds the dashboard, never a request: `OnCycle` runs `Server.Warm` (all windows, in place) BEFORE `broker.Publish`. Invalidate-then-notify measured 19 s per request at five concurrent cold misses. Misses single-flighted, one build slot (`cpus: "1.0"`), TTL a two-cycle valve. Never shorten it, never add a slot.
 

@@ -105,8 +105,8 @@ func TestSecurityHeadersAreOnEveryResponse(t *testing.T) {
 	}
 }
 
-// Without Stakeout configured the policy names no host at all. Microsoft
-// Clarity was the exception it carried before Stakeout — www.clarity.ms for the
+// Without Trakk configured the policy names no host at all. Microsoft
+// Clarity was the exception it carried before Trakk — www.clarity.ms for the
 // tag, *.clarity.ms and c.bing.com for the beacons — and this asserts it did
 // not come back, in the only form that catches the next one too: no
 // scheme-qualified origin anywhere in the policy.
@@ -138,26 +138,26 @@ func TestNoThirdPartyOriginsInThePolicy(t *testing.T) {
 	}
 }
 
-// With Stakeout configured, its origin is admitted exactly where its script
+// With Trakk configured, its origin is admitted exactly where its script
 // needs it — loading (script-src) and posting back (connect-src) — and nowhere
 // else.
-func TestStakeoutOriginIsNamedOnScriptAndConnectOnly(t *testing.T) {
+func TestAnalyticsOriginIsNamedOnScriptAndConnectOnly(t *testing.T) {
 	db := openTestDB(t)
-	const stakeout = "https://stakeout.example.com"
-	h := NewServer(Deps{DB: db, Samples: samples.New(db), StakeoutOrigin: stakeout})
+	const analytics = "https://analytics.example.com"
+	h := NewServer(Deps{DB: db, Samples: samples.New(db), AnalyticsOrigin: analytics})
 
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, localRequest(http.MethodGet, "/healthz"))
 	csp := rec.Header().Get("Content-Security-Policy")
 
-	for _, want := range []string{"script-src 'self' " + stakeout + ";", "connect-src 'self' " + stakeout + ";",
+	for _, want := range []string{"script-src 'self' " + analytics + ";", "connect-src 'self' " + analytics + ";",
 		"default-src 'self';"} {
 		if !strings.Contains(csp, want) {
 			t.Errorf("CSP = %q, want %q", csp, want)
 		}
 	}
-	if n := strings.Count(csp, stakeout); n != 2 {
-		t.Errorf("CSP names the Stakeout origin %d times, want 2: %q", n, csp)
+	if n := strings.Count(csp, analytics); n != 2 {
+		t.Errorf("CSP names the Trakk origin %d times, want 2: %q", n, csp)
 	}
 }
 
