@@ -1,8 +1,10 @@
 package httpapi
 
 import (
+	"errors"
 	"log/slog"
 	"net/http"
+	"net/netip"
 	"path"
 	"slices"
 	"strings"
@@ -11,6 +13,7 @@ import (
 	"github.com/trick77/ismimodown/internal/ban"
 	"github.com/trick77/ship/kit/httpx"
 	"github.com/trick77/ship/kit/ratelimit"
+	"github.com/trick77/toolkit/analytics"
 )
 
 // contentSecurityPolicy is the page's resource allow-list.
@@ -439,9 +442,45 @@ func writeTooManyRequests(w http.ResponseWriter, r *http.Request, retryAfter tim
 // Routine lines at INFO rather than kit's DEBUG: this is every request, so the
 // log is a visitor record for a public page, and how long it is kept is a
 // deployment decision rather than this file's.
-func accessLog() func(http.Handler) http.Handler {
-	return httpx.AccessLog(nil, httpx.AccessLogOptions{
+//
+// A feed, when there is one, gets every logged request.
+func accessLog(feed analytics.Feed) func(http.Handler) http.Handler {
+	o := httpx.AccessLogOptions{
 		ClientIP:     clientKey,
 		RoutineLevel: slog.LevelInfo,
+	}
+	if feed != nil {
+		o.OnRecord = func(r *http.Request, _ string, status int, dur time.Duration) {
+			feed.Enqueue(analytics.EventFrom(r, feedIP(r), status, dur))
+		}
+	}
+	return httpx.AccessLog(nil, o)
+}
+
+// feedPanics marks a panicking request as failed in the feed. One that panics
+// after it began its answer keeps the status it sent, a 200, so the status
+// alone would count it a success. A deliberate abort is no failure.
+func feedPanics(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer func() {
+			if p := recover(); p != nil {
+				if err, _ := p.(error); !errors.Is(err, http.ErrAbortHandler) {
+					analytics.SetError(r.Context(), "panic")
+				}
+				panic(p)
+			}
+		}()
+		next.ServeHTTP(w, r)
 	})
+}
+
+// feedIP is the caller's real address, never clientKey's /64: the collector
+// drops an event whose ip is no address, and keys addresses itself. A malformed
+// forwarded entry falls back to the peer, so it cannot hide the request.
+func feedIP(r *http.Request) string {
+	ip := httpx.ClientIP(r, 1)
+	if _, err := netip.ParseAddr(ip); err != nil {
+		return httpx.ClientIP(r, 0)
+	}
+	return ip
 }

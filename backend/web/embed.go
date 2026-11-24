@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/trick77/ship/kit/spa"
+	"github.com/trick77/toolkit/analytics"
 )
 
 // dist holds the Vite build output. The repo carries only dist/.gitkeep, so
@@ -53,7 +54,7 @@ func handler(dist fs.FS, analyticsOrigin string) http.Handler {
 // A shell without </head> is served as it is: no tag beats a tag in the wrong
 // place.
 func analyticsScript(origin string) func([]byte, *http.Request) []byte {
-	tag := []byte(`<script src="` + origin + `/trakk.js" defer></script>`)
+	tag := []byte(`<script src="` + origin + analytics.ScriptPath + `" defer></script>`)
 	var once sync.Once
 	var out []byte
 	return func(index []byte, _ *http.Request) []byte {

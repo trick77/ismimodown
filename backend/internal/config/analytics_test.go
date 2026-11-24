@@ -17,34 +17,31 @@ func TestAnalyticsIsOffByDefault(t *testing.T) {
 	}
 }
 
-// The value goes into the CSP and a script tag on every page: only a bare
-// origin passes, normalised.
+// The value goes into the CSP and a script tag on every page: one that is no
+// bare origin fails the boot, named and never echoed (it may hold a password).
 func TestAnalyticsURLMustBeAnOrigin(t *testing.T) {
-	for _, tc := range []struct {
-		raw, want string
-		ok        bool
-	}{
-		{"https://analytics.example.com", "https://analytics.example.com", true},
-		{"https://Analytics.example.com/", "https://analytics.example.com", true},
-		{"http://127.0.0.1:8080", "http://127.0.0.1:8080", true},
-		{"https://analytics.example.com/api", "", false},
-		{"https://analytics.example.com?x=1", "", false},
-		{"https://analytics.example.com/#x", "", false},
-		{"https://user:pw@analytics.example.com", "", false},
-		{"ftp://analytics.example.com", "", false},
-		{"analytics.example.com", "", false},
-		{"https://analytics.example.com;script-src", "", false},
-		{"https://analytics'.example.com", "", false},
-		{"https://analytics.example.com:", "", false},
-		{"https://analytics.example.com:8443", "https://analytics.example.com:8443", true},
-	} {
-		got, err := validateAnalyticsURL(tc.raw)
-		if tc.ok && (err != nil || got != tc.want) {
-			t.Errorf("validateAnalyticsURL(%q) = %q, %v; want %q", tc.raw, got, err, tc.want)
+	for _, raw := range []string{"https://analytics.example.com/api", "https://user:hunter2@analytics.example.com",
+		"analytics.example.com", "https://analytics.example.com;script-src"} {
+		setMinimalEnv(t)
+		t.Setenv("ANALYTICS_URL", raw)
+		t.Setenv("ANALYTICS_FEED_KEY", "feed-key")
+		t.Setenv("ANALYTICS_SITE", "ismimodown.com")
+		_, err := Load()
+		if err == nil || !strings.Contains(err.Error(), "ANALYTICS_URL: ") || strings.Contains(err.Error(), "hunter2") ||
+			strings.Contains(err.Error(), "ANALYTICS_URL is not") {
+			t.Errorf("Load with %q = %v, want one ANALYTICS_URL error that does not echo it", raw, err)
 		}
-		if !tc.ok && err == nil {
-			t.Errorf("validateAnalyticsURL(%q) = %q, want an error", tc.raw, got)
-		}
+	}
+}
+
+// A key no header takes fails the boot, never echoed.
+func TestAnalyticsFeedKeyMustFitAHeader(t *testing.T) {
+	setMinimalEnv(t)
+	t.Setenv("ANALYTICS_URL", "https://analytics.example.com")
+	t.Setenv("ANALYTICS_FEED_KEY", "feed\nkey")
+	t.Setenv("ANALYTICS_SITE", "ismimodown.com")
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "ANALYTICS_FEED_KEY holds") || strings.Contains(err.Error(), "feed\nkey") {
+		t.Errorf("Load = %v, want an ANALYTICS_FEED_KEY error that does not echo it", err)
 	}
 }
 

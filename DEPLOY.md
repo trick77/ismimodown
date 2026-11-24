@@ -455,9 +455,13 @@ curl -sSI https://ismimodown.com/ | grep -i content-security-policy   # names th
 curl -sSo /dev/null -w '%{http_code}\n' https://<Trakk host>/trakk.js   # 200
 ```
 
-A feed that cannot reach Trakk logs `analytics feed deferred` and retries; a refused
-batch (`analytics feed batch refused`, status 401) means the key and the hash do not
-match. Neither ever slows down or fails a request here.
+`ANALYTICS_URL` is the final origin, https: the feed follows no redirect. A feed that
+cannot reach Trakk logs `analytics feed send failed` once (the rest of that run at debug)
+and `analytics feed recovered` after it. A batch is retried for up to 45 minutes, one more
+waits behind it, what comes past about 1000 events is dropped. Status 401 means the key
+and the hash do not match: the feed drops and pauses up to 5 minutes at a time. The
+`analytics feed` line carries running totals (`sent`, `dropped`, `failed`), at most every
+10 minutes, when they moved. None of it slows down or fails a request here.
 
 ## Backup
 
