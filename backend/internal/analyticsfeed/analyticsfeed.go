@@ -1,16 +1,16 @@
-// Package stakeoutfeed reports every request this server answers to a Stakeout
+// Package analyticsfeed reports every request this server answers to a Trakk
 // collector's server feed (POST /api/feed): the half of the traffic the
 // browser script never sees — crawlers, scanners, the 403s banGate hands out,
-// the 429s the limiters write. The contract is Stakeout's INTEGRATION.md.
+// the 429s the limiters write. The contract is Trakk's INTEGRATION.md.
 //
 // Nothing here may slow down or fail a request. The middleware only enqueues;
 // a full queue drops the event and counts it. One goroutine (Run) batches and
 // sends. A collector that is down costs a log line per failed send, never a
 // visitor's wait.
 //
-// No ismimodown import on purpose (kit is the one dependency): when a second
-// app wants a feed, this package moves to trick77/toolkit.
-package stakeoutfeed
+// No ismimodown import on purpose (kit is the one dependency). The other apps
+// use trick77/toolkit's analytics package; this one predates it.
+package analyticsfeed
 
 import (
 	"bytes"
@@ -30,7 +30,7 @@ import (
 	"github.com/trick77/ship/kit/httpx"
 )
 
-// The collector's limits (Stakeout README, "Server feed"): a batch over either
+// The collector's limits (Trakk README, "Server feed"): a batch over either
 // is a 413 and lost whole.
 const (
 	maxBatchEvents = 500
@@ -48,9 +48,9 @@ const (
 	limitURL    = 2048
 )
 
-// Retry timing. A send gets the 30 s Stakeout's contract asks for: the
+// Retry timing. A send gets the 30 s Trakk's contract asks for: the
 // collector takes that long to receive a body, and a shorter client gives up on
-// a batch Stakeout then stores, so the retry stores it twice. Without
+// a batch Trakk then stores, so the retry stores it twice. Without
 // Retry-After the wait doubles per failure up to the cap and resets on success.
 const (
 	sendTimeout  = 30 * time.Second
@@ -83,7 +83,7 @@ type Event struct {
 
 // Options configures a Feeder.
 type Options struct {
-	// Endpoint is the collector's feed URL, https://<Stakeout host>/api/feed.
+	// Endpoint is the collector's feed URL, https://<Trakk host>/api/feed.
 	Endpoint string
 	// Key is the site's feed key, sent as a bearer token. Never logged.
 	Key string
@@ -171,7 +171,7 @@ func (f *Feeder) record(r *http.Request, start time.Time, status int, n int64) {
 	}
 	ip, ok := f.clientAddr(r)
 	if !ok {
-		// Stakeout drops an event without a parseable address; sending it would
+		// Trakk drops an event without a parseable address; sending it would
 		// only cost batch room.
 		f.dropped.Add(1)
 		return
@@ -198,7 +198,7 @@ func (f *Feeder) record(r *http.Request, start time.Time, status int, n int64) {
 
 // route is the mux pattern when it names a method ("GET /api/dashboard"), else
 // empty. A methodless one is a prefix or catch-all ("/api/" where a limiter
-// refused before the inner mux ran, "/" for static files); Stakeout wants those
+// refused before the inner mux ran, "/" for static files); Trakk wants those
 // empty, and names the path by the site's rules instead.
 func route(pattern string) string {
 	if !strings.Contains(pattern, " ") {
@@ -239,7 +239,7 @@ func (f *Feeder) Enqueue(e Event) {
 // Cancel ctx only once the HTTP server has stopped: requests still draining
 // (every open event stream ends there) are fed into the queue.
 //
-// Sends do not end with ctx: a batch Stakeout took but whose answer a cut
+// Sends do not end with ctx: a batch Trakk took but whose answer a cut
 // connection lost would be kept and sent twice. They get shutdownGrace after
 // ctx ends, in all, then are cut.
 func (f *Feeder) Run(ctx context.Context) {
@@ -270,14 +270,14 @@ func (f *Feeder) Run(ctx context.Context) {
 				}
 				failures++
 				notBefore = f.o.Now().Add(wait)
-				slog.Warn("stakeout feed deferred", "events", len(pending), "retry_in", wait.Round(time.Second), "reason", err.Error())
+				slog.Warn("analytics feed deferred", "events", len(pending), "retry_in", wait.Round(time.Second), "reason", err.Error())
 				size = sizeOf(pending)
 				return
 			default:
 				// The collector will refuse this batch again (400, 401, 413):
 				// keeping it would block every batch behind it.
 				f.dropped.Add(int64(n))
-				slog.Error("stakeout feed batch refused", "events", n, "reason", err.Error())
+				slog.Error("analytics feed batch refused", "events", n, "reason", err.Error())
 				pending = pending[n:]
 			}
 			// A shutdown takes over between batches: it sends what is left
@@ -312,7 +312,7 @@ func (f *Feeder) Run(ctx context.Context) {
 			}
 			if len(pending) > 0 {
 				f.dropped.Add(int64(len(pending)))
-				slog.Warn("stakeout feed: events lost at shutdown", "events", len(pending))
+				slog.Warn("analytics feed: events lost at shutdown", "events", len(pending))
 			}
 			return
 		case e := <-f.queue:

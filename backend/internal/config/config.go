@@ -304,20 +304,20 @@ type Config struct {
 	IdleTimeout   time.Duration // silence between chunks mid-stream
 	ProbeTimeout  time.Duration // overall deadline
 
-	// StakeoutOrigin is the Stakeout analytics collector, scheme://host[:port]
-	// with nothing after it, or empty: no Stakeout at all. Set, the shell loads
+	// AnalyticsOrigin is the Trakk collector, scheme://host[:port]
+	// with nothing after it, or empty: no Trakk at all. Set, the shell loads
 	// its browser script and the CSP names this origin on script-src and
 	// connect-src. Configured rather than a constant so the host stays out of
 	// this public repo.
-	StakeoutOrigin string
-	// StakeoutFeedKey is this site's server-feed key on that collector, or
+	AnalyticsOrigin string
+	// AnalyticsFeedKey is this site's server-feed key on that collector, or
 	// empty: no server feed. A credential: never logged, never served.
-	StakeoutFeedKey string
-	// StakeoutSite is this site's domain in the collector's sites.json, the
+	AnalyticsFeedKey string
+	// AnalyticsSite is this site's domain in the collector's sites.json, the
 	// one the feed key was issued for: the feed names it on every batch, and
 	// the collector refuses a batch whose site is not the key's. Required with
 	// a key. Configured like the URL, the same in every app reporting there.
-	StakeoutSite string
+	AnalyticsSite string
 }
 
 // Load reads configuration from the environment, applying defaults. Every fault
@@ -356,21 +356,21 @@ func Load() (Config, error) {
 		TTFTTimeout:       TTFTTimeout,
 		IdleTimeout:       IdleTimeout,
 		ProbeTimeout:      ProbeTimeout,
-		StakeoutFeedKey:   r.String("ANALYTICS_FEED_KEY", ""),
-		StakeoutSite:      r.String("ANALYTICS_SITE", ""),
+		AnalyticsFeedKey:  r.String("ANALYTICS_FEED_KEY", ""),
+		AnalyticsSite:     r.String("ANALYTICS_SITE", ""),
 	}
 
-	stakeoutOrigin, err := validateStakeoutURL(r.String("ANALYTICS_URL", ""))
+	analyticsOrigin, err := validateAnalyticsURL(r.String("ANALYTICS_URL", ""))
 	if err != nil {
 		r.Fail("%w", err)
 	}
-	cfg.StakeoutOrigin = stakeoutOrigin
+	cfg.AnalyticsOrigin = analyticsOrigin
 	// A key with nowhere to send it is a half-done setup, not an opt-out.
-	if cfg.StakeoutFeedKey != "" && cfg.StakeoutOrigin == "" {
+	if cfg.AnalyticsFeedKey != "" && cfg.AnalyticsOrigin == "" {
 		r.Fail("ANALYTICS_FEED_KEY is set but ANALYTICS_URL is not")
 	}
 	// Without the key's site every batch is refused: as half-done as the above.
-	if cfg.StakeoutFeedKey != "" && cfg.StakeoutSite == "" {
+	if cfg.AnalyticsFeedKey != "" && cfg.AnalyticsSite == "" {
 		r.Fail("ANALYTICS_FEED_KEY is set but ANALYTICS_SITE is not")
 	}
 
@@ -433,14 +433,14 @@ func validateRefHost(host, envName string) error {
 	return nil
 }
 
-// validateStakeoutURL checks ANALYTICS_URL and returns its origin, or "" when
+// validateAnalyticsURL checks ANALYTICS_URL and returns its origin, or "" when
 // unset.
 //
 // The value lands in the CSP and in a script tag on every page, so it must be
 // an origin and nothing more: a path, query or fragment would be published to
 // every visitor, userinfo would publish a credential, and a CSP source with a
 // path matches less than it looks like.
-func validateStakeoutURL(raw string) (string, error) {
+func validateAnalyticsURL(raw string) (string, error) {
 	if raw == "" {
 		return "", nil
 	}

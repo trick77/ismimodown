@@ -21,27 +21,27 @@ var dist embed.FS
 // Handler serves the embedded SPA. Unknown paths 404; there is nothing to fall
 // back to, because this site has exactly one URL — see isShellRoute.
 //
-// stakeoutOrigin, when set (config.StakeoutOrigin), puts the Stakeout
+// analyticsOrigin, when set (config.AnalyticsOrigin), puts the Trakk
 // collector's browser script into the shell.
-func Handler(stakeoutOrigin string) (http.Handler, error) {
+func Handler(analyticsOrigin string) (http.Handler, error) {
 	sub, err := fs.Sub(dist, "dist")
 	if err != nil {
 		return nil, err
 	}
-	return handler(sub, stakeoutOrigin), nil
+	return handler(sub, analyticsOrigin), nil
 }
 
 // handler is kit's SPA handler over dist: real files from the bundle (hashed
 // assets/ cached a year, immutable), the shell for "/" alone, 404 for the rest.
-func handler(dist fs.FS, stakeoutOrigin string) http.Handler {
+func handler(dist fs.FS, analyticsOrigin string) http.Handler {
 	o := spa.Options{Routes: isShellRoute}
-	if stakeoutOrigin != "" {
-		o.Index = stakeoutScript(stakeoutOrigin)
+	if analyticsOrigin != "" {
+		o.Index = analyticsScript(analyticsOrigin)
 	}
 	return spa.Handler(dist, o)
 }
 
-// stakeoutScript adds the Stakeout browser script to the shell, right before
+// analyticsScript adds the Trakk browser script to the shell, right before
 // </head>.
 //
 // Injected by the server, not written into ui/index.html: the collector's host
@@ -52,8 +52,8 @@ func handler(dist fs.FS, stakeoutOrigin string) http.Handler {
 //
 // A shell without </head> is served as it is: no tag beats a tag in the wrong
 // place.
-func stakeoutScript(origin string) func([]byte, *http.Request) []byte {
-	tag := []byte(`<script src="` + origin + `/stakeout.js" defer></script>`)
+func analyticsScript(origin string) func([]byte, *http.Request) []byte {
+	tag := []byte(`<script src="` + origin + `/trakk.js" defer></script>`)
 	var once sync.Once
 	var out []byte
 	return func(index []byte, _ *http.Request) []byte {
