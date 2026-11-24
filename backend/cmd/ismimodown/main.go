@@ -7,14 +7,11 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"os"
 	"path/filepath"
-	"slices"
 	"sync"
 	"time"
 
-	"github.com/trick77/ismimodown/internal/analyticsfeed"
 	"github.com/trick77/ismimodown/internal/ban"
 	"github.com/trick77/ismimodown/internal/config"
 	"github.com/trick77/ismimodown/internal/httpapi"
@@ -31,7 +28,12 @@ import (
 	"github.com/trick77/ship/kit/run"
 	"github.com/trick77/ship/kit/sse"
 	"github.com/trick77/ship/kit/version"
+	"github.com/trick77/toolkit/analytics"
 )
+
+// feedGrace bounds the feed's last sends after the server has drained: a dead
+// collector must not hold up a shutdown.
+const feedGrace = 5 * time.Second
 
 // healthcheckFlag makes the binary probe itself.
 //
@@ -107,21 +109,17 @@ func daemon() error {
 	// Trakk, web traffic observability: the browser script whenever the collector is
 	// configured, the server feed when its key is too. The key is never
 	// logged; the origin is no secret on the server side.
-	var feeder *analyticsfeed.Feeder
+	var emitter *analytics.Emitter
+	var feed analytics.Feed // stays nil without a key: a nil *Emitter in it would not be nil
 	if cfg.AnalyticsFeedKey != "" {
-		probes := httpx.DefaultProbePaths()
-		feeder = analyticsfeed.New(analyticsfeed.Options{
-			Endpoint: cfg.AnalyticsOrigin + "/api/feed",
+		emitter = analytics.Start(analytics.Config{
+			Endpoint: cfg.AnalyticsOrigin + analytics.FeedPath,
 			Key:      cfg.AnalyticsFeedKey,
 			Site:     cfg.AnalyticsSite,
-			// The real address, one hop behind Traefik as clientKey reads it,
-			// but not collapsed to a /64: the collector keys addresses itself.
-			ClientIP: func(r *http.Request) string { return httpx.ClientIP(r, 1) },
-			// The container healthcheck is not traffic.
-			Skip: func(r *http.Request) bool { return slices.Contains(probes, r.URL.Path) },
-		})
+		}, nil)
+		feed = emitter
 	}
-	slog.Info("analytics", "origin", cfg.AnalyticsOrigin, "script", cfg.AnalyticsOrigin != "", "feed", feeder != nil)
+	slog.Info("analytics", "origin", cfg.AnalyticsOrigin, "script", cfg.AnalyticsOrigin != "", "feed", feed != nil)
 
 	sampleStore := samples.New(db)
 	broker := sse.NewHub[[]byte](httpapi.HubOptions())
@@ -164,7 +162,7 @@ func daemon() error {
 		Prices:          cfg.Prices,
 		ProbeUserAgent:  cfg.ProbeUserAgent,
 		AnalyticsOrigin: cfg.AnalyticsOrigin,
-		Feed:            feedMiddleware(feeder),
+		Feed:            feed,
 	})
 
 	sched := scheduler.New(scheduler.Deps{
@@ -229,15 +227,6 @@ func daemon() error {
 	// cleanly, never be killed between the INSERT and the COMMIT.
 	var wg sync.WaitGroup
 	wg.Add(3)
-	// The feeder outlives the signal: requests still draining after SIGTERM
-	// (every open event stream ends there) are fed too, so it stops only once
-	// Serve has returned. Its sends after that are bounded by its own grace.
-	feedCtx, stopFeed := context.WithCancel(context.Background())
-	defer stopFeed()
-	if feeder != nil {
-		wg.Add(1)
-		go func() { defer wg.Done(); feeder.Run(feedCtx) }()
-	}
 	go func() { defer wg.Done(); sched.Run(ctx) }()
 	go func() { defer wg.Done(); sweeper.Run(ctx) }()
 	// The limiters bound and prune their own maps (kit keeps a bucket in debt,
@@ -255,7 +244,9 @@ func daemon() error {
 	// A failed listen returns with the signal context still live: stop the
 	// loops too, or wg.Wait never returns.
 	stop()
-	stopFeed()
+	// Only now, with Serve returned: requests still draining after SIGTERM
+	// (every open event stream ends there) are fed too.
+	flushFeed(emitter)
 	wg.Wait()
 	// Past the drain deadline Shutdown has cut the remaining connections; the
 	// process still exits as asked, so that is a note rather than a failure.
@@ -266,13 +257,16 @@ func daemon() error {
 	return err
 }
 
-// feedMiddleware is the feeder's middleware, or nil without a feeder: a nil
-// *Feeder's method value would panic on the first request.
-func feedMiddleware(f *analyticsfeed.Feeder) func(http.Handler) http.Handler {
-	if f == nil {
-		return nil
+// flushFeed sends what the feed still holds, within feedGrace. No feed: nothing.
+func flushFeed(e *analytics.Emitter) {
+	if e == nil {
+		return
 	}
-	return f.Middleware
+	ctx, cancel := context.WithTimeout(context.Background(), feedGrace)
+	defer cancel()
+	if err := e.Shutdown(ctx); err != nil {
+		slog.Warn("analytics feed flush cut short", logging.Err(err))
+	}
 }
 
 // warmCache rebuilds every dashboard window into the response cache and logs

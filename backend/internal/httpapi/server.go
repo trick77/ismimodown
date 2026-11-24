@@ -18,6 +18,7 @@ import (
 	"github.com/trick77/ismimodown/internal/scheduler"
 	"github.com/trick77/ship/kit/httpx"
 	"github.com/trick77/ship/kit/ratelimit"
+	"github.com/trick77/toolkit/analytics"
 )
 
 // cacheTTL is how long a rendered response is reused when nothing replaces it.
@@ -92,9 +93,9 @@ type Deps struct {
 	// script from (config.AnalyticsOrigin); the CSP names it on script-src and
 	// connect-src. Empty: the policy names no other origin.
 	AnalyticsOrigin string
-	// Feed reports every request to Trakk's server feed
-	// (analyticsfeed.Feeder's Middleware). Optional: nil feeds nothing.
-	Feed func(http.Handler) http.Handler
+	// Feed takes every served request for Trakk's server feed. Optional: nil
+	// feeds nothing. Never a nil *analytics.Emitter: that is not a nil Feed.
+	Feed analytics.Feed
 
 	// Now is a seam for tests.
 	Now func() time.Time
@@ -150,15 +151,21 @@ func NewServer(deps Deps) *Server {
 	// reaches the mux — including on /api/events, which is registered on the
 	// outer mux and so bypasses the request limiter entirely.
 	//
-	// The Trakk feed right inside Recover, around banGate: it must see the
-	// 403s and 429s the gates write, and the request the mux writes its route
-	// onto (AccessLog and Recover both hand on a clone).
-	gated := banGate(s.deps.Ban, notFoundPenalty(s.deps.NotFoundLimiter, s.mux))
+	// The Trakk feed rides the access log, so it sees what that logs: the 403s
+	// and 429s the gates write (on the probe paths only a 404), the 500 Recover
+	// writes. RecordRoute right around the mux:
+	// the mux writes its pattern onto the request it gets, and the access log
+	// holds an earlier one. "/api/" (a limiter's refusal, before the inner mux)
+	// and "/" (static files) are prefixes, no routes.
+	routed := analytics.RecordRoute(s.mux, "/api/", "/")
+	gated := feedPanics(banGate(s.deps.Ban, notFoundPenalty(s.deps.NotFoundLimiter, routed)))
+	handler := httpx.Chain(gated, accessLog(s.deps.Feed), securityHeaders(s.deps.AnalyticsOrigin), httpx.Recover(nil))
 	if s.deps.Feed != nil {
-		gated = s.deps.Feed(gated)
+		// Outside the access log, whose request then carries the record.
+		handler = analytics.Recorder(handler)
 	}
 	return &Server{
-		Handler: httpx.Chain(gated, accessLog(), securityHeaders(s.deps.AnalyticsOrigin), httpx.Recover(nil)),
+		Handler: handler,
 		cache:   s.cache,
 		inner:   s,
 	}

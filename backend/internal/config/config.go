@@ -13,6 +13,7 @@ import (
 
 	"github.com/trick77/ship/kit/env"
 	"github.com/trick77/ship/kit/logging"
+	"github.com/trick77/toolkit/analytics"
 )
 
 // Default probe endpoints and targets. These are the values validated by the
@@ -360,14 +361,23 @@ func Load() (Config, error) {
 		AnalyticsSite:     r.String("ANALYTICS_SITE", ""),
 	}
 
-	analyticsOrigin, err := validateAnalyticsURL(r.String("ANALYTICS_URL", ""))
-	if err != nil {
-		r.Fail("%w", err)
+	// The value lands in the CSP and in a script tag on every page: Origin
+	// passes a bare origin and nothing more, and its errors never echo it.
+	analyticsURL := r.String("ANALYTICS_URL", "")
+	if analyticsURL != "" {
+		origin, err := analytics.Origin(analyticsURL)
+		if err != nil {
+			r.Fail("ANALYTICS_URL: %w", err)
+		}
+		cfg.AnalyticsOrigin = origin
 	}
-	cfg.AnalyticsOrigin = analyticsOrigin
 	// A key with nowhere to send it is a half-done setup, not an opt-out.
-	if cfg.AnalyticsFeedKey != "" && cfg.AnalyticsOrigin == "" {
+	if cfg.AnalyticsFeedKey != "" && analyticsURL == "" {
 		r.Fail("ANALYTICS_FEED_KEY is set but ANALYTICS_URL is not")
+	}
+	// net/http refuses such a header, which the feed takes for a network error.
+	if strings.ContainsFunc(cfg.AnalyticsFeedKey, func(c rune) bool { return c <= ' ' || c == 0x7f }) {
+		r.Fail("ANALYTICS_FEED_KEY holds whitespace or control characters")
 	}
 	// Without the key's site every batch is refused: as half-done as the above.
 	if cfg.AnalyticsFeedKey != "" && cfg.AnalyticsSite == "" {
@@ -431,58 +441,6 @@ func validateRefHost(host, envName string) error {
 			envName)
 	}
 	return nil
-}
-
-// validateAnalyticsURL checks ANALYTICS_URL and returns its origin, or "" when
-// unset.
-//
-// The value lands in the CSP and in a script tag on every page, so it must be
-// an origin and nothing more: a path, query or fragment would be published to
-// every visitor, userinfo would publish a credential, and a CSP source with a
-// path matches less than it looks like.
-func validateAnalyticsURL(raw string) (string, error) {
-	if raw == "" {
-		return "", nil
-	}
-	u, err := url.Parse(raw)
-	if err != nil {
-		return "", fmt.Errorf("ANALYTICS_URL is not a valid URL: %w", err)
-	}
-	if u.Scheme != "https" && u.Scheme != "http" {
-		return "", fmt.Errorf("ANALYTICS_URL must be an http or https URL")
-	}
-	if u.Host == "" || u.Hostname() == "" {
-		return "", fmt.Errorf("ANALYTICS_URL must include a host")
-	}
-	// url.Parse takes "host:" with an empty port; as a CSP source that is
-	// invalid, ignored, and the script is blocked while the tag still loads.
-	if strings.HasSuffix(u.Host, ":") {
-		return "", fmt.Errorf("ANALYTICS_URL has an empty port")
-	}
-	if u.User != nil {
-		return "", fmt.Errorf("ANALYTICS_URL must not embed credentials; the feed key goes in ANALYTICS_FEED_KEY")
-	}
-	if u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || (u.Path != "" && u.Path != "/") {
-		return "", fmt.Errorf("ANALYTICS_URL must be an origin only (scheme://host[:port]), no path, query or fragment")
-	}
-	// url.Parse lets RFC 3986 sub-delims through in a host; a ';' would end
-	// the CSP directive it is written into and a quote the script attribute.
-	for _, c := range u.Host {
-		if !hostRune(c) {
-			return "", fmt.Errorf("ANALYTICS_URL host may hold only letters, digits, '.', '-', and a port")
-		}
-	}
-	return u.Scheme + "://" + strings.ToLower(u.Host), nil
-}
-
-// hostRune reports whether c may appear in a host[:port] written into the CSP:
-// a name, an IPv4 or bracketed IPv6 literal, and a port.
-func hostRune(c rune) bool {
-	switch {
-	case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9':
-		return true
-	}
-	return strings.ContainsRune(".-:[]", c)
 }
 
 // defaultPrices copies DefaultPrices, so a caller holding a Config cannot reach
