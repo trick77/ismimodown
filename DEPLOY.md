@@ -433,8 +433,8 @@ same reason.
 
 ## Trakk
 
-Optional, off unless `.env` sets it. On the Trakk host, add `ismimodown.com` to
-its `data/sites.json` (path rules for `/`, `/assets/{any}`, `/api/dashboard`,
+Optional, off unless `.env` sets it. Needs Trakk 0.5.0: an older one refuses the
+feed. On the Trakk host, add `ismimodown.com` to its `conf/sites.json` (path rules for `/`, `/assets/{any}`, `/api/dashboard`,
 `/api/events`, the icons, `/robots.txt`, `/sitemap.xml`, `/og.png`), create a
 feed key with `docker compose run --rm trakk -new-feed-key`, put the printed hash
 into that entry's `feed_key_sha256` and restart Trakk. Here, in `.env`:
@@ -442,7 +442,6 @@ into that entry's `feed_key_sha256` and restart Trakk. Here, in `.env`:
 ```sh
 ANALYTICS_URL=https://<Trakk host>
 ANALYTICS_FEED_KEY=<the printed key>
-ANALYTICS_SITE=ismimodown.com
 ```
 
 then `docker compose up -d`. The start log's `analytics` line shows `script` and

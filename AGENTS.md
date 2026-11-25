@@ -48,7 +48,7 @@ Keep every `compose.yaml` hardening line.
 
 English, 24 h, reader's zone: never pin `timeZone` in `format.ts`; ECharts axes/tooltips via `format.ts`.
 
-Preview card carries no measurement. `ui/public/og.png` from `ui/assets/og/card.html` via `ui/scripts/gen-og.sh`: re-run, commit, bump `?v=` together. Heading band and square crop are guarded in `gen-og.sh`: read it before touching the heading. Host and SEO strings move together: `Host()`, `ANALYTICS_SITE` in `.env`, og URLs, canonical, `robots.txt`, `sitemap.xml`, JSON-LD, `.host` in `card.html`.
+Preview card carries no measurement. `ui/public/og.png` from `ui/assets/og/card.html` via `ui/scripts/gen-og.sh`: re-run, commit, bump `?v=` together. Heading band and square crop are guarded in `gen-og.sh`: read it before touching the heading. Host and SEO strings move together: `Host()`, Trakk's `sites.json`, og URLs, canonical, `robots.txt`, `sitemap.xml`, JSON-LD, `.host` in `card.html`.
 
 Comments in `ui/index.html` and `ui/public/` never ship (`ui/build/strip-comments.ts`); a trailing `# why` on a `robots.txt` directive survives, never write one. No path or script name outside a comment there.
 

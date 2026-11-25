@@ -37,7 +37,6 @@ services:
       BACKEND_PROBE_USER_AGENT: "${BACKEND_PROBE_USER_AGENT:-}"
       ANALYTICS_URL: "${ANALYTICS_URL:-}"
       ANALYTICS_FEED_KEY: "${ANALYTICS_FEED_KEY:-}"
-      ANALYTICS_SITE: "${ANALYTICS_SITE:-}"
     ports:
       - "127.0.0.1:8080:8080"
     volumes:

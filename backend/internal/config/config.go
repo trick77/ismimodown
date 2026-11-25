@@ -314,17 +314,12 @@ type Config struct {
 	// AnalyticsFeedKey is this site's server-feed key on that collector, or
 	// empty: no server feed. A credential: never logged, never served.
 	AnalyticsFeedKey string
-	// AnalyticsSite is this site's domain in the collector's sites.json, the
-	// one the feed key was issued for: the feed names it on every batch, and
-	// the collector refuses a batch whose site is not the key's. Required with
-	// a key. Configured like the URL, the same in every app reporting there.
-	AnalyticsSite string
 }
 
 // Load reads configuration from the environment, applying defaults. Every fault
 // is reported at once (kit's env.Reader), not one per restart.
 //
-// Eleven variables reach this function. Everything else about how ismimodown probes
+// Ten variables reach this function. Everything else about how ismimodown probes
 // — the model pair, the price table, the system prompt, the retention window,
 // the whole timeout ladder — is a constant above, because it describes what the
 // dashboard measures rather than where it runs. A deployment that could change
@@ -358,7 +353,6 @@ func Load() (Config, error) {
 		IdleTimeout:       IdleTimeout,
 		ProbeTimeout:      ProbeTimeout,
 		AnalyticsFeedKey:  r.String("ANALYTICS_FEED_KEY", ""),
-		AnalyticsSite:     r.String("ANALYTICS_SITE", ""),
 	}
 
 	// The value lands in the CSP and in a script tag on every page: Origin
@@ -378,10 +372,6 @@ func Load() (Config, error) {
 	// net/http refuses such a header, which the feed takes for a network error.
 	if strings.ContainsFunc(cfg.AnalyticsFeedKey, func(c rune) bool { return c <= ' ' || c == 0x7f }) {
 		r.Fail("ANALYTICS_FEED_KEY holds whitespace or control characters")
-	}
-	// Without the key's site every batch is refused: as half-done as the above.
-	if cfg.AnalyticsFeedKey != "" && cfg.AnalyticsSite == "" {
-		r.Fail("ANALYTICS_FEED_KEY is set but ANALYTICS_SITE is not")
 	}
 
 	// A typo'd level fails the boot rather than logging at info: a debug

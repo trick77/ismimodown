@@ -115,7 +115,6 @@ func daemon() error {
 		emitter = analytics.Start(analytics.Config{
 			Endpoint: cfg.AnalyticsOrigin + analytics.FeedPath,
 			Key:      cfg.AnalyticsFeedKey,
-			Site:     cfg.AnalyticsSite,
 		}, nil)
 		feed = emitter
 	}

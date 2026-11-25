@@ -25,7 +25,6 @@ func TestAnalyticsURLMustBeAnOrigin(t *testing.T) {
 		setMinimalEnv(t)
 		t.Setenv("ANALYTICS_URL", raw)
 		t.Setenv("ANALYTICS_FEED_KEY", "feed-key")
-		t.Setenv("ANALYTICS_SITE", "ismimodown.com")
 		_, err := Load()
 		if err == nil || !strings.Contains(err.Error(), "ANALYTICS_URL: ") || strings.Contains(err.Error(), "hunter2") ||
 			strings.Contains(err.Error(), "ANALYTICS_URL is not") {
@@ -39,7 +38,6 @@ func TestAnalyticsFeedKeyMustFitAHeader(t *testing.T) {
 	setMinimalEnv(t)
 	t.Setenv("ANALYTICS_URL", "https://analytics.example.com")
 	t.Setenv("ANALYTICS_FEED_KEY", "feed\nkey")
-	t.Setenv("ANALYTICS_SITE", "ismimodown.com")
 	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "ANALYTICS_FEED_KEY holds") || strings.Contains(err.Error(), "feed\nkey") {
 		t.Errorf("Load = %v, want an ANALYTICS_FEED_KEY error that does not echo it", err)
 	}
@@ -54,27 +52,15 @@ func TestAnalyticsFeedKeyNeedsTheURL(t *testing.T) {
 	}
 }
 
-// A feed key without the site it was issued for would have every batch refused: it fails the boot too.
-func TestAnalyticsFeedKeyNeedsTheSite(t *testing.T) {
-	setMinimalEnv(t)
-	t.Setenv("ANALYTICS_URL", "https://analytics.example.com")
-	t.Setenv("ANALYTICS_FEED_KEY", "feed-key")
-	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "ANALYTICS_SITE") {
-		t.Errorf("Load = %v, want a ANALYTICS_SITE error", err)
-	}
-}
-
 func TestAnalyticsLoads(t *testing.T) {
 	setMinimalEnv(t)
 	t.Setenv("ANALYTICS_URL", "https://analytics.example.com/")
 	t.Setenv("ANALYTICS_FEED_KEY", "feed-key")
-	t.Setenv("ANALYTICS_SITE", "ismimodown.com")
 	cfg, err := Load()
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if cfg.AnalyticsOrigin != "https://analytics.example.com" || cfg.AnalyticsFeedKey != "feed-key" ||
-		cfg.AnalyticsSite != "ismimodown.com" {
-		t.Errorf("Analytics = %q, key %q, site %q", cfg.AnalyticsOrigin, cfg.AnalyticsFeedKey, cfg.AnalyticsSite)
+	if cfg.AnalyticsOrigin != "https://analytics.example.com" || cfg.AnalyticsFeedKey != "feed-key" {
+		t.Errorf("Analytics = %q, key %q", cfg.AnalyticsOrigin, cfg.AnalyticsFeedKey)
 	}
 }

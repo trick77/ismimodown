@@ -56,10 +56,9 @@ services:
       # Trakk, web traffic observability, optional, off when empty. The URL is the
       # collector's origin (the page loads its script from there, the CSP names
       # it); the key turns on the server feed and is a credential like the
-      # MiMo key: .env only. The site is the one the key was issued for.
+      # MiMo key: .env only.
       ANALYTICS_URL: "${ANALYTICS_URL:-}"
       ANALYTICS_FEED_KEY: "${ANALYTICS_FEED_KEY:-}"
-      ANALYTICS_SITE: "${ANALYTICS_SITE:-}"
 
       # That is the whole list. The model pair, the price table, the system
       # prompt, the retention window and the six-layer timeout ladder are
