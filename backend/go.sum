@@ -6,8 +6,8 @@ github.com/ncruces/julianday v1.0.0 h1:fH0OKwa7NWvniGQtxdJRxAgkBMolni2BjDHaWTxqt
 github.com/ncruces/julianday v1.0.0/go.mod h1:Dusn2KvZrrovOMJuOt0TNXL6tB7U2E8kvza5fFc9G7g=
 github.com/trick77/ship/kit v0.22.0 h1:TcdewoOha26SzH1ZTTw/QLYzrIHbXxGBJ0ktc5ARixU=
 github.com/trick77/ship/kit v0.22.0/go.mod h1:cE+kQhN2nb5j2ML174YKdGrC41M2GxnILzQLqFupsHE=
-github.com/trick77/toolkit v0.9.0 h1:ScxP4do1omLekiJ+iC3jvYlpQCBV9LRFkqPxBSfVEUU=
-github.com/trick77/toolkit v0.9.0/go.mod h1:spQ+XNKNBnA6K+WruP8t73l5Qhe/CrBAImCUdzLLe+Q=
+github.com/trick77/toolkit v0.10.0 h1:aQyzmqkZtAn93XkiJemVRsB/3FIi9QPF4Hcn0ldbPMw=
+github.com/trick77/toolkit v0.10.0/go.mod h1:J+/cmhqFbq4OLUS9BoRYv7/+qknHYSoqrDxZsUlORMA=
 golang.org/x/sys v0.50.0 h1:dkKZEFTEKaLr1sjhs0WiKqoi8Jj5nHbS3Njmx1UoMJs=
 golang.org/x/sys v0.50.0/go.mod h1:hNLxWAXmnKAxqDtdwIYC4bM9oQPEecfsnNMuSxOs3og=
 golang.org/x/text v0.44.0 h1:YItdp/mQNGnsmrgpcdA5yQ3bnRxCfo/Tj/iByGW9GGo=
